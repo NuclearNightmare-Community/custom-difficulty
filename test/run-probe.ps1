@@ -38,6 +38,8 @@ function Install-Probe([string] $instance) {
     New-Item -ItemType Directory -Force (Join-Path $dest 'Scripts') | Out-Null
     Copy-Item (Join-Path $src 'Scripts\main.lua') (Join-Path $dest 'Scripts\main.lua')
     $lines = @(Get-Content $txt | Where-Object { $_ -notmatch "^\s*$probe\s*:" })
+    # Other test drivers (left by other runs) would run their own scenarios: off for this run (mods.txt is restored).
+    $lines = @($lines | ForEach-Object { if ($_ -match '^\s*(MarkersDriver|Markers|ClockDriver|Clock|PairDriver)\s*:\s*1\s*$') { "$($Matches[1]) : 0" } else { $_ } })
     $new = [Collections.Generic.List[string]]::new()
     $added = $false
     foreach ($l in $lines) {

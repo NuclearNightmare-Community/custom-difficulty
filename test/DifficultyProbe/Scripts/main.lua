@@ -89,6 +89,12 @@ local function ctxText()
     for _, c in ipairs(S.ctx) do t[#t + 1] = c end
     return #t > 0 and table.concat(t, ">") or "-"
 end
+local function caseHit(attacker)
+    local c = S.case
+    if not c then return end
+    if attacker == nil or (valid(attacker) and pathOf(attacker) == c.actor) then c.hits = c.hits + 1
+    else say("OTHER hit from %s during case %s (not counted)", enemyName(attacker), c.name) end
+end
 local function isMe(ch) local m = me() return m ~= nil and valid(ch) and pathOf(ch) == pathOf(m) end
 
 -- ---------------------------------------------------------------- enemies
@@ -138,7 +144,7 @@ local WRAPPERS = {
 
 -- ---------------------------------------------------------------- damage compensation and attribution
 local function compensate(victim, amount, why)
-    if not isMe(victim) or S.frost or not amount then return end
+    if not isMe(victim) or not amount or (S.frost and (amount == 1 or amount == 2)) then return end
     local hp = hpOf(victim)
     if not hp then return end
     local new = hp + amount - PROBE_HIT
@@ -205,7 +211,27 @@ local function damagePre(fn, victim, attacker, amount)
     return id, hp
 end
 
+-- StartInfectionProcess runs inside the Meek's Attack body right before its Health test (v8.1.3 decompile,
+-- SCP_AI_C Label_7982): it shows whether the body runs inside the hooked call and is a second place to set Health.
+local function installMarkers()
+    hook(FPC_PATH .. ":StartInfectionProcess", function(self)
+        local v = get(self)
+        local pd = S.pending
+        local want = STANDARD[DIFF] + 1
+        local hp = hpOf(v)
+        local set = false
+        if S.case and S.case.flip and isMe(v) and hp and hp ~= want then
+            pcall(function() v.Health = want end)
+            set = true
+            if pd and not pd.saved then pd.saved = hp end
+        end
+        say("MARK StartInfectionProcess victim=%s hp=%s pending=%s sinceGrab=%.3f set=%s", nameOf(v), fmt1(hp),
+            tostring(pd ~= nil), S.grabAt and (os.clock() - S.grabAt) or -1, tostring(set))
+    end)
+end
+
 local function installNatives()
+    installMarkers()
     for _, w in ipairs(WRAPPERS) do
         if w:sub(1, 8) == "/Script/" then
             local short = w:match("([^.]+:[^:]+)$")
@@ -223,7 +249,7 @@ local function installNatives()
         table.insert(S.ctx, "Locked:" .. enemyName(a))
         S.nested = S.nested + 1
         compensate(victim, n, "ApplyLockedDamage")
-        if S.case then S.case.hits = S.case.hits + 1 end
+        caseHit(a)
     end, function(self, attacker)
         S.nested = S.nested - 1
         table.remove(S.ctx)
@@ -239,7 +265,7 @@ local function installNatives()
         table.insert(S.ctx, "Stalker:" .. enemyName(src))
         S.nested = S.nested + 1
         compensate(v, n, "ApplyStalkerDamage")
-        if S.case then S.case.hits = S.case.hits + 1 end
+        caseHit(src)
     end, function()
         S.nested = S.nested - 1
         table.remove(S.ctx)
@@ -254,8 +280,12 @@ local function installNatives()
         if S.frost then
             local rule, why = frostRule(v, n)
             say("FROST #%d amount=%s rule=%s (%s)", id, fmt1(n), tostring(rule), why)
-            S.frostN = (S.frostN or 0) + 1
-            if rule then S.frostRule = (S.frostRule or 0) + 1 end
+            if n == 1 or n == 2 then
+                S.frostN = (S.frostN or 0) + 1
+                if rule then S.frostRule = (S.frostRule or 0) + 1 end
+            elseif rule then
+                S.frostFalse = (S.frostFalse or 0) + 1
+            end
         else
             local rule, why = frostRule(v, n)
             if rule then say("FROSTLIKE #%d outside the cold phase: %s", id, why) end
@@ -263,7 +293,7 @@ local function installNatives()
         attribute(v)
         if S.nested == 0 then
             compensate(v, n, "CallDamageEvent")
-            if S.case then S.case.hits = S.case.hits + 1 end
+            if not frostRule(v, n) then caseHit(nil) end
         else
             say("NESTED #%d CallDamageEvent inside %s: not compensated again", id, ctxText())
         end
@@ -291,7 +321,14 @@ local function installForClass(path)
                 say("GRAB #%d %s %s hp=%s flip=%s (set %s) chance=%s", S.seq, enemyName(attacker), g.fn:match(":(.+)$"), fmt1(hp),
                     tostring(flip), flip and tostring(STANDARD[DIFF] + 1) or "-", tostring(g.victim == 0 and args[2] or args[1]))
                 g.id, g.victimPath = S.seq, valid(victim) and pathOf(victim) or nil
+                if S.case and valid(attacker) and pathOf(attacker) == S.case.actor then S.case.grabs = (S.case.grabs or 0) + 1 end
+                S.grabAt, S.grabPath = os.clock(), g.victimPath
+                -- The post-hook doesn't run for these multicasts (run 3, 2026-10-31): restore and read the montage on
+                -- the runner's next tick instead (up to 250 ms later).
+                S.pending = { id = S.seq, victim = g.victimPath, saved = g.saved, fn = g.fn:match(":(.+)$") }
+                g.saved = nil
             end, function(self, a1, a2)
+                say("GRAB post-hook ran (#%s)", tostring(g.id))
                 local args = { [0] = get(self), get(a1), get(a2) }
                 local victim = args[g.victim]
                 if g.saved then pcall(function() victim.Health = g.saved end) end
@@ -329,17 +366,39 @@ local function loadClass(path)
     return valid(c) and c or nil
 end
 
+local function spawnerSpawn(cls)
+    local sp
+    for _, a in ipairs(FindAllOf("AISpawner_C") or {}) do if alive(a) and not pathOf(a):find("Default__", 1, true) then sp = a end end
+    if not sp then return nil, "no AISpawner_C" end
+    local ok, x = pcall(function() return sp:SpawnValidatedEnemy(cls, 0) end)
+    if not (ok and valid(x)) then return nil, "SpawnValidatedEnemy " .. tostring(ok and "returned nothing" or x) end
+    pcall(function() local arr = sp.EnemiesSpawned arr[#arr + 1] = x end)
+    return x
+end
+
 local function spawnInFront(cls)
     local p = me()
     local loc, fwd = p:K2_GetActorLocation(), p:GetActorForwardVector()
     local at = { X = loc.X + fwd.X * SPAWN_DIST, Y = loc.Y + fwd.Y * SPAWN_DIST, Z = loc.Z + 50 }
-    local xf = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = at, Scale3D = { X = 1, Y = 1, Z = 1 } }
-    local x = GS():BeginDeferredActorSpawnFromClass(p, cls, xf, 2, nil, 1) -- AdjustIfPossibleButAlwaysSpawn
-    if not valid(x) then error("BeginDeferredActorSpawnFromClass returned no actor") end
-    GS():FinishSpawningActor(x, xf, 1)
+    -- Facing the player (yaw only), so its sight cone covers them.
+    local yaw = math.atan(-fwd.Y, -fwd.X)
+    local xf = { Rotation = { X = 0, Y = 0, Z = math.sin(yaw / 2), W = math.cos(yaw / 2) }, Translation = at, Scale3D = { X = 1, Y = 1, Z = 1 } }
+    local x, why = spawnerSpawn(cls)
+    if x then
+        local okT = pcall(function() x:K2_SetActorLocationAndRotation(at, { Pitch = 0, Yaw = math.deg(yaw), Roll = 0 }, false, {}, true) end)
+        say("VIA SpawnValidatedEnemy, moved in front ok=%s", tostring(okT))
+    else
+        say("VIA deferred spawn (%s)", tostring(why))
+        x = GS():BeginDeferredActorSpawnFromClass(p, cls, xf, 2, nil, 1) -- AdjustIfPossibleButAlwaysSpawn
+        if not valid(x) then error("BeginDeferredActorSpawnFromClass returned no actor") end
+        GS():FinishSpawningActor(x, xf, 1)
+    end
     local okC, ctl = pcall(function() return x:GetController() end)
     if not (okC and valid(ctl)) then pcall(function() x:SpawnDefaultController() end) end
     okC, ctl = pcall(function() return x:GetController() end)
+    -- Enemies the spawner didn't make may stay dormant: wake it the way the spawner's dormancy pass does.
+    local okW, errW = pcall(function() x:ActivateDormancyServer(true) end)
+    say("WAKE %s ActivateDormancyServer(true) ok=%s %s", nameOf(x), tostring(okW), okW and "" or tostring(errW))
     return x, okC and valid(ctl) and classOf(ctl) or "none"
 end
 
@@ -408,6 +467,14 @@ local function runCase(c)
                 local p = me()
                 if p then
                     pcall(function() p.Temperature = 1.5 end)
+                    for short in pairs(ENEMY_OF) do
+                        for _, e in ipairs(FindAllOf(short) or {}) do
+                            if alive(e) and not pathOf(e):find("Default__", 1, true) then
+                                say("CLEAR natural %s %s", enemyName(e), nameOf(e))
+                                pcall(function() e:K2_DestroyActor() end)
+                            end
+                        end
+                    end
                     local hp = hpOf(p)
                     if hp and hp < 30 then pcall(function() p.Health = 100 end) say("REFILL hp %.2f -> 100", hp) end
                 end
@@ -415,7 +482,7 @@ local function runCase(c)
                 S.frost = false
                 pcall(function() p.Temperature = 0 end)
                 check(S.frostN > 0, "FROST calls=%d matching the rule=%d", S.frostN, S.frostRule)
-                check(S.frostN == S.frostRule, "FROST every cold-phase call matched the rule (%d of %d)", S.frostRule, S.frostN)
+                check(S.frostN == S.frostRule and (S.frostFalse or 0) == 0, "FROST every 1-2 HP cold-phase call matched the rule (%d of %d), other amounts matching: %d", S.frostRule, S.frostN, S.frostFalse or 0)
                 return true
             end, 90, "frostbite phase"
         end)
@@ -438,6 +505,17 @@ local function runCase(c)
         return function()
             local m = me()
             if not m then S.dead = true return true end
+            if os.clock() - (c.clearAt or 0) >= 2 then
+                c.clearAt = os.clock()
+                for short in pairs(ENEMY_OF) do
+                    for _, e in ipairs(FindAllOf(short) or {}) do
+                        if alive(e) and pathOf(e) ~= c.actor and not pathOf(e):find("Default__", 1, true) then
+                            say("CLEAR natural %s %s", enemyName(e), nameOf(e))
+                            pcall(function() e:K2_DestroyActor() end)
+                        end
+                    end
+                end
+            end
             local hp = hpOf(m)
             if hp and hp < 30 and not S.grabAt then pcall(function() m.Health = 100 end) say("REFILL hp %.2f -> 100", hp) end
             -- After an execution the probe kept the player in, run the game's enemy-died recovery 6 s in.
@@ -459,6 +537,34 @@ local function runCase(c)
                     say("RECOVER ok=%s %s movement=%s", tostring(okR), okR and "" or tostring(err), tostring(mode))
                 end
                 if hp and hp < 30 then pcall(function() m.Health = 100 end) end
+            end
+            if os.clock() - (c.diagAt or 0) >= 10 then
+                c.diagAt = os.clock()
+                local x = c.actor and StaticFindObject(c.actor)
+                -- Tell it about the player through its own sight event (the one its PawnSensing handler calls).
+                if valid(x) and c.hits == 0 then
+                    local tried = {}
+                    for _, fn in ipairs({ "SeePlayerServer", "SeeCharacter", "SeePlayer" }) do
+                        local okF, err = pcall(function() x[fn](x, m) end)
+                        tried[#tried + 1] = fn .. "=" .. (okF and "ok" or "no")
+                        if okF then break end
+                    end
+                    local okN = pcall(function() x:FindNewTarget() end)
+                    tried[#tried + 1] = "FindNewTarget=" .. (okN and "ok" or "no")
+                    local okE, el = pcall(function() return StaticFindObject("/Script/NuclearNightmare.Default__NNEnemyTargetEligibility"):IsEligibleStimulusSource(m) end)
+                    say("SEE %s %s; player eligible=%s", label, table.concat(tried, " "), okE and tostring(el) or "err")
+                end
+                if valid(x) then
+                    local d, dorm, v, ctl, brain = "?", "?", "?", "none", "?"
+                    pcall(function() local a, b = x:K2_GetActorLocation(), m:K2_GetActorLocation()
+                        d = string.format("%.1f m dz=%.1f", math.sqrt((a.X - b.X) ^ 2 + (a.Y - b.Y) ^ 2 + (a.Z - b.Z) ^ 2) / 100, (a.Z - b.Z) / 100) end)
+                    pcall(function() dorm = tostring(x.DormancyState) end)
+                    pcall(function() local vv = x:GetVelocity() v = string.format("%.0f", math.sqrt(vv.X ^ 2 + vv.Y ^ 2 + vv.Z ^ 2)) end)
+                    pcall(function() local cc = x:GetController() if valid(cc) then ctl = classOf(cc) brain = valid(cc.BrainComponent) and classOf(cc.BrainComponent) or "none" end end)
+                    say("DIAG %s dist=%s dormancy=%s speed=%s controller=%s brain=%s hp=%s", label, d, dorm, v, ctl, brain, fmt1(hpOf(m)))
+                else
+                    say("DIAG %s actor gone", label)
+                end
             end
             local done = c.grab and c.grabs >= 1 and c.hits >= 1 or (not c.grab and c.hits >= 2)
             if done and not S.grabAt then return true end
@@ -490,6 +596,16 @@ local function tick()
     busy = true
     local ok, err = pcall(function()
         if S.dead then say("DEATH the player died (case %s)", S.case and S.case.name or "-") finish() return end
+        local pd = S.pending
+        if pd then
+            S.pending = nil
+            local v = pd.victim and StaticFindObject(pd.victim)
+            if valid(v) then
+                local hpNow = hpOf(v)
+                if pd.saved then pcall(function() v.Health = pd.saved end) end
+                say("GRAB #%d next tick: hp was %s, restored to %s; victim montage=%s", pd.id, fmt1(hpNow), pd.saved and fmt1(pd.saved) or "-", montageOf(v))
+            end
+        end
         if waiting then
             if not waiting.pred() then
                 if os.clock() <= waiting.deadline then return end

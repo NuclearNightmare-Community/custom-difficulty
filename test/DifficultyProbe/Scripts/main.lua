@@ -293,6 +293,12 @@ local function installNatives()
         local m = me()
         say("END #%s ApplyStalkerDamage hp=%s", tostring(stalkerId), fmt1(m and hpOf(m)))
     end)
+    -- v8.1.3: the Slug Queen and the Apex Predator kill through this native (new in the patch).
+    hook("/Script/NuclearNightmare.NNBossAttackRecovery:CommitLethalDamage", function(self, boss, victim)
+        local b, v = get(boss), get(victim)
+        table.insert(S.ctx, "Boss:" .. enemyName(b))
+        say("CTX + CommitLethalDamage boss=%s victim=%s hp=%s", enemyName(b), valid(v) and nameOf(v) or "none", fmt1(hpOf(v)))
+    end, function() table.remove(S.ctx) say("CTX - CommitLethalDamage") end)
     local cdeIds = {}
     hook("/Script/NuclearNightmare.NuclearNightmareCharacter:CallDamageEvent", function(self, amount)
         local v, n = get(self), num(get(amount))

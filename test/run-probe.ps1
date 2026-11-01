@@ -18,7 +18,8 @@
 param(
     [Parameter(Mandatory)] [string] $Instance,
     [int] $TimeoutSec = 1500,
-    [ValidateSet('host', 'vm')] [string] $Target = 'host'
+    [ValidateSet('host', 'vm')] [string] $Target = 'host',
+    [string[]] $Cases = @() # e.g. 'Leech','Bat','frost'; empty = all
 )
 $ErrorActionPreference = 'Stop'
 $probe = 'DifficultyProbe'
@@ -37,6 +38,7 @@ function Install-Probe([string] $instance) {
     if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
     New-Item -ItemType Directory -Force (Join-Path $dest 'Scripts') | Out-Null
     Copy-Item (Join-Path $src 'Scripts\main.lua') (Join-Path $dest 'Scripts\main.lua')
+    if ($Cases) { Set-Content (Join-Path $dest 'Scripts\cases.txt') ($Cases -join ',') -NoNewline }
     $lines = @(Get-Content $txt | Where-Object { $_ -notmatch "^\s*$probe\s*:" })
     # Other test drivers (left by other runs) would run their own scenarios: off for this run (mods.txt is restored).
     $lines = @($lines | ForEach-Object { if ($_ -match '^\s*(MarkersDriver|Markers|ClockDriver|Clock|PairDriver)\s*:\s*1\s*$') { "$($Matches[1]) : 0" } else { $_ } })

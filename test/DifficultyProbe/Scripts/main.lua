@@ -69,6 +69,12 @@ local function myPawn()
     return ok and valid(p) and p or nil
 end
 local function me() local p = myPawn() return p and classOf(p) == FP and p or nil end
+local lostAt
+local function gone()
+    if me() then lostAt = nil return false end
+    lostAt = lostAt or os.clock()
+    return os.clock() - lostAt > 3
+end
 local function worldName() local c = pc() return c and c:GetWorld():GetFullName() or "" end
 local function gameState()
     for _, g in ipairs(FindAllOf("BP_FirstPersonGameState_C") or {}) do
@@ -506,7 +512,11 @@ local function runCase(c)
     local label = c.name .. (c.flip and " (flip)" or "")
     step("spawn " .. label, function()
         local p = me()
-        if not p then S.dead = true return end
+        if not p then
+            if gone() then S.dead = true end
+            say("NOPAWN at spawn %s, skipped", label)
+            return
+        end
         pcall(function() p.Health = 100 end)
         local cls = loadClass(c.path)
         if not check(cls ~= nil, "CLASS %s %s", label, c.path) then return end
@@ -519,7 +529,7 @@ local function runCase(c)
         local t = os.clock()
         return function()
             local m = me()
-            if not m then S.dead = true return true end
+            if not m then if gone() then S.dead = true return true end return false end
             if os.clock() - (c.clearAt or 0) >= 2 then
                 c.clearAt = os.clock()
                 for short in pairs(ENEMY_OF) do
@@ -598,7 +608,19 @@ local function runCase(c)
         return after(5), 8
     end)
 end
-for _, c in ipairs(CASES) do runCase(c) end
+local only
+do
+    local f = io.open(scriptDir .. "\\cases.txt", "r")
+    if f then
+        only = {}
+        for n in (f:read("*a") or ""):gmatch("[^,\r\n]+") do only[n:match("^%s*(.-)%s*$")] = true end
+        f:close()
+        say("CASES only %s", (function() local t = {} for k in pairs(only) do t[#t + 1] = k end return table.concat(t, ",") end)())
+    end
+end
+for _, c in ipairs(CASES) do
+    if not only or only[c.frost and "frost" or c.name] then runCase(c) end
+end
 
 -- ---------------------------------------------------------------- runner (game thread, every 250 ms)
 local idx, waiting, busy, finished = 0, nil, false, false

@@ -214,6 +214,21 @@ end
 -- StartInfectionProcess runs inside the Meek's Attack body right before its Health test (v8.1.3 decompile,
 -- SCP_AI_C Label_7982): it shows whether the body runs inside the hooked call and is a second place to set Health.
 local function installMarkers()
+    -- HasPerk(0x27, Elusive Fighter) is called only by the six grabs, before their Health test (v8.1.3 decompile):
+    -- the one place that covers all of them.
+    hook(FPC_PATH .. ":HasPerk", function(self, perk)
+        local v, k = get(self), num(get(perk))
+        if k ~= 39 then return end
+        local want = STANDARD[DIFF] + 1
+        local hp = hpOf(v)
+        local set = false
+        if S.case and S.case.flip and isMe(v) and hp and hp ~= want then
+            S.flipSaved = hp
+            pcall(function() v.Health = want end)
+            set = true
+        end
+        say("MARK HasPerk(0x27) victim=%s hp=%s set=%s", nameOf(v), fmt1(hp), tostring(set))
+    end)
     hook(FPC_PATH .. ":StartInfectionProcess", function(self)
         local v = get(self)
         local pd = S.pending
@@ -566,8 +581,8 @@ local function runCase(c)
                     say("DIAG %s actor gone", label)
                 end
             end
-            local done = c.grab and c.grabs >= 1 and c.hits >= 1 or (not c.grab and c.hits >= 2)
-            if done and not S.grabAt then return true end
+            local done = c.grab and c.grabs >= 2 and c.hits >= 1 or (not c.grab and c.hits >= 2)
+            if done and (not S.grabAt or c.grabs >= 2) then return true end
             if os.clock() - t > 90 then say("TIMEOUT %s hits=%d grabs=%d", label, c.hits, c.grabs or 0) return true end
             return false
         end, 100, label
@@ -602,7 +617,10 @@ local function tick()
             local v = pd.victim and StaticFindObject(pd.victim)
             if valid(v) then
                 local hpNow = hpOf(v)
-                if pd.saved then pcall(function() v.Health = pd.saved end) end
+                local saved = S.flipSaved or pd.saved
+                S.flipSaved = nil
+                if saved then pcall(function() v.Health = saved end) end
+                pd.saved = saved
                 say("GRAB #%d next tick: hp was %s, restored to %s; victim montage=%s", pd.id, fmt1(hpNow), pd.saved and fmt1(pd.saved) or "-", montageOf(v))
             end
         end

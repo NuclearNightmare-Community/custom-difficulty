@@ -115,6 +115,27 @@ local function other()
 end
 local function isOther(ch) local o = other() return o ~= nil and valid(ch) and pathOf(ch) == pathOf(o) end
 local function who(ch) if isMe(ch) then return "me" elseif isOther(ch) then return "other" end return valid(ch) and nameOf(ch) or "none" end
+-- Every controller's pawn and every first-person character, to see what replaced a character that disappeared.
+local function whereAre(tag)
+    for _, c in ipairs(FindAllOf("PlayerController") or {}) do
+        if valid(c) and notDefault(c) then
+            local okL, l = pcall(function() return c:IsLocalPlayerController() end)
+            local p = pawnOf(c)
+            say("WHERE %s controller=%s local=%s pawn=%s class=%s", tag, nameOf(c), tostring(okL and l), p and pathOf(p) or "none", p and classOf(p) or "-")
+        end
+    end
+    for _, ch in ipairs(FindAllOf(FP) or {}) do
+        if notDefault(ch) then
+            local okC, ctl = pcall(function() return ch:GetController() end)
+            local inf, prof, called
+            pcall(function() inf = ch.Infected end)
+            pcall(function() prof = ch.bInfectedMovementProfile end)
+            pcall(function() called = ch["HasCalledDeathEvent?"] end)
+            say("WHERE %s fp=%s alive=%s controller=%s infected=%s infectedMovement=%s deathCalled=%s %s", tag, pathOf(ch), tostring(alive(ch)),
+                (okC and valid(ctl)) and classOf(ctl) or "none", tostring(inf), tostring(prof), tostring(called), stateOf(ch))
+        end
+    end
+end
 local function worldName() local c = pc() return c and c:GetWorld():GetFullName() or "" end
 local function gameState()
     for _, g in ipairs(FindAllOf("BP_FirstPersonGameState_C") or {}) do if notDefault(g) then return g end end
@@ -311,6 +332,12 @@ local clearNatural
 local function monitor()
     for i = #S.pending, 1, -1 do restore(S.pending[i], "next tick") table.remove(S.pending, i) end
     local m, o = me(), other()
+    local mp, op = m and pathOf(m) or "none", o and pathOf(o) or "none"
+    if S.lastMe ~= nil and (mp ~= S.lastMe or op ~= S.lastOther) then
+        say("CHANGE me %s -> %s, other %s -> %s", S.lastMe, mp, S.lastOther, op)
+        whereAre("change")
+    end
+    S.lastMe, S.lastOther = mp, op
     -- Host, once the steps begin: no natural enemies (only the case's), and nobody freezes outside the hold phase.
     if IS_HOST and S.guard and os.clock() - (S.guardAt or 0) >= 2 then
         S.guardAt = os.clock()
@@ -409,7 +436,7 @@ local function buildHostGrab()
         local label = c.name .. (c.flip and " (flip)" or "") .. " on " .. c.target
         step("spawn " .. label, function()
             local target = c.target == "me" and me() or other()
-            if not target then check(false, "CASE %s: no target", label) return end
+            if not target then check(false, "CASE %s: no target", label) whereAre("no target") return end
             for _, ch in ipairs({ me(), other() }) do if ch then pcall(function() ch.Health = 100 end) end end
             local cls = loadClass(c.path)
             if not check(cls ~= nil, "CLASS %s", c.path) then return end
@@ -422,7 +449,7 @@ local function buildHostGrab()
             local t0 = os.clock()
             return function()
                 local tg = c.target == "me" and me() or other()
-                if not tg then say("CASE %s: target gone", label) return true end
+                if not tg then say("CASE %s: target gone", label) whereAre("target gone") return true end
                 if os.clock() - (c.clearAt or 0) >= 2 then c.clearAt = os.clock() clearNatural(c.actor) end
                 local hp = hpOf(tg)
                 if hp and hp < 30 and not (c.lastGrab and os.clock() - c.lastGrab < 8) then
@@ -438,9 +465,11 @@ local function buildHostGrab()
                         end
                     end
                 end
-                local enough = (c.grabs or 0) >= c.wanted
-                -- Leave 14 s after the last grab so both machines log the 6 s and 12 s states.
-                if enough and os.clock() - c.lastGrab > 14 then return true end
+                -- Enemies grab again every ~6 s, so end 13 s after the wanted grab (both machines log its 6 s and 12 s states).
+                if (c.grabs or 0) >= c.wanted then
+                    c.tEnough = c.tEnough or os.clock()
+                    if os.clock() - c.tEnough >= 13 then return true end
+                end
                 if os.clock() - t0 > 120 then say("TIMEOUT %s grabs=%d", label, c.grabs or 0) return true end
                 return false
             end, 130, label
@@ -476,26 +505,42 @@ local function buildClientGrab()
 end
 
 -- Kills this machine's own pawn (DeathEvent, again after 5 s if still possessed; MarkersDriver's proven path).
-local function selfKill(tag)
-    step(tag .. ": die", function()
-        local p = me()
-        if not p then say("KILL %s no pawn", tag) return end
+-- The host kills a player (itself or B): CallDamageEvent, the game's own kill call (with authority), logging V8.1.5's
+-- terminal-death guard first; Health 0 + DeathEvent as a fallback after 5 s. Waits until that character is gone.
+local function deathGuard(ch)
+    local lib = StaticFindObject("/Script/NuclearNightmare.Default__NNDeathFadeLibrary")
+    local fn = StaticFindObject("/Script/NuclearNightmare.NNDeathFadeLibrary:CanBeginTerminalDeathEffects")
+    if not (valid(lib) and valid(fn)) then return "?" end
+    local ok, r = pcall(function() return fn(lib, ch) end)
+    return ok and tostring(r) or ("error " .. tostring(r))
+end
+local function hostKill(tag, whom)
+    step(tag .. ": kill " .. whom, function()
+        local p = whom == "me" and me() or other()
+        if not p then say("KILL %s no %s", tag, whom) return end
         local was = pathOf(p)
-        S.deadPath = was
-        local ok, err = pcall(function() p:DeathEvent() end)
-        say("KILL %s DeathEvent on my pawn ok=%s %s", tag, tostring(ok), ok and "" or tostring(err))
+        if whom == "me" then S.deadPath = was else S.otherPath = was end
+        say("KILL %s %s guard=%s %s", tag, whom, deathGuard(p), stateOf(p))
+        local ok, err = pcall(function() p:CallDamageEvent(1000) end)
+        say("KILL %s CallDamageEvent(1000) on %s ok=%s %s", tag, whom, tostring(ok), ok and "" or tostring(err))
         local t0, again = os.clock(), false
         return function()
-            local q = me()
-            if not q or pathOf(q) ~= was then return os.clock() - t0 > 3 end
+            local q = whom == "me" and me() or other()
+            if not q or pathOf(q) ~= was then
+                if not S.killLogged then S.killLogged = true whereAre(tag .. " dead") end
+                return os.clock() - t0 > 3
+            end
             if not again and os.clock() - t0 > 5 then
                 again = true
-                local ok2 = pcall(function() q:DeathEvent() end)
-                say("KILL %s still possessed after 5 s: DeathEvent again ok=%s", tag, tostring(ok2))
+                say("KILL %s still there after 5 s: guard=%s %s", tag, deathGuard(q), stateOf(q))
+                pcall(function() q.Health = 0 end)
+                local ok2, e2 = pcall(function() q:DeathEvent() end)
+                say("KILL %s Health 0 + DeathEvent ok=%s %s", tag, tostring(ok2), ok2 and "" or tostring(e2))
             end
             return false
         end, 30, tag .. " dead"
     end)
+    step(tag .. ": reset", function() S.killLogged = false end)
 end
 local function setCount(n, disable)
     local g = gameState()
@@ -526,7 +571,7 @@ local function buildHostRevive()
     step("hooks", function() installRadioHooks() reinfState("start") S.guard = true end)
     -- S1: count 0, not disabled, the host dead: B's panel should show (control).
     step("s1 set", function() setCount(0, false) end)
-    selfKill("s1")
+    hostKill("s1", "me")
     wait("s1 settle", 10)
     step("s1 signal", function() reinfState("s1 host dead") signal("s1") end)
     waitFile("b-s1", 120)
@@ -551,16 +596,8 @@ local function buildHostRevive()
     end)
     waitFile("b-s3done", 120)
     -- S4: B dies, the host revives it through the radio; the revived machine's count.
-    step("s4 kill", function() S.otherPath = pathOf(other()) signal("kill-b") end)
-    step("s4 b dead", function()
-        local t0
-        return function()
-            local o = other()
-            if o and pathOf(o) == S.otherPath then t0 = nil return false end
-            t0 = t0 or os.clock()
-            return os.clock() - t0 > 3
-        end, 120, "B dead"
-    end)
+    step("s4 signal", function() signal("kill-b") end)
+    hostKill("s4", "other")
     wait("s4 settle", 10)
     step("s4 reinforce", function()
         reinfState("s4 b dead")
@@ -636,7 +673,12 @@ local function buildClientRevive()
     waitFile("s3done", 240)
     step("s3 count", function() reinfState("s3 client, not revived") signal("b-s3done") end)
     waitFile("kill-b", 120)
-    selfKill("s4")
+    step("s4 dead", function()
+        local was = pathOf(me())
+        S.deadPath = was
+        return function() local q = me() return not q or pathOf(q) ~= was end, 60, "s4 dead (killed by the host)"
+    end)
+    step("s4 where", function() whereAre("s4 dead") end)
     waitFile("s4done", 300)
     step("s4 count", function()
         local cnt = reinfState("s4 client, revived")

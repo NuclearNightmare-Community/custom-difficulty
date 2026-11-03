@@ -490,6 +490,16 @@ step("difficulty in the match", function()
     end
     local p = me()
     say("PLAYER %s hp=%s T=%s", pathOf(p), fmt1(hpOf(p)), fmt1(num(p.Temperature)))
+    if SET == "rule" then
+        -- Enemies stopped coming on Hard about 7 minutes in (fast time, start 06:30): freeze the sky for this set.
+        for _, sky in ipairs(FindAllOf("Ultra_Dynamic_Sky_C") or {}) do
+            if valid(sky) and not pathOf(sky):find("Default__", 1, true) then
+                local ok = pcall(function() sky["Animate Time of Day"] = false end)
+                local t = "?" pcall(function() t = string.format("%.0f", num(sky["Time of Day"])) end)
+                say("SKY frozen at %s ok=%s", t, tostring(ok))
+            end
+        end
+    end
     installNatives()
     installForClass(FPC_PATH)
     return after(1), 3
@@ -707,9 +717,13 @@ local function tick()
                 if yes then
                     -- Keep the player uninfected (and the next roll fresh): clear the timer, the knob's "no" path.
                     local okC, err = pcall(function() KSL():K2_ClearTimer(v, "BecomeInfected") end)
+                    -- The roll also set StartedInfection?, which skips every later roll: reset it too (seen, Hard run).
+                    pcall(function() v["StartedInfection?"] = false end)
                     local okB, after = pcall(function() return KSL():K2_IsTimerActive(v, "BecomeInfected") end)
-                    check(okC and okB and after == false, "INFECTCLEAR #%d ok=%s %s active after=%s", S.inf.rolls, tostring(okC),
-                        okC and "" or tostring(err), okB and tostring(after) or "err")
+                    local st = "?"
+                    pcall(function() st = tostring(v["StartedInfection?"]) end)
+                    check(okC and okB and after == false, "INFECTCLEAR #%d ok=%s %s active after=%s StartedInfection?=%s", S.inf.rolls, tostring(okC),
+                        okC and "" or tostring(err), okB and tostring(after) or "err", st)
                 end
             end
         end

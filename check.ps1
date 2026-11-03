@@ -16,6 +16,18 @@
     host      a solo match was hosted: as ready, plus a WORLD host=true standalone=false line.
     hand      any run by hand: connected, READY, at least one WORLD line, no error.
     unit      needs no log: runs test.ps1.
+  Story 3 (run.ps1 -Scenario <s>: deploy.ps1 -Test -PreCore -Scenario <s>, the driver test/DifficultyDriver, one
+  solo hosted match). Each needs everything 'host' needs, a MATCH start line with the scenario's knobs and the
+  driver's END result=PASS with no driver FAIL line:
+    scaled     Hard, Enemy Damage 17: HIT enemy=meek stock=50 scaled=17 applied=17 hp=100.
+    flip       Nightmare, Enemy Damage 25: GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101, its RESTORE,
+               HIT enemy=meek stock=100 scaled=25 applied=25 kind=survivable; the driver saw the survivable montage
+               and the player moving again.
+    per-enemy  Normal, Stalker 200: HIT enemy=stalker stock=25 scaled=50 applied=50; no HIT for the Meek (stock 25).
+    default    no knobs: no HIT and no GRAB line; the driver saw the stock 50.
+    clash      Hard, Enemy Damage 17, the driver adds 5 HP before each hit: exactly one HIT, exactly one
+               "WARN clash: after the hit", no HIT after it.
+  When the driver reports NOTSHOWN (the enemy didn't attack in time), the run is not shown: exit 2, never "passed".
 .EXAMPLE
   ./check.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Scenario ready
   ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.1.5-build26357084\difficulty\old-core.log -Scenario old-core
@@ -23,7 +35,7 @@
 param(
     [string] $Instance,
     [string] $Log,
-    [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit')]
+    [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit', 'scaled', 'flip', 'per-enemy', 'default', 'clash')]
     [string] $Scenario = 'ready'
 )
 if ($Scenario -eq 'unit') { & pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'test.ps1'); exit $LASTEXITCODE }
@@ -45,6 +57,7 @@ $lines = @(Get-Content $Log)
 Write-Host "--- $name lines ($Scenario) ---"
 $lines | Where-Object {
     ($_ -match "\[$C\]" -and $_ -notmatch "\[$C\] (DEBUG )?hud ") -or
+    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR) ") -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -62,11 +75,30 @@ $running = @(
     "#1|\[$C\] READY version=$([regex]::Escape($manifest.version)) $K=\d+\.\d+\.\d+ need=\d+\.\d+\.\d+\s*$"
     "!\[$C\] ERROR"
     # The only WARNs allowed: the dev core mode's own line (judged below) and core's HUD timing under our tag (soft).
-    "!\[$C\] WARN (?!running on $K \S+ before |hud slow tick )"
+    "!\[$C\] WARN (?!running on $K \S+ before |hud slow tick $(if ($Scenario -eq 'clash') { '|clash: after the hit ' }))"
     "?!\[$C\] WARN hud slow tick "
     "\[$C\] WORLD host=(true|false) standalone=(true|false|\?) map=\S+\s*$"
 )
 $menuWorld = "\[$C\] WORLD host=false standalone=true map=\S+\s*$"
+$hostWorld = "\[$C\] WORLD host=true standalone=false map=\S+\s*$"
+# Story 3: the driver's verdict, and Difficulty's lines per scenario.
+$D = [regex]::Escape("${name}Driver")
+$driverOk = @("\[$D\] SCENARIO $Scenario\s*$", "\[$D\] END result=(PASS|NOTSHOWN) ", "!\[$D\] FAIL ", "!\[$D\] HOOKERR ", "!\[$D\] DEATH ")
+$n = '\d+(\.\d+)?'
+$hit = { param($enemy, $via, $stock, $scaled, $applied, $hp, $kind) "\[$C\] HIT enemy=$enemy via=$via stock=$stock scaled=$scaled rolled=$scaled applied=$applied hp=$hp kind=$kind\s*$" }
+$story3 = @{
+    'scaled'    = @("\[$C\] MATCH start knobs=enemyDamage=17\s*$", (& $hit 'meek' 'ApplyLockedDamage' '50' '17' '17' '100' '(hit|survivable)'))
+    'flip'      = @("\[$C\] MATCH start knobs=enemyDamage=25\s*$",
+                    "\[$C\] GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101\s*$",
+                    "\[$C\] RESTORE enemy=meek hp=101 -> 100 via=(multicast|next tick)\s*$",
+                    (& $hit 'meek' 'ApplyLockedDamage' '100' '25' '25' '100' 'survivable'),
+                    "!\[$C\] RESTORE .*: the victim is gone")
+    'per-enemy' = @("\[$C\] MATCH start knobs=dmg\.stalker=200\s*$", (& $hit 'stalker' 'ApplyStalkerDamage' '25' '50' '50' '100' '(hit|survivable)'),
+                    "!\[$C\] HIT enemy=meek ")
+    'default'   = @("\[$C\] MATCH start knobs=all Default\s*$", "!\[$C\] HIT ", "!\[$C\] GRAB ", "!\[$C\] RESTORE ")
+    'clash'     = @("\[$C\] MATCH start knobs=enemyDamage=17\s*$", "#1|\[$C\] HIT ",
+                    "#1|\[$C\] WARN clash: after the hit enemy=meek via=ApplyLockedDamage Health is $n, planned 83 \(another mod changed it\); damage and grab changes off until the next match\s*$")
+}
 $expect = @{
     'ready'    = $running + @($menuWorld)
     'host'     = $running + @($menuWorld, "\[$C\] WORLD host=true standalone=false map=\S+\s*$")
@@ -80,6 +112,7 @@ $expect = @{
         "\[$C\] ERROR $K \d+\.\d+\.\d+ is not compatible; $C needs $NeedRx \(\^ rules\)\. Update $K\. $C will not run\.\s*$"
     )
 }
+foreach ($s3 in $story3.Keys) { $expect[$s3] = $running + @($menuWorld, $hostWorld) + $driverOk + $story3[$s3] }
 
 $failed = 0
 $warned = 0
@@ -104,7 +137,7 @@ foreach ($pattern in ($always + $expect[$Scenario])) {
 
 function IndexOf([string] $p) { for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match $p) { return $i } } return -1 }
 
-if ($Scenario -in 'ready', 'host', 'hand') {
+if ($Scenario -in @('ready', 'host', 'hand') + @($story3.Keys)) {
     $ic, $ir = (IndexOf "\[$C\] CONNECT ok "), (IndexOf "\[$C\] READY ")
     if ($ic -ge 0 -and $ir -gt $ic) { Pass 'READY comes after CONNECT ok' } else { Fail "READY comes after CONNECT ok (CONNECT at line $ic, READY at line $ir)" }
     # Dev core mode: connected to a core dependsOn doesn't accept -> exactly one pre-core WARN; otherwise none.
@@ -129,5 +162,22 @@ if ($Scenario -in 'ready', 'host', 'hand') {
     }
 }
 
+if ($Scenario -in $story3.Keys) {
+    # The match lines come after the hosted world; in clash no HIT follows the WARN.
+    $iw, $im = (IndexOf $hostWorld), (IndexOf "\[$C\] MATCH start ")
+    if ($iw -ge 0 -and $im -gt $iw) { Pass 'MATCH start comes after WORLD host=true' } else { Fail "MATCH start comes after WORLD host=true (WORLD at line $iw, MATCH at line $im)" }
+    if ($Scenario -eq 'clash') {
+        $iWarn = IndexOf "\[$C\] WARN clash: "
+        $late = @(for ($i = [Math]::Max($iWarn, 0); $i -lt $lines.Count; $i++) { if ($iWarn -ge 0 -and $lines[$i] -match "\[$C\] HIT ") { $i } })
+        if ($iWarn -ge 0 -and $late.Count -eq 0) { Pass 'no HIT after the clash WARN (stock hits)' } else { Fail "no HIT after the clash WARN (WARN at line $iWarn, HIT after it: $($late.Count))" }
+    }
+}
+
 if ($failed) { Write-Host "$failed check(s) failed."; exit 1 }
+$notShown = @($lines | Where-Object { $_ -match "\[$([regex]::Escape("${name}Driver"))\] (NOTSHOWN |END result=NOTSHOWN)" })
+if ($notShown.Count) {
+    $notShown | ForEach-Object { Write-Host "not shown: $($_ -replace '^.*?\] NOTSHOWN ', '')" }
+    Write-Host 'NOT SHOWN: an enemy did not attack in time; this run neither passes nor fails. Run it again.'
+    exit 2
+}
 Write-Host ("All checks passed{0}." -f $(if ($warned) { " ($warned soft check(s) not met)" } else { '' }))

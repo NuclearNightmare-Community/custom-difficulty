@@ -1,5 +1,7 @@
--- Difficulty 0.1.0 (spec-difficulty-v1, story 1): the skeleton. Connects to Nucleus (core) through the dependent
--- bootstrap (core's api-contract.md) and caches isHost per world. No knob acts yet (stories 3-8).
+-- Difficulty 0.1.0 (spec-difficulty-v1, stories 1 and 3). Connects to Nucleus (core) through the dependent bootstrap
+-- (core's api-contract.md) and caches isHost per world. Story 3: enemy damage on the host and survivable grabs for the
+-- host's own player (hits.lua); until stories 6 and 7, the knob values come only from dev.lua (deploy.ps1 -Test
+-- -Knobs), so a release (no dev.lua) leaves every knob Default and changes nothing.
 -- Holds no UObject between callbacks (AGENTS.md): world.lua keeps only world names and booleans. Every hook body and
 -- every call into core runs under pcall, with one log line per failure.
 local ME, CORE, NEED = "Difficulty", "Nucleus", "0.4.0"
@@ -16,12 +18,14 @@ local ok, client = pcall(require, CORE:lower() .. ".client")
 if not ok then print(("[%s] %s is not installed. %s will not run.\n"):format(ME, CORE, ME)) return end
 
 local world = require("world")
+local hits = require("hits")
 
 -- ---------------------------------------------------------------- dev.lua (deploy.ps1 -Test; never shipped)
--- Optional. Data only: loaded with an empty environment, and only two booleans are read from it. A problem is only
--- remembered here and logged once connected, so a failed connect stays exactly one [Difficulty] line (CAP-7).
+-- Optional. Data only: loaded with an empty environment; two booleans and the knobs string are read from it (the knobs
+-- are parsed, bounded, at each match start: knobs.lua). A problem is only remembered here and logged once connected,
+-- so a failed connect stays exactly one [Difficulty] line (CAP-7).
 local function loadDev()
-    local d = { debug = false, preCore = false }
+    local d = { debug = false, preCore = false, knobs = nil }
     local path = scriptDir .. "/dev.lua"
     local f = io.open(path, "r")
     if not f then return d end -- the normal case: no dev.lua
@@ -32,6 +36,7 @@ local function loadDev()
     if not okD or type(t) ~= "table" then return d, "dev.lua did not return a table (" .. tostring(t) .. "); ignored" end
     d.debug = t.debug == true
     d.preCore = t.preCore == true
+    d.knobs = t.knobs -- any type: knobs.parse rejects anything but a string of at most 1024 bytes
     return d
 end
 local dev, devProblem = loadDev()
@@ -61,12 +66,23 @@ local function start(core)
     end
 
     local W = world.new()
+    local currentName -- the full name of the world evaluated last (hits.lua asks W:isHost(currentName))
+    local H = hits.new{
+        say = say, warnOnce = warnOnce, alive = world.alive,
+        world = function() return currentName end,
+        isHost = function() return W:isHost(currentName) end,
+        knobs = function() return dev.knobs end,
+    }
     -- Evaluates one world: plain values from world.lua, cached by full name; one WORLD line per world.
     local function evaluate(w, how)
         local name, server, standalone, problem = world.read(w)
         if not name then warnOnce("noname", "a %s world could not be read: %s; isHost stays false", how, tostring(problem)) return end
         local e, fresh = W:onLoadMap(name, server, standalone)
         if not e then return end
+        currentName = e.name
+        -- A fresh world is a new match state for hits.lua; its Blueprint hooks follow the world.
+        local okW, errW = pcall(H.onWorld, H, e.name, e.host, fresh)
+        if not okW then say("error", "hits for %s failed: %s", e.map, tostring(errW)) end
         if fresh and problem then say("warn", "isHost for %s: %s; host=false for this world", e.map, problem) end
         if fresh then
             say("info", "WORLD host=%s standalone=%s map=%s", tostring(e.host),
@@ -81,6 +97,11 @@ local function start(core)
         if not okB then say("error", "LoadMap hook failed: %s", tostring(errB)) end
     end)
     if not okH then say("error", "could not register the LoadMap hook: %s. %s will not run.", tostring(errH), ME) return end
+
+    -- Enemy damage: the native hooks once, now; the Blueprint ones per host world (H.onWorld).
+    local okI, okN, errN = pcall(H.install, H)
+    if not okI then say("error", "enemy damage hooks failed: %s; hits stay stock", tostring(okN))
+    elseif not okN then say("error", "%s; hits stay stock", tostring(errN)) end
 
     -- The world already loaded when connect succeeded (its LoadMap ran before this hook existed).
     local current = world.currentWorld()

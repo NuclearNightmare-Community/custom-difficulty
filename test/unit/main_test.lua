@@ -39,7 +39,7 @@ local function boot(opts)
     W = F.new()
     F.install(W)
     S = { dev = opts.dev, connects = {} }
-    for _, m in ipairs({ "world", "nucleus.client" }) do package.loaded[m] = nil end
+    for _, m in ipairs({ "world", "hits", "damage", "knobs", "nucleus.client" }) do package.loaded[m] = nil end
     package.preload["nucleus.client"] = nil
     if opts.client ~= false then
         package.preload["nucleus.client"] = function()
@@ -235,6 +235,42 @@ do -- A failed connect with a broken dev.lua stays one line (the dev problem is 
     boot{ dev = "return {" }
     S.connects[1].onFail("x")
     eq(#W.printed, 0, "failed connect: the dev.lua problem is not logged")
+end
+
+-- ---------------------------------------------------------------- story 3: hits wired in, dev.lua knobs
+do
+    local UFF = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameState.BP_FirstPersonGameState_C:UpdateFriendlyFire"
+    local HASPERK = "/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C:HasPerk"
+    boot{ dev = 'return { debug = true, knobs = "enemyDamage=17" }' }
+    ready(newCore())
+    eq(W.count("/Script/NuclearNightmare.NuclearNightmareCharacter:CallDamageEvent"), 1, "the natives hooked at ready")
+    eq(W.count(HASPERK), 0, "the menu: no Blueprint hooks")
+    W.loadMapHooks[1](nil, W.param(W.match))
+    eq(W.count(HASPERK), 1, "a hosted match: HasPerk hooked")
+    eq(W.count(UFF), 1, "a hosted match: UpdateFriendlyFire hooked")
+    W.fire(UFF, W.p(nil))
+    eq(count("^%[Difficulty%] MATCH start knobs=enemyDamage=17$"), 1, "dev.lua knobs reach the match start")
+    W.loadMapHooks[1](nil, W.param(W.menu))
+    eq(W.count(HASPERK), 0, "back to the menu: the Blueprint hooks are unregistered")
+    eq(count("ERROR"), 0, "story 3 wiring: no ERROR")
+
+    boot() -- a release: no dev.lua, so every knob is Default
+    ready(newCore())
+    W.loadMapHooks[1](nil, W.param(W.match))
+    W.fire(UFF, W.p(nil))
+    eq(count("^%[Difficulty%] MATCH start knobs=all Default$"), 1, "no dev.lua: every knob Default")
+
+    boot{ dev = 'return { knobs = "bogus=1" }' }
+    ready(newCore())
+    W.loadMapHooks[1](nil, W.param(W.match))
+    W.fire(UFF, W.p(nil))
+    eq(count("^%[Difficulty%] WARN knobs: unknown knob 'bogus'; ignored$"), 1, "a bad dev.lua knob: one WARN")
+
+    boot()
+    RegisterHook = function() error("no UFunction") end
+    ready(newCore())
+    eq(count("^%[Difficulty%] ERROR could not hook ApplyLockedDamage, ApplyStalkerDamage, CommitLethalDamage, CallDamageEvent; hits stay stock$"), 1, "natives can't be hooked: one ERROR")
+    eq(count("READY"), 1, "natives can't be hooked: still READY (isHost works)")
 end
 
 -- ---------------------------------------------------------------- the constants

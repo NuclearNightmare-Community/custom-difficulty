@@ -201,6 +201,15 @@ local function waitMatch()
         local ok, d = pcall(function() return num(g.Diffculty) end)
         S.diff = ok and d or 0
         say("MATCH role=%s world=%s Diffculty=%s me=%s", ROLE, worldName(), tostring(d), pathOf(me()))
+        if IS_HOST then
+            for _, sky in ipairs(FindAllOf("Ultra_Dynamic_Sky_C") or {}) do
+                if notDefault(sky) then
+                    local okS = pcall(function() sky["Animate Time of Day"] = false end)
+                    local t = "?" pcall(function() t = string.format("%.0f", num(sky["Time of Day"])) end)
+                    say("SKY frozen at %s ok=%s", t, tostring(okS))
+                end
+            end
+        end
     end)
 end
 
@@ -259,7 +268,37 @@ local function restore(path, why)
     say("RESTORE %s hp -> %s (%s)", path:match("[^.]+$") or path, fmt1(saved), why)
 end
 
+S.infQueue = {}
+local function installInfectionHook()
+    hook(FPC_PATH .. ":StartInfectionProcess", function(self)
+        local v = get(self)
+        if valid(v) then S.infQueue[#S.infQueue + 1] = { path = pathOf(v), at = os.clock() } end
+    end)
+end
+local function infectionTick()
+    while #S.infQueue > 0 and os.clock() - S.infQueue[1].at >= 0.2 do
+        local q = table.remove(S.infQueue, 1)
+        local v = StaticFindObject(q.path)
+        if valid(v) then
+            local okA, act = pcall(function() return KSL():K2_IsTimerActive(v, "BecomeInfected") end)
+            local okR, rem = pcall(function() return KSL():K2_GetTimerRemainingTime(v, "BecomeInfected") end)
+            local okL, loc = pcall(function() return StaticFindObject("/Script/NuclearNightmare.Default__NNInfectedControllerLibrary"):IsLocalInfectionRecipient(v) end)
+            local st = "?" pcall(function() st = tostring(v["StartedInfection?"]) end)
+            S.infN = (S.infN or 0) + 1
+            say("INFECT #%d victim=%s here: recipient=%s timer=%s remaining=%s StartedInfection?=%s", S.infN, who(v),
+                okL and tostring(loc) or "err", okA and tostring(act) or "err", okR and string.format("%.1f", num(rem) or -1) or "err", st)
+            if okA and act == true then
+                local okC = pcall(function() KSL():K2_ClearTimer(v, "BecomeInfected") end)
+                pcall(function() v["StartedInfection?"] = false end)
+                local okB, after = pcall(function() return KSL():K2_IsTimerActive(v, "BecomeInfected") end)
+                say("INFECTCLEAR #%d victim=%s ok=%s active after=%s", S.infN, who(v), tostring(okC), okB and tostring(after) or "err")
+            end
+        end
+    end
+end
+
 local function installGrabHooks()
+    installInfectionHook()
     hook(FPC_PATH .. ":HasPerk", function(self, perk)
         local v, k = get(self), num(get(perk))
         if k ~= 39 then return end
@@ -286,8 +325,10 @@ local function installGrabHooks()
             S.seq = S.seq + 1
             local hpSeen = hpOf(victim)
             if valid(victim) then restore(pathOf(victim), "multicast") end
-            say("GRAB #%d %s %s victim=%s hpSeen=%s hpNow=%s montage=%s", S.seq, enemyName(attacker), g.fn:match(":(.+)$"),
-                who(victim), fmt1(hpSeen), fmt1(hpOf(victim)), valid(victim) and montageOf(victim) or "?")
+            local dNow = "?"
+            pcall(function() dNow = tostring(num(gameState().Diffculty)) end)
+            say("GRAB #%d %s %s victim=%s hpSeen=%s hpNow=%s montage=%s diff=%s (start %s)", S.seq, enemyName(attacker), g.fn:match(":(.+)$"),
+                who(victim), fmt1(hpSeen), fmt1(hpOf(victim)), valid(victim) and montageOf(victim) or "?", dNow, tostring(S.diff))
             if isMe(victim) then S.grabsOnMe = S.grabsOnMe + 1 S.ownGrabAt = { t = os.clock(), n = 0, seq = S.seq } end
             if isOther(victim) then S.hostGrabAt = { t = os.clock(), n = 0, seq = S.seq } end
             local c = S.case
@@ -330,6 +371,7 @@ end
 local clearNatural
 -- Every 250 ms: Health fallbacks, and what each machine sees of both players.
 local function monitor()
+    infectionTick()
     for i = #S.pending, 1, -1 do restore(S.pending[i], "next tick") table.remove(S.pending, i) end
     local m, o = me(), other()
     local mp, op = m and pathOf(m) or "none", o and pathOf(o) or "none"

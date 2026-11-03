@@ -1,4 +1,5 @@
--- DifficultyProbe: story 2's solo checks (spec-difficulty-v1, knob-mechanics.md "To verify in game", items 1-3).
+-- DifficultyProbe: story 2's solo checks (spec-difficulty-v1, knob-mechanics.md "To verify in game", items 1-3; set "rule":
+-- the grab rule on any difficulty and the infection roll, item 6 "Open" and CAP-13).
 -- Test-only, never shipped; plain UE4SS Lua (no core). It enters a solo listen match on Nightmare, spawns one enemy at
 -- a time in front of the player and logs every damage path it can hook, then forces the player cold for frostbite.
 --
@@ -22,12 +23,19 @@ os.remove(REQ); os.remove(DONE)
 local MATCH_MAP = "/Game/Maps/SmallLoweIsland/SmallMap"
 local FP = "BP_FirstPersonCharacter_C"
 local FPC_PATH = "/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"
-local DIFF = 0                 -- Nightmare
+local DIFF = 0                 -- Nightmare; difficulty.txt (0-3) overrides it
+local SET = ""                 -- set.txt: "rule" runs RULE_CASES (grab rule + infection) instead of CASES
+do
+    local f = io.open(scriptDir .. "\\difficulty.txt", "r")
+    if f then local d = tonumber((f:read("*a") or ""):match("%d")) f:close() if d and d >= 0 and d <= 3 then DIFF = d end end
+    f = io.open(scriptDir .. "\\set.txt", "r")
+    if f then SET = ((f:read("*a") or ""):match("%a+") or "") f:close() end
+end
 local STANDARD = { [0] = 100, [1] = 50, [2] = 25, [3] = 17 }
 local PROBE_HIT = 5            -- what each compensated hit costs
 local SPAWN_DIST = 700         -- cm in front of the player
 
-local S = { seq = 0, ctx = {}, checks = 0, failures = 0, case = nil, hooks = {}, frost = false, dead = false,
+local S = { infQueue = {}, inf = { rolls = 0, yes = 0 }, seq = 0, ctx = {}, checks = 0, failures = 0, case = nil, hooks = {}, frost = false, dead = false,
             nested = 0, grabAt = nil, grabExec = false }
 
 local function valid(o)
@@ -102,6 +110,8 @@ local function caseHit(attacker)
     else say("OTHER hit from %s during case %s (not counted)", enemyName(attacker), c.name) end
 end
 local function isMe(ch) local m = me() return m ~= nil and valid(ch) and pathOf(ch) == pathOf(m) end
+-- "above" = standard + 1 (survivable by the rule), "at" = standard (execution by the rule)
+local function wantFor(c) return (c and c.set == "at") and STANDARD[DIFF] or STANDARD[DIFF] + 1 end
 
 -- ---------------------------------------------------------------- enemies
 local CASES = {
@@ -225,7 +235,7 @@ local function installMarkers()
     hook(FPC_PATH .. ":HasPerk", function(self, perk)
         local v, k = get(self), num(get(perk))
         if k ~= 39 then return end
-        local want = STANDARD[DIFF] + 1
+        local want = wantFor(S.case)
         local hp = hpOf(v)
         local set = false
         if S.case and S.case.flip and isMe(v) and hp and hp ~= want then
@@ -238,7 +248,8 @@ local function installMarkers()
     hook(FPC_PATH .. ":StartInfectionProcess", function(self)
         local v = get(self)
         local pd = S.pending
-        local want = STANDARD[DIFF] + 1
+        local want = wantFor(S.case)
+        if valid(v) then S.infQueue[#S.infQueue + 1] = { path = pathOf(v), at = os.clock() } end
         local hp = hpOf(v)
         local set = false
         if S.case and S.case.flip and isMe(v) and hp and hp ~= want then
@@ -342,11 +353,11 @@ local function installForClass(path)
                 local flip = S.case and S.case.flip and isMe(victim)
                 if flip then
                     g.saved = hp
-                    local want = STANDARD[DIFF] + 1
+                    local want = wantFor(S.case)
                     pcall(function() victim.Health = want end)
                 end
                 say("GRAB #%d %s %s hp=%s flip=%s (set %s) chance=%s", S.seq, enemyName(attacker), g.fn:match(":(.+)$"), fmt1(hp),
-                    tostring(flip), flip and tostring(STANDARD[DIFF] + 1) or "-", tostring(g.victim == 0 and args[2] or args[1]))
+                    tostring(flip), flip and tostring(wantFor(S.case)) or "-", tostring(g.victim == 0 and args[2] or args[1]))
                 g.id, g.victimPath = S.seq, valid(victim) and pathOf(victim) or nil
                 if S.case and valid(attacker) and pathOf(attacker) == S.case.actor then S.case.grabs = (S.case.grabs or 0) + 1 end
                 S.grabAt, S.grabPath = os.clock(), g.victimPath
@@ -515,7 +526,7 @@ local function runCase(c)
         end)
         return
     end
-    local label = c.name .. (c.flip and " (flip)" or "")
+    local label = c.name .. (c.flip and (" (flip " .. (c.set or "above") .. ")") or "")
     step("spawn " .. label, function()
         local p = me()
         if not p then
@@ -597,11 +608,12 @@ local function runCase(c)
                     say("DIAG %s actor gone", label)
                 end
             end
-            local done = c.grab and c.grabs >= 2 and c.hits >= 1 or (not c.grab and c.hits >= 2)
-            if done and (not S.grabAt or c.grabs >= 2) then return true end
-            if os.clock() - t > 90 then say("TIMEOUT %s hits=%d grabs=%d", label, c.hits, c.grabs or 0) return true end
+            local wanted = c.wanted or 2
+            local done = c.grab and c.grabs >= wanted and c.hits >= 1 or (not c.grab and c.hits >= 2)
+            if done and (not S.grabAt or c.grabs >= wanted) then return true end
+            if os.clock() - t > (c.timeout or 90) then say("TIMEOUT %s hits=%d grabs=%d", label, c.hits, c.grabs or 0) return true end
             return false
-        end, 100, label
+        end, (c.timeout or 90) + 10, label
     end)
     step("despawn " .. label, function()
         if S.dead then return end
@@ -614,6 +626,19 @@ local function runCase(c)
         return after(5), 8
     end)
 end
+-- Grab rule (knob-mechanics.md item 6 "Open"): each grab at full Health (no flip), at standard + 1 (survivable by
+-- the rule) and at standard (execution by the rule), then a long Husk case for the infection roll (CAP-13).
+local RULE_CASES = {}
+for _, e in ipairs({ { "Meek", "/Game/AI/SCP_AI.SCP_AI_C" }, { "Mimic", "/Game/AI/Mimic_AI.Mimic_AI_C" },
+                     { "Psycho", "/Game/AI/MadPatent_AI.MadPatent_AI_C" }, { "Husk", "/Game/AI/FastLearner_AI.FastLearner_AI_C" },
+                     { "Watcher", "/Game/AI/EyeMonster_AI.EyeMonster_AI_C" }, { "Stalker", "/Game/AI/Stalker_AI.Stalker_AI_C" } }) do
+    RULE_CASES[#RULE_CASES + 1] = { name = e[1], path = e[2], grab = true, flip = false }
+    RULE_CASES[#RULE_CASES + 1] = { name = e[1], path = e[2], grab = true, flip = true, set = "above" }
+    RULE_CASES[#RULE_CASES + 1] = { name = e[1], path = e[2], grab = true, flip = true, set = "at" }
+end
+RULE_CASES[#RULE_CASES + 1] = { name = "Husk", path = "/Game/AI/FastLearner_AI.FastLearner_AI_C", grab = true, flip = true,
+                                set = "above", wanted = 15, timeout = 300, infect = true }
+if SET == "rule" then CASES = RULE_CASES end
 local only
 do
     local f = io.open(scriptDir .. "\\cases.txt", "r")
@@ -627,6 +652,31 @@ end
 for _, c in ipairs(CASES) do
     if not only or only[c.frost and "frost" or c.name] then runCase(c) end
 end
+if SET == "rule" then
+    -- The knob's "infect" path: set the game's own BecomeInfected timer and see the player turn (the last step).
+    step("infection by timer", function()
+        local p = me()
+        if not p then say("INFECTSET no pawn") return end
+        say("INFECTSUMMARY rolls=%d infected=%d (game chance 40%%)", S.inf.rolls, S.inf.yes)
+        local ok, err = pcall(function() KSL():K2_SetTimer(p, "BecomeInfected", 3.0, false, false, 0, 0) end)
+        local okA, act = pcall(function() return KSL():K2_IsTimerActive(p, "BecomeInfected") end)
+        say("INFECTSET K2_SetTimer ok=%s %s active=%s", tostring(ok), ok and "" or tostring(err), okA and tostring(act) or "err")
+        local path, t = pathOf(p), os.clock()
+        return function()
+            local v = StaticFindObject(path)
+            local inf, started = false, false
+            if valid(v) then pcall(function() inf = v.Infected end) pcall(function() started = v["StartedInfection?"] end) end
+            if inf == true or os.clock() - t > 20 then
+                local ctl = "none"
+                if valid(v) then pcall(function() local c = v:GetController() if valid(c) then ctl = classOf(c) end end) end
+                check(inf == true, "INFECTSET after %.1f s Infected=%s StartedInfection?=%s controller=%s", os.clock() - t,
+                    tostring(inf), tostring(started), ctl)
+                return true
+            end
+            return false
+        end, 30, "infection by timer"
+    end)
+end
 
 -- ---------------------------------------------------------------- runner (game thread, every 250 ms)
 local idx, waiting, busy, finished = 0, nil, false, false
@@ -639,6 +689,30 @@ local function tick()
     busy = true
     local ok, err = pcall(function()
         if S.dead then say("DEATH the player died (case %s)", S.case and S.case.name or "-") finish() return end
+        while #S.infQueue > 0 and os.clock() - S.infQueue[1].at >= 0.2 do
+            local q = table.remove(S.infQueue, 1)
+            local v = StaticFindObject(q.path)
+            if valid(v) then
+                local okA, act = pcall(function() return KSL():K2_IsTimerActive(v, "BecomeInfected") end)
+                local okR, rem = pcall(function() return KSL():K2_GetTimerRemainingTime(v, "BecomeInfected") end)
+                local okL, loc = pcall(function() return StaticFindObject("/Script/NuclearNightmare.Default__NNInfectedControllerLibrary"):IsLocalInfectionRecipient(v) end)
+                local started, inf = "?", "?"
+                pcall(function() started = tostring(v["StartedInfection?"]) end) pcall(function() inf = tostring(v.Infected) end)
+                local yes = okA and act == true
+                S.inf.rolls = S.inf.rolls + 1
+                if yes then S.inf.yes = S.inf.yes + 1 end
+                say("INFECT #%d case=%s timer=%s remaining=%s recipient=%s StartedInfection?=%s Infected=%s", S.inf.rolls,
+                    S.case and S.case.name or "-", okA and tostring(act) or "err", okR and string.format("%.1f", num(rem) or -1) or "err",
+                    okL and tostring(loc) or "err", started, inf)
+                if yes then
+                    -- Keep the player uninfected (and the next roll fresh): clear the timer, the knob's "no" path.
+                    local okC, err = pcall(function() KSL():K2_ClearTimer(v, "BecomeInfected") end)
+                    local okB, after = pcall(function() return KSL():K2_IsTimerActive(v, "BecomeInfected") end)
+                    check(okC and okB and after == false, "INFECTCLEAR #%d ok=%s %s active after=%s", S.inf.rolls, tostring(okC),
+                        okC and "" or tostring(err), okB and tostring(after) or "err")
+                end
+            end
+        end
         local pd = S.pending
         if pd then
             S.pending = nil

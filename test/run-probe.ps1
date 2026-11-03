@@ -19,7 +19,9 @@ param(
     [Parameter(Mandatory)] [string] $Instance,
     [int] $TimeoutSec = 1500,
     [ValidateSet('host', 'vm')] [string] $Target = 'host',
-    [string[]] $Cases = @() # e.g. 'Leech','Bat','frost'; empty = all
+    [string[]] $Cases = @(), # e.g. 'Leech','Bat','frost'; empty = all
+    [ValidateRange(0, 3)] [int] $Difficulty = 0, # EDiffculty: 0 Nightmare, 1 Hard, 2 Normal, 3 Easy
+    [ValidateSet('', 'rule')] [string] $Set = '' # 'rule': grab rule at three Health levels + the infection roll
 )
 $ErrorActionPreference = 'Stop'
 $probe = 'DifficultyProbe'
@@ -39,6 +41,8 @@ function Install-Probe([string] $instance) {
     New-Item -ItemType Directory -Force (Join-Path $dest 'Scripts') | Out-Null
     Copy-Item (Join-Path $src 'Scripts\main.lua') (Join-Path $dest 'Scripts\main.lua')
     if ($Cases) { Set-Content (Join-Path $dest 'Scripts\cases.txt') ($Cases -join ',') -NoNewline }
+    Set-Content (Join-Path $dest 'Scripts\difficulty.txt') $Difficulty -NoNewline
+    if ($Set) { Set-Content (Join-Path $dest 'Scripts\set.txt') $Set -NoNewline }
     $lines = @(Get-Content $txt | Where-Object { $_ -notmatch "^\s*$probe\s*:" })
     # Other test drivers (left by other runs) would run their own scenarios: off for this run (mods.txt is restored).
     $lines = @($lines | ForEach-Object { if ($_ -match '^\s*(MarkersDriver|Markers|ClockDriver|Clock|PairDriver)\s*:\s*1\s*$') { "$($Matches[1]) : 0" } else { $_ } })
@@ -55,7 +59,7 @@ function Install-Probe([string] $instance) {
 
 function Show-Summary([string] $log) {
     if (-not (Test-Path $log)) { Write-Host "No log at $log"; return }
-    $lines = Select-String -Path $log -Pattern "\[$probe\] (HOOK .*FAIL|OK |FAIL |CASE |GRAB |DMG |COMP |NESTED |ATTR |FROST[A-Z]* |RECOVER|AFTERGRAB|TIMEOUT|DEATH|END )" | ForEach-Object { $_.Line -replace '^.*?\[' + $probe + '\] ', '' }
+    $lines = Select-String -Path $log -Pattern "\[$probe\] (HOOK .*FAIL|OK |FAIL |CASE |GRAB |DMG |COMP |NESTED |ATTR |FROST[A-Z]* |RECOVER|AFTERGRAB|TIMEOUT|DEATH|INFECT[A-Z]* |END )" | ForEach-Object { $_.Line -replace '^.*?\[' + $probe + '\] ', '' }
     $lines | Select-Object -First 400 | ForEach-Object { Write-Host "  $_" }
 }
 
@@ -138,5 +142,5 @@ try {
     $d = Join-Path $ue4ss "Mods\$probe"
     if (Test-Path $d) { Remove-Item $d -Recurse -Force }
 }
-$kept = Join-Path $outDir 'probe.log'
+$kept = Join-Path $outDir "probe-d$Difficulty$(if ($Set) { "-$Set" }).log"
 if (Test-Path $log) { Copy-Item $log $kept -Force; Show-Summary $kept } else { Write-Host "No UE4SS.log at $log" }

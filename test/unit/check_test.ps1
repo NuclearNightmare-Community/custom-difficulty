@@ -51,7 +51,7 @@ Expect ($ready + @(D 'WARN isHost for SmallMap: IsServer failed (x); host=false 
 Expect ($ready + @(D 'WARN hud slow tick 1.4 ms (steady state)')) 'ready' 0 'ready: a hud slow tick WARN is soft' 'warn:'
 Expect ($ready + @(U 'stack traceback:')) 'ready' 1 'ready: a traceback -> fails' 'stack traceback'
 Expect ($ready + @(U '[script_hook] removing hook')) 'ready' 1 'ready: a removed hook -> fails' 'removing hook'
-Expect ($ready + @($menu)) 'ready' 0 'ready: the same WORLD line twice in a row is only a warning' 'warn: one WORLD line'
+Expect ($ready -replace 'need=0\.3\.0', 'need=0.2.0') 'ready' 1 'ready: READY need other than dependsOn or 0.3.0 -> fails' 'READY need=0\.2\.0'
 $order = $coreStart + @((D 'READY version=0.1.0 Nucleus=0.3.0 need=0.3.0'), (D 'CONNECT ok Nucleus 0.3.0 (pong)'), (D 'WARN running on Nucleus 0.3.0 before 0.4.0 (dev only): no UI'), $menu)
 Expect $order 'ready' 1 'ready: READY before CONNECT -> fails' 'READY comes after CONNECT'
 
@@ -59,6 +59,8 @@ Expect $order 'ready' 1 'ready: READY before CONNECT -> fails' 'READY comes afte
 $ready4 = @((D 'CONNECT ok Nucleus 0.4.1 (pong 0.4.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.4.1 need=0.4.0'))
 Expect $ready4 'ready' 0 'ready on 0.4.1: passes without the pre-core WARN' 'no pre-core WARN'
 Expect ($ready4 + @(D 'WARN running on Nucleus 0.4.1 before 0.4.0 (dev only): no UI')) 'ready' 1 'ready on 0.4.1: a pre-core WARN -> fails' 'pre-core WARN'
+Expect $ready4 'ready' 0 'ready on 0.4.1: READY need=0.4.0 is dependsOn''s minimum' 'need=0\.4\.0 is dependsOn'
+Expect ($ready4 -replace 'need=0\.4\.0', 'need=0.3.0') 'ready' 1 'ready on 0.4.1: need=0.3.0 without the pre-core WARN -> fails' 'READY need=0\.3\.0'
 
 # ---------------------------------------------------------------- host
 $hostLog = $ready + @((U 'LoadMap /Game/Maps/SmallLoweIsland/SmallMap'), (D 'WORLD host=true standalone=false map=SmallMap'))

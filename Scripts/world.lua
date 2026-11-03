@@ -1,6 +1,6 @@
 -- Difficulty: which machine decides (AGENTS.md "Networking"). isHost = KismetSystemLibrary:IsServer(world) and not
 -- IsStandalone(world), evaluated when a world loads (the LoadMap post-hook, or at ready for the world that was already
--- loaded) and cached per world, keyed by the world's full name. Never from HasAuthority: every machine has authority
+-- loaded) and cached per world name (the map path: the world's full name). Never from HasAuthority: every machine has authority
 -- over the actors it spawns.
 -- Two parts: the cache (pure, no UE4SS: unit-tested without the game) and the game adapter (reads KSL for one world
 -- and hands back plain values; it never keeps the world or any other UObject).
@@ -27,8 +27,8 @@ function M.new() return setmetatable({ worlds = {}, order = {}, last = nil }, Ca
 -- onLoadMap(worldName, isServer, isStandalone) -> entry, fresh.
 -- entry = { name, map, server, standalone, host }. isServer / isStandalone are booleans, or nil when the call failed:
 -- host is then false (the safe side: a host-only knob stays stock). fresh is false only when the same world was just
--- evaluated with the same answer (the ready evaluation and the LoadMap hook seeing one world), so the WORLD line is
--- logged once per world.
+-- evaluated with the same answer (the ready evaluation and the LoadMap hook seeing one world): one WORLD line per
+-- world name (map path); a reload of the same map with the same answer logs a DEBUG line.
 function Cache:onLoadMap(worldName, isServer, isStandalone)
     if type(worldName) ~= "string" or worldName == "" then return nil, false end
     local name = worldName:sub(1, M.MAX_NAME)

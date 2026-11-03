@@ -22,6 +22,18 @@ local function newLog(tag)
 end
 
 -- Loads main.lua fresh. opts.client = false: core not installed; opts.connectThrows: connect raises.
+-- The caret rule core's connect applies (nucleus.semver): 0.x needs the same minor, 1.x the same major; at least need.
+local function satisfies(have, need)
+    local a, b, c = tostring(have):match("^(%d+)%.(%d+)%.(%d+)$")
+    local x, y, z = tostring(need):match("^(%d+)%.(%d+)%.(%d+)$")
+    if not a or not x then return false end
+    a, b, c, x, y, z = tonumber(a), tonumber(b), tonumber(c), tonumber(x), tonumber(y), tonumber(z)
+    if a ~= x then return false end
+    if x == 0 then return b == y and c >= z end
+    if b ~= y then return b > y end
+    return c >= z
+end
+
 local function boot(opts)
     opts = opts or {}
     W = F.new()
@@ -58,7 +70,18 @@ end
 local function newCore(version)
     return { name = "Nucleus", version = version or "0.4.0", log = newLog("Difficulty") }
 end
-local function ready(core) S.connects[1].onReady(core) end
+-- As core's connect: onReady only when the core satisfies need; otherwise core's one ERROR line and onFail.
+local function ready(core)
+    local c = S.connects[1]
+    if not satisfies(core.version, c.need) then
+        local msg = ("%s %s is not compatible; %s needs %s (^ rules). Update %s."):format(core.name, core.version, c.mod, c.need, core.name)
+        print("[" .. c.mod .. "] ERROR " .. msg .. " " .. c.mod .. " will not run.\n")
+        c.onFail(msg)
+        return false
+    end
+    c.onReady(core)
+    return true
+end
 local function lines(pat) local r = {} for _, l in ipairs(W.printed) do if l:find(pat) then r[#r + 1] = l end end return r end
 local function count(pat) return #lines(pat) end
 local function ours() return count("^%[Difficulty%]") end
@@ -129,6 +152,7 @@ do -- IsServer fails in the match: one WARN, isHost false for that world.
     ready(newCore())
     W.serverFails = true
     W.loadMapHooks[1](nil, W.param(W.match))
+    W.loadMapHooks[1](nil, W.param(W.match)) -- the same world again (as ready + LoadMap): still one WARN
     eq(count("^%[Difficulty%] WARN isHost for SmallMap: IsServer failed"), 1, "IsServer fails: one WARN")
     eq(count("^%[Difficulty%] WORLD host=false standalone=%? map=SmallMap$"), 1, "IsServer fails: host=false")
     eq(count("ERROR"), 0, "IsServer fails: no ERROR")
@@ -172,11 +196,25 @@ do
     W.loadMapHooks[1](nil, W.param(W.menu))
     eq(count("DEBUG WORLD again map=NewMainMenu"), 1, "debug: the repeat is a DEBUG line")
 end
-do
+do -- dev.lua without preCore (what deploy -Test -PreCore writes on core 0.4.x) on core 0.4.0: connects, no pre-core WARN.
     boot{ dev = "return { debug = true }" }
     eq(S.connects[1].need, "0.4.0", "dev.lua without preCore: need 0.4.0")
-    ready(newCore())
+    ok(ready(newCore("0.4.0")), "dev.lua without preCore on core 0.4.0: connects")
     eq(count("running on"), 0, "dev.lua without preCore: no pre-core WARN")
+    eq(count("READY version=0%.1%.0 Nucleus=0%.4%.0 need=0%.4%.0$"), 1, "dev.lua without preCore: READY need 0.4.0")
+end
+do -- preCore on core 0.4.0 would need 0.3.0, which 0.4.0 doesn't satisfy (0.x caret: same minor): the fake connect refuses.
+    boot{ dev = "return { debug = true, preCore = true }" }
+    ok(not ready(newCore("0.4.0")), "preCore on core 0.4.0: connect refuses")
+    eq(#W.loadMapHooks, 0, "preCore on core 0.4.0: no hook")
+    eq(ours(), 1, "preCore on core 0.4.0: exactly one line")
+end
+do -- normal need 0.4.0 on core 0.3.0: refused with core's line (the old-core scenario).
+    boot()
+    ok(not ready(newCore("0.3.0")), "core 0.3.0, need 0.4.0: refused")
+    eq(count("^%[Difficulty%] ERROR Nucleus 0%.3%.0 is not compatible; Difficulty needs 0%.4%.0 %(%^ rules%)%. Update Nucleus%. Difficulty will not run%.$"), 1, "old core: core's one line")
+    eq(ours(), 1, "old core: exactly one line")
+    eq(#W.loadMapHooks, 0, "old core: no hook")
 end
 do -- A broken dev.lua: ignored, one WARN after connect, normal need; nothing printed before connect.
     boot{ dev = "return {" }

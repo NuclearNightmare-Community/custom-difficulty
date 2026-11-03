@@ -67,7 +67,7 @@ local function start(core)
         if not name then warnOnce("noname", "a %s world could not be read: %s; isHost stays false", how, tostring(problem)) return end
         local e, fresh = W:onLoadMap(name, server, standalone)
         if not e then return end
-        if problem then say("warn", "isHost for %s: %s; host=false for this world", e.map, problem) end
+        if fresh and problem then say("warn", "isHost for %s: %s; host=false for this world", e.map, problem) end
         if fresh then
             say("info", "WORLD host=%s standalone=%s map=%s", tostring(e.host),
                 e.standalone == nil and "?" or tostring(e.standalone), e.map)

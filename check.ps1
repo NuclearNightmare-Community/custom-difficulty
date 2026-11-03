@@ -6,7 +6,8 @@
   A pattern must match somewhere; "!pattern" must match nowhere; "#N|pattern" must match exactly N lines;
   "?pattern" is a soft check (reported as "warn:", never failing); "?!pattern" is a soft check that it matches nowhere.
   Then the computed checks: READY after CONNECT ok; on a core before the one dependsOn names (dev core mode,
-  deploy.ps1 -Test -PreCore) exactly one pre-core WARN, otherwise none; and (soft) no WORLD line repeated twice in a row.
+  deploy.ps1 -Test -PreCore) exactly one pre-core WARN, otherwise none; and READY's need is dependsOn's
+  minimum, or 0.3.0 only with the pre-core WARN.
   Exit code 1 when any check fails; otherwise prints "All checks passed."
   Scenarios:
     ready     dev copy to the main menu: connected, READY, WORLD host=false standalone=true for the menu.
@@ -118,13 +119,14 @@ if ($Scenario -in 'ready', 'host', 'hand') {
         } elseif ($anyPre -eq 0) { Pass "core $($connected[0]) satisfies $range`: no pre-core WARN" }
         else { Fail "core $($connected[0]) satisfies $range but a pre-core WARN was logged ($anyPre)" }
     }
-    # One WORLD line per world: the same line twice in a row may be one world logged twice (or the game loading the
-    # same map again), so it is a soft check.
-    $prev = $null; $dupes = @()
-    foreach ($l in $lines) {
-        if ($l -match "\[$C\] (WORLD .*map=\S+)\s*$") { if ($Matches[1] -eq $prev) { $dupes += $prev }; $prev = $Matches[1] }
+    # READY's need: dependsOn's minimum, or 0.3.0 only in the dev core mode (with its WARN).
+    $readyLine = @($lines | Where-Object { $_ -match "\[$C\] READY .* need=\d+\.\d+\.\d+" })[0]
+    if ($readyLine -and $readyLine -match 'need=(\d+\.\d+\.\d+)') {
+        $gotNeed = $Matches[1]
+        if ($gotNeed -eq $needVer) { Pass "READY need=$gotNeed is dependsOn's minimum" }
+        elseif ($gotNeed -eq '0.3.0' -and $anyPre -ge 1) { Pass 'READY need=0.3.0 in the dev core mode (pre-core WARN present)' }
+        else { Fail "READY need=$gotNeed`: want $needVer, or 0.3.0 with the pre-core WARN" }
     }
-    if ($dupes) { Write-Host "warn: one WORLD line per world (the same line twice in a row: $($dupes -join ', '))"; $warned++ } else { Pass 'one WORLD line per world' }
 }
 
 if ($failed) { Write-Host "$failed check(s) failed."; exit 1 }

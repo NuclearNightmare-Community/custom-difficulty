@@ -27,18 +27,19 @@ Nucleus 0.4.0 (with the UI stories 18 to 23) doesn't exist yet. To test with cor
 ./deploy.ps1 -Instance <copy> -Test -PreCore
 ```
 
-`-PreCore` works only with `-Test`. It also accepts an installed core `^0.3.0` and writes `Scripts/dev.lua`
+`-PreCore` works only with `-Test`. It also accepts an installed core `^0.3.0` and, on such a core only, writes `Scripts/dev.lua`
 (`return { debug = true, preCore = true }`; git-ignored, never shipped). `main.lua` then connects with need 0.3.0 and
 logs one `WARN running on Nucleus <v> before 0.4.0 (dev only): no UI`. `-Test` alone writes
-`return { debug = true }` (DEBUG lines). Without `dev.lua`, the mod needs 0.4.0, so a normal deploy and a normal
+`return { debug = true }` (DEBUG lines), as does `-Test -PreCore` on a core that already satisfies `^0.4.0`. Without `dev.lua`, the mod needs 0.4.0, so a normal deploy and a normal
 runtime refuse core 0.3.0.
 
 ## What it logs
 
 - `CONNECT ok Nucleus <v> (...)` (from core's connect), then one `WORLD host=<bool> standalone=<bool> map=<short>` for
   the world already loaded, then `READY version=0.1.0 Nucleus=<v> need=<need>`.
-- One `WORLD ...` line per world loaded after that (the `LoadMap` post-hook). `isHost` is
-  `KismetSystemLibrary:IsServer(world) and not IsStandalone(world)`, cached per world by its full name. If a call
+- One `WORLD ...` line per world name (map path) loaded after that (the `LoadMap` post-hook); a reload of the same
+  map with the same answer logs a DEBUG line. `isHost` is `KismetSystemLibrary:IsServer(world) and not
+  IsStandalone(world)`, cached per world name. If a call
   fails: one `WARN isHost for <map>: ...` and `host=false` for that world.
 - Without a compatible core: exactly one `[Difficulty]` line naming the cause, and no hook registered.
 

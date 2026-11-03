@@ -161,6 +161,9 @@ try {
     Set-Core '0.4.0'
     $d = Deploy @('-Test', '-PreCore')
     Ok ($d.Code -eq 0) 'deploy -Test -PreCore: core 0.4.0 also accepted' $d.Out
+    $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+    Ok ($dev -match '(?m)^return \{ debug = true \}$' -and $dev -cnotmatch 'preCore =') 'deploy -Test -PreCore on core 0.4.0: dev.lua without preCore (need stays 0.4.0)' $dev
+    Ok ($d.Out -match '-PreCore not needed: Nucleus 0\.4\.0 satisfies \^0\.4\.0' -and $d.Out -notmatch 'dev core mode') 'deploy -Test -PreCore on core 0.4.0: says -PreCore is not needed' $d.Out
 
     # -Force: old-core scenario (0.3.0, normal deploy): warns and installs, no dev.lua.
     Set-Core '0.3.0'

@@ -11,7 +11,8 @@
   (DifficultyProbe, DifficultyPair) are left alone.
   -Test writes Scripts/dev.lua (return { debug = true }): Difficulty's DEBUG lines, which check.ps1 reads.
   -PreCore (only with -Test) is the dev core mode: it also accepts an installed core ^0.3.0 (before core 0.4.0, which
-  brings the UI) and writes dev.lua with preCore = true, so main.lua connects with need 0.3.0 and logs one WARN.
+  brings the UI) and writes dev.lua with preCore = true, so main.lua connects with need 0.3.0 and logs one WARN. On a
+  core that already satisfies dependsOn, -PreCore changes nothing: dev.lua is { debug = true } and need stays 0.4.0.
   dev.lua is git-ignored and never shipped.
   -Remove deletes Mods/Difficulty and its mods.txt line; nothing else changes (mods.txt keeps its bytes when it had no
   Difficulty line).
@@ -37,6 +38,7 @@ $PreCoreRange = '^0.3.0' # -PreCore: the core before the one dependsOn names (de
 $here     = $PSScriptRoot
 $manifest = Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json
 $name     = $manifest.name
+if ("$name" -notmatch '^[A-Za-z][A-Za-z0-9_-]*$') { throw "mod.json's name '$name' is not a plain name; refusing to deploy" }
 $files    = 'main.lua', 'world.lua'
 
 function Stop-Deploy([string] $why) { Write-Host "$name not deployed: $why"; exit 1 }
@@ -69,6 +71,7 @@ if (-not $dep) { throw "mod.json has no dependsOn entry for $($CoreName.ToLowerI
 $coreJson = Join-Path $modsDir "$CoreName\mod.json"
 $problem = $null
 $coreVersion = $null
+$preCoreUsed = $false # -PreCore takes effect only on a core that fails dependsOn and satisfies ^0.3.0
 if (-not (Test-Path $coreJson)) {
     $problem = "$CoreName is not installed in $modsDir (no $CoreName\mod.json); install it first with its own deploy.ps1."
 } else {
@@ -78,8 +81,9 @@ if (-not (Test-Path $coreJson)) {
     $accepted = $false
     if ($core) {
         $coreVersion = $core.version
-        $accepted = (Test-CaretRange -Version $core.version -Range $dep.version) -or
-                    ($PreCore -and (Test-CaretRange -Version $core.version -Range $PreCoreRange))
+        $satisfies = Test-CaretRange -Version $core.version -Range $dep.version
+        $preCoreUsed = $PreCore -and -not $satisfies -and (Test-CaretRange -Version $core.version -Range $PreCoreRange)
+        $accepted = $satisfies -or $preCoreUsed
     }
     if (-not $core -or $core.id -ne $dep.id) {
         $problem = "$coreJson is not $CoreName's manifest (id '$($core.id)', expected '$($dep.id)')."
@@ -103,7 +107,7 @@ Copy-Item (Join-Path $here 'mod.json') (Join-Path $modsDir $name) -Force
 foreach ($f in $files) { Copy-Item (Join-Path $here "Scripts\$f") $dest -Force }
 $devText = $null
 if ($Test) {
-    $devText = if ($PreCore) { 'return { debug = true, preCore = true }' } else { 'return { debug = true }' }
+    $devText = if ($preCoreUsed) { 'return { debug = true, preCore = true }' } else { 'return { debug = true }' }
     $devText = "-- Written by deploy.ps1 -Test$(if ($PreCore) { ' -PreCore' }); dev only, never shipped.`n$devText`n"
     [IO.File]::WriteAllText((Join-Path $dest 'dev.lua'), $devText, [Text.UTF8Encoding]::new($false))
 }
@@ -112,7 +116,8 @@ if ($Test) {
 $lines = Edit-ModsTxt -Lines $clean -Add @($name) -After $CoreName
 Write-ModsTxt $modsTxt $file $lines
 
-Write-Host "$name $($manifest.version) deployed$(if ($Test) { ' (test' + $(if ($PreCore) { ", dev core mode: $CoreName $coreVersion" }) + ')' }):"
+if ($PreCore -and -not $preCoreUsed -and -not $problem) { Write-Host "-PreCore not needed: $CoreName $coreVersion satisfies $($dep.version); dev.lua without preCore (need $($dep.version.TrimStart('^')))." }
+Write-Host "$name $($manifest.version) deployed$(if ($Test) { ' (test' + $(if ($preCoreUsed) { ", dev core mode: $CoreName $coreVersion" }) + ')' }):"
 Get-ChildItem (Join-Path $modsDir $name) -Recurse -File | ForEach-Object { Write-Host "  Mods/$name/$($_.FullName.Substring((Join-Path $modsDir $name).Length + 1)) ($($_.Length) bytes)" }
 if ($devText) { Write-Host "  dev.lua: $(($devText -split "`n")[1])" }
 Write-Host "mods.txt: $(($lines | Where-Object { $_ -match '^\s*[\w-]+\s*:\s*1' }) -join ', ')"

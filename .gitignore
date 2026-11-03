@@ -1,1 +1,7 @@
+# Worktrees (all work happens in one, then merges to main)
 .worktrees/
+# Written by deploy.ps1 -Test (dev only, never committed or shipped)
+Scripts/dev.lua
+# Build output and logs
+build/
+*.log

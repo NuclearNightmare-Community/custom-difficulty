@@ -138,16 +138,16 @@ do
     ok(lines[1] and lines[1]:find("^COLD raw=0%.%d%d%d%d applied=0%.%d%d%d%d factor=0%.25 polls=3 writes=%d+ players=1 avg_ms=0%.050 clock=core$"), "summary: the COLD line", lines[1])
     now = 15 P:summary("core")
     eq(#lines, 1, "summary: not again within 10 s")
-    ok(dbg[1] and dbg[1]:find("^COLD timing find_ms=%? read_ms=%? write_ms=%? "), "summary: the DEBUG timing line (not measured without micros)", dbg[1])
+    ok(dbg[1] and dbg[1]:find("^COLD timing discover_ms=%? %(n=0%) deref_ms=%? %(n=0%) read_ms=%? write_ms=%? "), "summary: the DEBUG timing line (not measured without micros)", dbg[1])
     -- With micros: per-part averages.
     local t = 0
     local Q = env.newPoll{ say = function(level, fmt, ...) if level == "debug" then dbg[#dbg + 1] = string.format(fmt, ...) end end,
         clock = function() return now end, micros = function() t = t + 10 return t end }
     local q = wrap(ch("/Q", 0.1))
     Q:tick({ q }, 50, 0) q.raw.Temperature = 0.2 Q:tick({ q }, 50, 0)
-    Q:cost(100, 40) Q:cost(100, 60)
+    Q:cost(100, 40, true) Q:cost(100, 60, true) Q:cost(100, 10, false)
     Q:summary("core") now = now + 11 Q:summary("core")
-    ok(dbg[#dbg]:find("^COLD timing find_ms=0%.0500 read_ms=0%.0100 write_ms=0%.0100 .* reads=2$"), "summary: find, read and write averages", dbg[#dbg])
+    ok(dbg[#dbg]:find("^COLD timing discover_ms=0%.0500 %(n=2%) deref_ms=0%.0100 %(n=1%) read_ms=0%.0100 write_ms=0%.0100 reads=2$"), "summary: find, read and write averages", dbg[#dbg])
 end
 
 -- ---------------------------------------------------------------- the source: rules from AGENTS.md

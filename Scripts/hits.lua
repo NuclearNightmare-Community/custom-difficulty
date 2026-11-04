@@ -128,7 +128,10 @@ end
 -- always put back.
 function A:reset(world)
     local old = self.st
-    if old and old.gsRef ~= nil and self.o.free then pcall(self.o.free, old.gsRef) end
+    if old and self.o.free then
+        if old.gsRef ~= nil then pcall(self.o.free, old.gsRef) end
+        for _, e in ipairs(old.charRefs or {}) do pcall(self.o.free, e.h) end
+    end
     self.st = {
         world = world, started = false, backedOff = false, values = {},
         grabs = {},     -- victim path -> { kind, attacker, row, at }
@@ -140,6 +143,8 @@ function A:reset(world)
                             micros = function() if self.micros then return self.micros() end return nil end },
         tok = nil,      -- the token state (tokens.start); nil while the knob does nothing
         gsRef = nil,    -- core's weak handle on this match's game state (onStart), never the object
+        charRefs = nil, -- the characters between discoveries: { h = weak handle, path } (nil: discover next poll)
+        sinceDiscovery = 0,
         isFP = {},      -- pawn path -> true when it is a BP_FirstPersonCharacter_C (the class check once per path)
     }
 end
@@ -543,16 +548,60 @@ function A:now()
     return os.clock() * 1e6, "os"
 end
 
--- pollGameState() -> this match's game state: through the weak handle (nil once it is gone: the tick is skipped),
--- or without core's handles the old way (a FindAllOf of the game states).
-function A:pollGameState()
+M.REDISCOVER_EVERY = 8 -- polls: the characters are found again every 2 s (and on a match's first poll)
+
+-- handles() -> true when the poll keeps weak handles (core has them and the game state has one this match).
+function A:handles() return self.st.gsRef ~= nil and self.o.ref ~= nil and self.o.deref ~= nil end
+
+-- pollGameState(check) -> this match's game state: through the weak handle (nil once it is gone: the tick is
+-- skipped; the KSL liveness check only when check is set, at a discovery), or without core's handles the old way
+-- (a FindAllOf of the game states).
+function A:pollGameState(check)
     local st = self.st
     if st.gsRef ~= nil and self.o.deref then
         local ok, gs = pcall(self.o.deref, st.gsRef)
-        if ok and gs ~= nil and self:alive(gs) then return gs end
+        if ok and gs ~= nil and (not check or self:alive(gs)) then return gs end
         return nil
     end
     return self:gameState(nil)
+end
+
+-- freeChars(): the character handles go (a rediscovery, a dropped entry handled by the caller).
+function A:freeChars()
+    for _, e in ipairs(self.st.charRefs or {}) do if self.o.free then pcall(self.o.free, e.h) end end
+    self.st.charRefs = nil
+end
+
+-- pollChars(gs) -> chars, discovered. With handles: a discovery (PlayerArray, liveness, paths, one handle per
+-- character) on a match's first poll and every REDISCOVER_EVERY polls; between, only a deref per handle (an entry
+-- whose deref is nil is dropped until the next discovery). Without handles: a discovery every poll.
+function A:pollChars(gs)
+    local st = self.st
+    if not self:handles() then return self:players(gs), true end
+    if st.charRefs == nil or st.sinceDiscovery >= M.REDISCOVER_EVERY - 1 then
+        self:freeChars()
+        local found = self:players(gs)
+        local refs = {}
+        for _, c in ipairs(found) do
+            local ok, h = pcall(self.o.ref, c.obj)
+            if ok and h ~= nil then refs[#refs + 1] = { h = h, path = c.path } end
+        end
+        st.charRefs, st.sinceDiscovery = refs, 0
+        return found, true
+    end
+    st.sinceDiscovery = st.sinceDiscovery + 1
+    local chars, keep = {}, {}
+    for _, e in ipairs(st.charRefs) do
+        local ok, o = pcall(self.o.deref, e.h)
+        if ok and o ~= nil then
+            chars[#chars + 1] = { obj = o, path = e.path }
+            keep[#keep + 1] = e
+        elseif self.o.free then
+            pcall(self.o.free, e.h)
+        end
+    end
+    st.charRefs = keep
+    return chars, false
 end
 
 -- players(gs) -> { { obj, path } } for each player state's pawn in gs.PlayerArray that is a live
@@ -594,9 +643,11 @@ function A:onPoll()
     if cold == nil and not st.tok then return end
     if not self:active() then return end
     local t0, clockName = self:now()
-    local gs = self:pollGameState()
+    local discovering = not self:handles() or st.charRefs == nil or st.sinceDiscovery >= M.REDISCOVER_EVERY - 1
+    local gs = self:pollGameState(discovering)
     if not gs then return end
-    local chars = cold ~= nil and self:players(gs) or {}
+    local chars, discovered = {}, false
+    if cold ~= nil then chars, discovered = self:pollChars(gs) end
     local tFind = self:now()
     if cold ~= nil then
         local d = gs and self:difficulty(nil, gs) or nil
@@ -604,7 +655,7 @@ function A:onPoll()
     end
     if st.tok and gs then tokens.check(st.tok, gs, "poll", self.o) end
     if cold ~= nil then
-        st.cold:cost(self:now() - t0, tFind - t0)
+        st.cold:cost(self:now() - t0, tFind - t0, discovered)
         st.cold:summary(clockName)
     end
 end

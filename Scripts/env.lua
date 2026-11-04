@@ -64,7 +64,7 @@ P.__index = P
 function M.newPoll(o)
     return setmetatable({ o = o, last = {}, raw = 0, applied = 0, writes = 0, polls = 0, us = 0, timed = 0,
                           nextSummary = nil, players = 0,
-                          t = { find = 0, read = 0, write = 0, reads = 0, writes = 0, timed = 0 } }, P)
+                          t = { disc = 0, discs = 0, deref = 0, derefs = 0, read = 0, write = 0, reads = 0, writes = 0 } }, P)
 end
 local function us(self)
     local m = self.o.micros
@@ -109,12 +109,16 @@ function P:tick(chars, cold, d)
     self.players = #chars
 end
 
--- cost(total, find): one poll's measured time in microseconds (nil: not measured), and the part of it spent finding
--- the game state and the characters.
-function P:cost(total, find)
+-- cost(total, find, discovered): one poll's measured time in microseconds (nil: not measured), and the part of it
+-- spent getting the game state and the characters: a discovery (PlayerArray walk, liveness, paths, handles) or,
+-- between discoveries, the handles' derefs.
+function P:cost(total, find, discovered)
     self.polls = self.polls + 1
     if type(total) == "number" and total >= 0 then self.us, self.timed = self.us + total, self.timed + 1 end
-    if type(find) == "number" and find >= 0 then self.t.find, self.t.timed = self.t.find + find, self.t.timed + 1 end
+    if type(find) == "number" and find >= 0 then
+        if discovered then self.t.disc, self.t.discs = self.t.disc + find, self.t.discs + 1
+        else self.t.deref, self.t.derefs = self.t.deref + find, self.t.derefs + 1 end
+    end
 end
 
 -- summary(clockName): one COLD line every SUMMARY_EVERY s (sums since the match start).
@@ -126,12 +130,12 @@ function P:summary(clockName)
     local avg = self.timed > 0 and string.format("%.3f", self.us / self.timed / 1000) or "?"
     self.o.say("info", "COLD raw=%.4f applied=%.4f factor=%s polls=%d writes=%d players=%d avg_ms=%s clock=%s",
         self.raw, self.applied, damage.fmt(self.factor), self.polls, self.writes, self.players, avg, clockName or "?")
-    -- Where the time goes (DEBUG): per poll, finding (game state, PlayerArray, pawns, liveness, paths); per character,
-    -- one Temperature read and one write.
+    -- Where the time goes (DEBUG): per discovery poll (game state, PlayerArray, pawns, liveness, paths, handles), per
+    -- poll between discoveries (the derefs), per character read and per write.
     local t = self.t
     local function ms(v, n) return n > 0 and string.format("%.4f", v / n / 1000) or "?" end
-    self.o.say("debug", "COLD timing find_ms=%s read_ms=%s write_ms=%s (per poll; per character read; per write) reads=%d",
-        ms(t.find, t.timed), ms(t.read, t.reads), ms(t.write, t.writes), t.reads)
+    self.o.say("debug", "COLD timing discover_ms=%s (n=%d) deref_ms=%s (n=%d) read_ms=%s write_ms=%s reads=%d",
+        ms(t.disc, t.discs), t.discs, ms(t.deref, t.derefs), t.derefs, ms(t.read, t.reads), ms(t.write, t.writes), t.reads)
 end
 
 return M

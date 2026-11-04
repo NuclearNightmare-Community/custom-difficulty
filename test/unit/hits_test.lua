@@ -584,21 +584,44 @@ do -- cold Default: no poll work, no write
     eq(T.me._f.Temperature, 0.2, "cold default: the stock rise")
     eq(count("^COLD "), 0, "cold default: no COLD line")
 end
-do -- the poll's find: weak handle + PlayerArray, no FindAllOf or StaticFindObject per tick
+do -- the poll's find: weak handles + PlayerArray; discovery on the first poll and every 8th, derefs between
     setup{ knobs = "cold=50;revives=4", diff = 0, cm = 3 }
     eq(T.refs, 1, "find: one weak handle on the game state at the match start")
-    local finds, sfo = 0, 0
+    local finds, sfo, names, walks = 0, 0, 0, 0
     local realF, realS = FindAllOf, StaticFindObject
     FindAllOf = function(s) finds = finds + 1 return realF(s) end
     StaticFindObject = function(p) sfo = sfo + 1 return realS(p) end
-    T.me._f.Temperature = 0.1 T.poll()
-    T.me._f.Temperature = 0.14 T.poll()
-    FindAllOf = realF
-    ok(math.abs(T.me._f.Temperature - 0.11) < 1e-9, "find: the PlayerArray's pawn is scaled", T.me._f.Temperature)
-    eq(finds, 0, "find: no FindAllOf per tick")
-    eq(sfo, 0, "find: no StaticFindObject per tick (the fake alive; world.alive caches its own)")
-    StaticFindObject = realS
-    -- A spectator (no pawn), a pawn of another class and a pawn only reachable through GetPawn().
+    local realName = Actor.GetFullName
+    Actor.GetFullName = function(a) names = names + 1 return realName(a) end
+    local arr = T.gs.PlayerArray
+    local function walked() walks = walks + 1 return arr end
+    rawset(T.gs, "PlayerArray", setmetatable({}, { __len = function() walked() return #arr end, __index = function(_, i) return arr[i] end }))
+    T.me._f.Temperature = 0.1 T.poll()           -- poll 1: discovery
+    eq(T.refs, 3, "find: the first poll takes a handle per character")
+    local walks1, names1 = walks, names
+    T.me._f.Temperature = 0.14 T.poll()          -- poll 2: derefs only
+    ok(math.abs(T.me._f.Temperature - 0.11) < 1e-9, "find: a character from its handle is scaled", T.me._f.Temperature)
+    eq(walks, walks1, "find: no PlayerArray walk between discoveries")
+    eq(names, names1, "find: no GetFullName between discoveries")
+    for _ = 3, 8 do T.poll() end                 -- polls 3..8: derefs
+    eq(walks, walks1, "find: still no walk through poll 8")
+    T.poll()                                     -- poll 9: the next discovery
+    eq(walks, walks1 + 1, "find: rediscovered on the 9th poll (every 8 polls)")
+    eq(T.freed, 2, "find: the rediscovery freed the two old character handles")
+    eq(finds, 0, "find: no FindAllOf at all")
+    eq(sfo, 0, "find: no StaticFindObject at all (the fake alive; world.alive caches its own)")
+    FindAllOf, StaticFindObject, Actor.GetFullName = realF, realS, realName
+    -- A deref that returns nil drops that entry until the next discovery (its handle freed).
+    local otherH
+    for h, o in pairs(T.handles) do if o == T.other then otherH = h end end
+    T.handles[otherH] = nil
+    local freed = T.freed
+    T.other._f.Temperature = 0.5 T.poll()
+    T.other._f.Temperature = 0.6 T.poll()
+    eq(T.other._f.Temperature, 0.6, "find: a nil deref is skipped")
+    eq(T.freed, freed + 1, "find: the dropped entry's handle is freed")
+    eq(#T.H.st.charRefs, 1, "find: the dropped entry is gone until the next discovery")
+    -- A spectator (no pawn), a pawn of another class and one reachable only through GetPawn(): seen at a discovery.
     local odd = actor("BP_ThirdPersonCharacter_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.Monster_1", { Temperature = 0.1 })
     local viaGet = actor("BP_FirstPersonCharacter_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.BP_FirstPersonCharacter_C_3", { Temperature = 0.1 })
     local spect = actor("BP_NNPlayerState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.PS_3", {})
@@ -606,22 +629,27 @@ do -- the poll's find: weak handle + PlayerArray, no FindAllOf or StaticFindObje
     local psGet = actor("BP_NNPlayerState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.PS_5", {})
     rawset(psGet, "GetPawn", function() return viaGet end)
     rawset(T.gs, "PlayerArray", { T.ps[1], spect, psOdd, psGet })
+    T.H.st.sinceDiscovery = hits.REDISCOVER_EVERY - 1 -- the next poll discovers
     T.poll()
     odd._f.Temperature, viaGet._f.Temperature = 0.2, 0.2
     T.poll()
     eq(odd._f.Temperature, 0.2, "find: a pawn of another class is skipped")
     ok(math.abs(viaGet._f.Temperature - 0.125) < 1e-9, "find: GetPawn() when PawnPrivate is empty", viaGet._f.Temperature)
-    -- The game state gone (the handle derefs to nil): the tick does nothing.
+    -- The game state gone (its handle derefs to nil): the tick does nothing.
     rawset(T.gs, "_gone", true)
     viaGet._f.Temperature = 0.3
     T.poll()
     eq(viaGet._f.Temperature, 0.3, "find: game state gone -> the tick is skipped")
     rawset(T.gs, "_gone", nil)
-    -- A new match frees the old handle.
+    -- A new match frees every handle (the game state's and the characters').
+    local live = #T.H.st.charRefs
+    freed = T.freed
     T.H:onWorld(MATCH, true, true)
-    eq(T.freed, 1, "find: a fresh world frees the old handle")
+    eq(T.freed, freed + 1 + live, "find: a fresh world frees the game state's and the characters' handles")
+    local refs = T.refs
     W.fire(GSC .. ":UpdateFriendlyFire", W.p(T.gs))
-    eq(T.refs, 2, "find: the next match takes a new handle")
+    eq(T.refs, refs + 1, "find: the next match takes a new game-state handle")
+    eq(T.H.st.charRefs, nil, "find: the next match discovers on its first poll")
 end
 do -- without core's handles: the old FindAllOf of the game states still finds it
     setup{ knobs = "cold=50", diff = 0, noRef = true }
@@ -663,7 +691,7 @@ do -- cold faster: Normal, cold 200, rise 0.01 -> 0.02, clamped at 1; core's clo
     eq(T.me._f.Temperature, 1, "cold faster: clamped at 1")
     T.now = T.now + 11 T.poll()
     ok(line("^COLD .* avg_ms=0%.%d%d%d clock=core$"), "cold: the cost from core's clock", dump())
-    ok(line("^DEBUG COLD timing find_ms=0%.%d+ read_ms=0%.%d+ write_ms=0%.%d+ %(per poll; per character read; per write%) reads=%d+$"), "cold: the DEBUG timing line per part", dump())
+    ok(line("^DEBUG COLD timing discover_ms=0%.%d+ %(n=1%) deref_ms=0%.%d+ %(n=4%) read_ms=0%.%d+ write_ms=0%.%d+ reads=%d+$"), "cold: the DEBUG timing line per part", dump())
 end
 do -- cold zero: no rise outdoors
     setup{ knobs = "cold=0", diff = 0 }
@@ -671,8 +699,8 @@ do -- cold zero: no rise outdoors
     for i = 1, 5 do T.me._f.Temperature = T.me._f.Temperature + 0.002 T.poll() end
     eq(T.me._f.Temperature, 0.3, "cold zero: Temperature stays at its start")
 end
-do -- the per-path state is reset per match; a character gone is forgotten
-    setup{ knobs = "cold=50", diff = 0 }
+do -- the per-path state is reset per match; a character gone is forgotten (discovery every poll: no handles)
+    setup{ knobs = "cold=50", diff = 0, noRef = true }
     T.me._f.Temperature = 0.1 T.poll()
     ok(T.H.st.cold.last[T.me._path] == 0.1, "cold: the path is remembered")
     rawset(T.gs, "PlayerArray", { T.ps[2] })

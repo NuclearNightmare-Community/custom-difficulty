@@ -78,6 +78,10 @@ local function start(core)
         isHost = function() return W:isHost(currentName) end,
         knobs = function() return dev.knobs end,
         micros = micros,
+        -- core's weak handles (the match's game state, re-found each poll without a scan), when this core has them.
+        ref = type(core.ref) == "function" and core.ref or nil,
+        deref = type(core.deref) == "function" and core.deref or nil,
+        free = type(core.free) == "function" and core.free or nil,
     }
     -- Evaluates one world: plain values from world.lua, cached by full name; one WORLD line per world.
     local function evaluate(w, how)
@@ -86,6 +90,7 @@ local function start(core)
         local e, fresh = W:onLoadMap(name, server, standalone)
         if not e then return end
         currentName = e.name
+        if fresh then world.forget() end -- alive()'s cached KSL lookups are found again per world
         -- A fresh world is a new match state for hits.lua; its Blueprint hooks follow the world.
         local okW, errW = pcall(H.onWorld, H, e.name, e.host, fresh)
         if not okW then say("error", "hits for %s failed: %s", e.map, tostring(errW)) end

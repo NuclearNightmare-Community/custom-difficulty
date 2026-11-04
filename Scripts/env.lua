@@ -59,10 +59,19 @@ end
 local P = {}
 P.__index = P
 
--- newPoll(o): o.say(level, fmt, ...), o.clock() (s, for the summary period).
+-- newPoll(o): o.say(level, fmt, ...), o.clock() (s, for the summary period), o.micros() (optional: microseconds,
+-- for the per-part timing on the DEBUG line).
 function M.newPoll(o)
     return setmetatable({ o = o, last = {}, raw = 0, applied = 0, writes = 0, polls = 0, us = 0, timed = 0,
-                          nextSummary = nil, players = 0 }, P)
+                          nextSummary = nil, players = 0,
+                          t = { find = 0, read = 0, write = 0, reads = 0, writes = 0, timed = 0 } }, P)
+end
+local function us(self)
+    local m = self.o.micros
+    if not m then return nil end
+    local ok, v = pcall(m)
+    if ok and type(v) == "number" then return v end
+    return nil
 end
 
 -- tick(chars, cold, d): chars is this poll's list of { obj, path } (alive, found this poll); cold the knob value; d
@@ -74,8 +83,11 @@ function P:tick(chars, cold, d)
     local seen = {}
     for _, c in ipairs(chars) do
         seen[c.path] = true
+        local r0 = us(self)
         local okT, t = pcall(function() return c.obj.Temperature end)
         local cur = okT and num(t) or nil
+        local r1 = us(self)
+        if r0 and r1 then self.t.read, self.t.reads = self.t.read + (r1 - r0), self.t.reads + 1 end
         if cur ~= nil and cur == cur then
             local new, raw, applied = M.rise(self.last[c.path], cur, factor)
             if new then
@@ -83,6 +95,8 @@ function P:tick(chars, cold, d)
                     local okW, err = pcall(function() c.obj.Temperature = new end)
                     if not okW then error("could not write Temperature on " .. c.path .. ": " .. tostring(err)) end
                     self.writes = self.writes + 1
+                    local w1 = us(self)
+                    if r1 and w1 then self.t.write, self.t.writes = self.t.write + (w1 - r1), self.t.writes + 1 end
                 end
                 self.raw, self.applied = self.raw + raw, self.applied + applied
                 self.last[c.path] = new
@@ -95,10 +109,12 @@ function P:tick(chars, cold, d)
     self.players = #chars
 end
 
--- cost(us): one poll's measured time in microseconds (nil: not measured).
-function P:cost(us)
+-- cost(total, find): one poll's measured time in microseconds (nil: not measured), and the part of it spent finding
+-- the game state and the characters.
+function P:cost(total, find)
     self.polls = self.polls + 1
-    if type(us) == "number" and us >= 0 then self.us, self.timed = self.us + us, self.timed + 1 end
+    if type(total) == "number" and total >= 0 then self.us, self.timed = self.us + total, self.timed + 1 end
+    if type(find) == "number" and find >= 0 then self.t.find, self.t.timed = self.t.find + find, self.t.timed + 1 end
 end
 
 -- summary(clockName): one COLD line every SUMMARY_EVERY s (sums since the match start).
@@ -110,6 +126,12 @@ function P:summary(clockName)
     local avg = self.timed > 0 and string.format("%.3f", self.us / self.timed / 1000) or "?"
     self.o.say("info", "COLD raw=%.4f applied=%.4f factor=%s polls=%d writes=%d players=%d avg_ms=%s clock=%s",
         self.raw, self.applied, damage.fmt(self.factor), self.polls, self.writes, self.players, avg, clockName or "?")
+    -- Where the time goes (DEBUG): per poll, finding (game state, PlayerArray, pawns, liveness, paths); per character,
+    -- one Temperature read and one write.
+    local t = self.t
+    local function ms(v, n) return n > 0 and string.format("%.4f", v / n / 1000) or "?" end
+    self.o.say("debug", "COLD timing find_ms=%s read_ms=%s write_ms=%s (per poll; per character read; per write) reads=%d",
+        ms(t.find, t.timed), ms(t.read, t.reads), ms(t.write, t.writes), t.reads)
 end
 
 return M

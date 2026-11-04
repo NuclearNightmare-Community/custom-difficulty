@@ -85,7 +85,8 @@ end
 -- ---------------------------------------------------------------- the poll adapter
 do
     local now, lines = 0, {}
-    local P = env.newPoll{ say = function(level, fmt, ...) lines[#lines + 1] = string.format(fmt, ...) end, clock = function() return now end }
+    local dbg = {}
+    local P = env.newPoll{ say = function(level, fmt, ...) local t = level == "debug" and dbg or lines t[#t + 1] = string.format(fmt, ...) end, clock = function() return now end }
     local function ch(path, t) return { path = path, obj = { Temperature = t, w = 0 } } end
     local a, b = ch("/A", 0.10), ch("/B", 0.50)
     -- Temperature writes are counted on the fake objects.
@@ -137,6 +138,16 @@ do
     ok(lines[1] and lines[1]:find("^COLD raw=0%.%d%d%d%d applied=0%.%d%d%d%d factor=0%.25 polls=3 writes=%d+ players=1 avg_ms=0%.050 clock=core$"), "summary: the COLD line", lines[1])
     now = 15 P:summary("core")
     eq(#lines, 1, "summary: not again within 10 s")
+    ok(dbg[1] and dbg[1]:find("^COLD timing find_ms=%? read_ms=%? write_ms=%? "), "summary: the DEBUG timing line (not measured without micros)", dbg[1])
+    -- With micros: per-part averages.
+    local t = 0
+    local Q = env.newPoll{ say = function(level, fmt, ...) if level == "debug" then dbg[#dbg + 1] = string.format(fmt, ...) end end,
+        clock = function() return now end, micros = function() t = t + 10 return t end }
+    local q = wrap(ch("/Q", 0.1))
+    Q:tick({ q }, 50, 0) q.raw.Temperature = 0.2 Q:tick({ q }, 50, 0)
+    Q:cost(100, 40) Q:cost(100, 60)
+    Q:summary("core") now = now + 11 Q:summary("core")
+    ok(dbg[#dbg]:find("^COLD timing find_ms=0%.0500 read_ms=0%.0100 write_ms=0%.0100 .* reads=2$"), "summary: find, read and write averages", dbg[#dbg])
 end
 
 -- ---------------------------------------------------------------- the source: rules from AGENTS.md

@@ -66,14 +66,31 @@ local function ksl()
     return k
 end
 
+-- The IsValid UFunction and KSL's default object, cached: both are /Script objects that live for the whole session
+-- (never collected), looked up again after forget() (each fresh world, main.lua) or a failed call. The poll calls
+-- alive() per character per tick, so two StaticFindObject per call were most of its cost.
+local cache = {}
+function M.forget() cache = {} end
+local function kslIsValid()
+    local fn, cdo = cache.fn, cache.cdo
+    if fn == nil or cdo == nil then
+        cdo = ksl()
+        fn = StaticFindObject(KSL_ISVALID)
+        if fn == nil or not fn:IsValid() then error("KismetSystemLibrary:IsValid not found") end
+        cache.fn, cache.cdo = fn, cdo
+    end
+    return fn, cdo
+end
+
 -- alive(obj): Unreal's IsValid as a UFunction (checks the garbage flag), never UE4SS's obj:IsValid() alone.
 function M.alive(obj)
     if obj == nil then return false end
     local ok, r = pcall(function()
         if not obj:IsValid() then return false end
-        local fn = StaticFindObject(KSL_ISVALID)
-        return fn(ksl(), obj) == true
+        local fn, cdo = kslIsValid()
+        return fn(cdo, obj) == true
     end)
+    if not ok then cache = {} end -- re-found on the next call
     return ok and r == true
 end
 

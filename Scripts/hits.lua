@@ -112,7 +112,8 @@ A.__index = A
 -- new(opts): opts.say(level, fmt, ...), opts.warnOnce(key, fmt, ...), opts.isHost() -> bool (this machine hosts the
 -- current world), opts.world() -> the current world's name, opts.knobs() -> the knob text (dev.lua), opts.alive(obj)
 -- (the KismetSystemLibrary:IsValid UFunction), opts.clock() (s), opts.rng() ([0, 1)), opts.seed(n), opts.micros()
--- (core's microsecond clock, optional: the poll's cost; os.clock otherwise).
+-- (core's microsecond clock, optional: the poll's cost; os.clock otherwise), opts.ref / deref / free (core's weak
+-- handles, optional: the match's game state for the poll; without them the poll falls back to a FindAllOf).
 function M.new(opts)
     local self = setmetatable({ o = opts, hooks = {}, bpHooks = {}, queued = {}, st = nil, installFailed = true }, A) -- until install() hooks the natives
     self.clock = opts.clock or os.clock
@@ -127,6 +128,7 @@ end
 -- always put back.
 function A:reset(world)
     local old = self.st
+    if old and old.gsRef ~= nil and self.o.free then pcall(self.o.free, old.gsRef) end
     self.st = {
         world = world, started = false, backedOff = false, values = {},
         grabs = {},     -- victim path -> { kind, attacker, row, at }
@@ -134,8 +136,11 @@ function A:reset(world)
         apply = {},     -- stack of plans (or false) for ApplyLockedDamage / ApplyStalkerDamage
         cde = {},       -- stack of plans (or false) for CallDamageEvent
         pending = old and old.pending or {}, -- victim path -> { saved, temp, label }
-        cold = env.newPoll{ say = self.o.say, clock = function() return self.clock() end }, -- per-path state, per match
+        cold = env.newPoll{ say = self.o.say, clock = function() return self.clock() end, -- per-path state, per match
+                            micros = function() if self.micros then return self.micros() end return nil end },
         tok = nil,      -- the token state (tokens.start); nil while the knob does nothing
+        gsRef = nil,    -- core's weak handle on this match's game state (onStart), never the object
+        isFP = {},      -- pawn path -> true when it is a BP_FirstPersonCharacter_C (the class check once per path)
     }
 end
 
@@ -503,6 +508,14 @@ function A:onStart(gsParam)
     self.seed(math.floor((os.time() % 1000000) * 1000 + (self.clock() * 1000) % 1000))
     st.started = true
     self.o.say("info", "MATCH start knobs=%s", knobs.describe(values))
+    -- The poll re-finds this game state through a weak handle each tick (no scan, no UObject kept).
+    if self.o.ref and (values.cold ~= nil or values.revives ~= nil) then
+        local gs0 = self:gameState(get(gsParam))
+        local okR, h = false, nil
+        if gs0 then okR, h = pcall(self.o.ref, gs0) end
+        if okR and h ~= nil then st.gsRef = h
+        else self.o.say("debug", "no weak handle on the game state (%s); the poll finds it with FindAllOf", tostring(h)) end
+    end
     -- Grab classes and the radio loaded by now are hooked before their first use.
     for _, g in ipairs(M.GRABS) do self:installClass(g.class) end
     self:installClass(RADIO)
@@ -530,8 +543,50 @@ function A:now()
     return os.clock() * 1e6, "os"
 end
 
--- onPoll(): every 250 ms on the game thread. No work unless the match is active here and cold or tokens act. One
--- FindAllOf per poll (the characters); the game state comes from the first of them.
+-- pollGameState() -> this match's game state: through the weak handle (nil once it is gone: the tick is skipped),
+-- or without core's handles the old way (a FindAllOf of the game states).
+function A:pollGameState()
+    local st = self.st
+    if st.gsRef ~= nil and self.o.deref then
+        local ok, gs = pcall(self.o.deref, st.gsRef)
+        if ok and gs ~= nil and self:alive(gs) then return gs end
+        return nil
+    end
+    return self:gameState(nil)
+end
+
+-- players(gs) -> { { obj, path } } for each player state's pawn in gs.PlayerArray that is a live
+-- BP_FirstPersonCharacter_C (no FindAllOf: the AI-controlled infected aren't players, and the game skips them too).
+function A:players(gs)
+    local chars = {}
+    local okA, arr = pcall(function() return gs.PlayerArray end)
+    if not okA or arr == nil then return chars end
+    local okN, n = pcall(function() return #arr end)
+    if not okN or type(n) ~= "number" then okN, n = pcall(function() return arr:GetArrayNum() end) end
+    if not okN or type(n) ~= "number" then return chars end
+    for i = 1, math.min(n, 64) do
+        local okE, ps = pcall(function() return arr[i] end)
+        if okE and ps ~= nil then
+            local okG, inner = pcall(function() return ps:get() end) -- an element wrapper, if UE4SS hands one
+            if okG and inner ~= nil and type(inner) ~= "boolean" then ps = inner end
+            local pawn
+            pcall(function() pawn = ps.PawnPrivate end)
+            if not exists(pawn) then pawn = nil pcall(function() pawn = ps:GetPawn() end) end
+            if exists(pawn) and self:alive(pawn) then
+                local path = pathOf(pawn)
+                if path then
+                    local fp = self.st.isFP[path]
+                    if fp == nil then fp = classOf(pawn) == FP_SHORT self.st.isFP[path] = fp end
+                    if fp then chars[#chars + 1] = { obj = pawn, path = path } end
+                end
+            end
+        end
+    end
+    return chars
+end
+
+-- onPoll(): every 250 ms on the game thread. No work unless the match is active here and cold or tokens act. The game
+-- state through the weak handle, the characters from its PlayerArray (no FindAllOf, no StaticFindObject miss).
 function A:onPoll()
     local st = self.st
     if not st.started or st.backedOff then return end
@@ -539,19 +594,17 @@ function A:onPoll()
     if cold == nil and not st.tok then return end
     if not self:active() then return end
     local t0, clockName = self:now()
-    local chars = {}
-    for _, ch in ipairs(FindAllOf(FP_SHORT) or {}) do
-        local p = pathOf(ch)
-        if p and not p:find("Default__", 1, true) and self:alive(ch) then chars[#chars + 1] = { obj = ch, path = p } end
-    end
-    local gs = self:gameState(chars[1] and chars[1].obj or nil)
+    local gs = self:pollGameState()
+    if not gs then return end
+    local chars = cold ~= nil and self:players(gs) or {}
+    local tFind = self:now()
     if cold ~= nil then
         local d = gs and self:difficulty(nil, gs) or nil
         if d then st.cold:tick(chars, cold, d) end
     end
     if st.tok and gs then tokens.check(st.tok, gs, "poll", self.o) end
     if cold ~= nil then
-        st.cold:cost(self:now() - t0)
+        st.cold:cost(self:now() - t0, tFind - t0)
         st.cold:summary(clockName)
     end
 end

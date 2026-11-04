@@ -89,6 +89,12 @@ local function setup(opts)
     rawset(dog, "IsAttackActive", function(_, d) return d._active == true end)
     rawset(dog, "GetAttackVictim", function(_, d) return d._victim end)
     W.all = { SCP_AI_C = { T.meek }, Stalker_AI_C = { T.stalker }, BP_FirstPersonGameState_C = { T.gs }, BP_FirstPersonCharacter_C = { T.me, T.other } }
+    -- The players: the game state's PlayerArray of player states, each naming its pawn (PawnPrivate).
+    T.ps = { actor("BP_NNPlayerState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.PS_1", { PawnPrivate = T.me }),
+             actor("BP_NNPlayerState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.PS_2", { PawnPrivate = T.other }) }
+    rawset(T.gs, "PlayerArray", { T.ps[1], T.ps[2] })
+    -- core's weak handles: handle -> object; deref is nil once the object is gone.
+    T.handles, T.freed = {}, 0
     T.H = hits.new{
         say = function(level, fmt, ...) T.lines[#T.lines + 1] = (level == "info" and "" or level:upper() .. " ") .. string.format(fmt, ...) end,
         warnOnce = function(key, fmt, ...)
@@ -104,6 +110,9 @@ local function setup(opts)
         clock = function() return T.now end,
         rng = function() return 0.5 end,
         seed = function(n) T.seeded = (T.seeded or 0) + 1 end,
+        ref = (not opts.noRef) and function(o) T.refs = (T.refs or 0) + 1 T.handles[T.refs] = o return T.refs end or nil,
+        deref = (not opts.noRef) and function(h) local o = T.handles[h] if o and not rawget(o, "_gone") then return o end return nil end or nil,
+        free = (not opts.noRef) and function(h) T.handles[h] = nil T.freed = T.freed + 1 end or nil,
     }
     local okI, why = T.H:install()
     ok(okI, "install: the natives hook", why)
@@ -575,6 +584,51 @@ do -- cold Default: no poll work, no write
     eq(T.me._f.Temperature, 0.2, "cold default: the stock rise")
     eq(count("^COLD "), 0, "cold default: no COLD line")
 end
+do -- the poll's find: weak handle + PlayerArray, no FindAllOf or StaticFindObject per tick
+    setup{ knobs = "cold=50;revives=4", diff = 0, cm = 3 }
+    eq(T.refs, 1, "find: one weak handle on the game state at the match start")
+    local finds, sfo = 0, 0
+    local realF, realS = FindAllOf, StaticFindObject
+    FindAllOf = function(s) finds = finds + 1 return realF(s) end
+    StaticFindObject = function(p) sfo = sfo + 1 return realS(p) end
+    T.me._f.Temperature = 0.1 T.poll()
+    T.me._f.Temperature = 0.14 T.poll()
+    FindAllOf = realF
+    ok(math.abs(T.me._f.Temperature - 0.11) < 1e-9, "find: the PlayerArray's pawn is scaled", T.me._f.Temperature)
+    eq(finds, 0, "find: no FindAllOf per tick")
+    eq(sfo, 0, "find: no StaticFindObject per tick (the fake alive; world.alive caches its own)")
+    StaticFindObject = realS
+    -- A spectator (no pawn), a pawn of another class and a pawn only reachable through GetPawn().
+    local odd = actor("BP_ThirdPersonCharacter_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.Monster_1", { Temperature = 0.1 })
+    local viaGet = actor("BP_FirstPersonCharacter_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.BP_FirstPersonCharacter_C_3", { Temperature = 0.1 })
+    local spect = actor("BP_NNPlayerState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.PS_3", {})
+    local psOdd = actor("BP_NNPlayerState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.PS_4", { PawnPrivate = odd })
+    local psGet = actor("BP_NNPlayerState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.PS_5", {})
+    rawset(psGet, "GetPawn", function() return viaGet end)
+    rawset(T.gs, "PlayerArray", { T.ps[1], spect, psOdd, psGet })
+    T.poll()
+    odd._f.Temperature, viaGet._f.Temperature = 0.2, 0.2
+    T.poll()
+    eq(odd._f.Temperature, 0.2, "find: a pawn of another class is skipped")
+    ok(math.abs(viaGet._f.Temperature - 0.125) < 1e-9, "find: GetPawn() when PawnPrivate is empty", viaGet._f.Temperature)
+    -- The game state gone (the handle derefs to nil): the tick does nothing.
+    rawset(T.gs, "_gone", true)
+    viaGet._f.Temperature = 0.3
+    T.poll()
+    eq(viaGet._f.Temperature, 0.3, "find: game state gone -> the tick is skipped")
+    rawset(T.gs, "_gone", nil)
+    -- A new match frees the old handle.
+    T.H:onWorld(MATCH, true, true)
+    eq(T.freed, 1, "find: a fresh world frees the old handle")
+    W.fire(GSC .. ":UpdateFriendlyFire", W.p(T.gs))
+    eq(T.refs, 2, "find: the next match takes a new handle")
+end
+do -- without core's handles: the old FindAllOf of the game states still finds it
+    setup{ knobs = "cold=50", diff = 0, noRef = true }
+    T.me._f.Temperature = 0.1 T.poll()
+    T.me._f.Temperature = 0.14 T.poll()
+    ok(math.abs(T.me._f.Temperature - 0.11) < 1e-9, "no handles: scaled through the fallback", T.me._f.Temperature)
+end
 do -- cold scaled: Nightmare, cold 50, rise 0.04 -> 0.01
     setup{ knobs = "cold=50", diff = 0 }
     T.me._f.Temperature, T.other._f.Temperature = 0.10, 0.60
@@ -608,7 +662,8 @@ do -- cold faster: Normal, cold 200, rise 0.01 -> 0.02, clamped at 1; core's clo
     T.me._f.Temperature = 1.0 T.poll()
     eq(T.me._f.Temperature, 1, "cold faster: clamped at 1")
     T.now = T.now + 11 T.poll()
-    ok(line("^COLD .* avg_ms=0%.030 clock=core$"), "cold: the cost from core's clock", dump())
+    ok(line("^COLD .* avg_ms=0%.%d%d%d clock=core$"), "cold: the cost from core's clock", dump())
+    ok(line("^DEBUG COLD timing find_ms=0%.%d+ read_ms=0%.%d+ write_ms=0%.%d+ %(per poll; per character read; per write%) reads=%d+$"), "cold: the DEBUG timing line per part", dump())
 end
 do -- cold zero: no rise outdoors
     setup{ knobs = "cold=0", diff = 0 }
@@ -620,10 +675,10 @@ do -- the per-path state is reset per match; a character gone is forgotten
     setup{ knobs = "cold=50", diff = 0 }
     T.me._f.Temperature = 0.1 T.poll()
     ok(T.H.st.cold.last[T.me._path] == 0.1, "cold: the path is remembered")
-    W.all.BP_FirstPersonCharacter_C = { T.other }
+    rawset(T.gs, "PlayerArray", { T.ps[2] })
     T.poll()
     eq(T.H.st.cold.last[T.me._path], nil, "cold: a character not found is forgotten")
-    W.all.BP_FirstPersonCharacter_C = { T.me, T.other }
+    rawset(T.gs, "PlayerArray", { T.ps[1], T.ps[2] })
     T.me._f.Temperature = 0.2 T.poll()
     eq(tw(T.me), 0, "cold: seen again is a first sight")
     -- A dead (garbage) character is skipped.

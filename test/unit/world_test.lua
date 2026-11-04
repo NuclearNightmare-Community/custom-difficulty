@@ -108,6 +108,27 @@ do
     FindFirstOf = function() error("boom") end
     eq(world.currentWorld(), nil, "currentWorld: FindFirstOf throws")
     eq(world.alive(nil), false, "alive(nil)")
+    -- The IsValid UFunction and KSL's CDO are looked up once, then cached until forget() or a failed call.
+    world.forget()
+    local finds, real = 0, StaticFindObject
+    StaticFindObject = function(p) finds = finds + 1 return real(p) end
+    local obj = FW.match
+    for _ = 1, 5 do world.alive(obj) end
+    eq(finds, 2, "alive: two lookups for five calls (cached)")
+    eq(world.alive(obj), true, "alive: a live object")
+    obj._garbage = true
+    eq(world.alive(obj), false, "alive: the cached UFunction still sees the garbage flag")
+    obj._garbage = nil
+    world.forget()
+    world.alive(obj)
+    eq(finds, 4, "alive: forget() looks them up again")
+    local fn = FW.byPath["/Script/Engine.KismetSystemLibrary:IsValid"]
+    FW.byPath["/Script/Engine.KismetSystemLibrary:IsValid"] = nil
+    world.forget()
+    eq(world.alive(obj), false, "alive: no IsValid UFunction -> false")
+    FW.byPath["/Script/Engine.KismetSystemLibrary:IsValid"] = fn
+    eq(world.alive(obj), true, "alive: found again after a failed lookup")
+    StaticFindObject = real
 end
 
 H.done()

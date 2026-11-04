@@ -3,7 +3,8 @@
 Separate difficulty options for Nuclear Nightmare. Spec: `_bmad-output/specs/spec-difficulty-v1/` in the workspace.
 
 Version 0.1.0: the skeleton (story 1) connects to Nucleus (core) and works out per world whether this machine hosts.
-Story 3 adds enemy damage on the host and survivable grabs for the host's own player (below). The knob values have
+Story 3 adds enemy damage on the host and survivable grabs for the host's own player; story 4 adds cold, frostbite and
+reinforcement tokens on the host (below). The knob values have
 no player-facing source yet: until the rows and presets (stories 6 and 7) they come only from a dev file, so a
 normal install leaves every knob Default and changes nothing. Targets V8.1.5 (build 26357084) with the pinned UE4SS
 `v3.0.1-1181-g83330635`, and needs Nucleus `^0.4.0`.
@@ -16,7 +17,8 @@ normal install leaves every knob Default and changes nothing. Targets V8.1.5 (bu
 
 `deploy.ps1` refuses (exit 1, one line naming the cause) when Nucleus is missing, disabled in `mods.txt`, isn't
 Nucleus (wrong `id`), or its version doesn't satisfy `dependsOn` (`^0.4.0`). Otherwise it installs
-`Mods/Difficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua}` and puts `Difficulty : 1`
+`Mods/Difficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua, env.lua, tokens.lua}` and
+puts `Difficulty : 1`
 right below Nucleus's line in `mods.txt`, above `Keybinds : 1`. `-Force` installs anyway with a warning (the failure scenarios); `-Remove`
 deletes `Mods/Difficulty` and its `mods.txt` line. Close the game first. From a worktree, pass the main checkout's
 instance path.
@@ -35,7 +37,7 @@ logs one `WARN running on Nucleus <v> before 0.4.0 (dev only): no UI`. `-Test` a
 `return { debug = true }` (DEBUG lines), as does `-Test -PreCore` on a core that already satisfies `^0.4.0`. Without `dev.lua`, the mod needs 0.4.0, so a normal deploy and a normal
 runtime refuse core 0.3.0.
 
-## Knobs acting so far (story 3, host only)
+## Knobs acting so far (stories 3 and 4, host only)
 
 - **Enemy Damage** (`enemyDamage`, HP of a standard hit), the **per-enemy rows** (`dmg.<enemy>`, % after Enemy Damage)
   and **Damage Spread** (`spread`, the bell curve's width in % of the hit). Every enemy hit becomes
@@ -52,10 +54,40 @@ runtime refuse core 0.3.0.
   game's choice (story 5 adds modded clients).
 - Everything waits for the match to start (`UpdateFriendlyFire` in this world), acts only on the host, and does
   nothing at all for a knob that is Default.
-- **Guards against other mods:** after each scaled hit, `Health` must read what the mod planned; after a grab it
-  must still hold the temporary value. Otherwise one `WARN clash: ...` and no more damage or grab changes until the
-  next match.
-- Other knobs (Cold Exposure, Frostbite Damage, Reinforcement Tokens) are parsed but don't act yet (story 4).
+- **Cold Exposure** (`cold`, the freeze rate in % of Normal's): one 250 ms game-thread poll on the host. The match's
+  game state is held as a core weak handle (taken at the match start). On a match's first poll and every 8th poll
+  (2 s) the poll discovers the characters: the game state's `PlayerArray`, each player state's pawn, live
+  `BP_FirstPersonCharacter_C`s only, each kept as a core weak handle plus its path. Between discoveries a poll only
+  derefs those handles (an entry whose deref is nil is dropped until the next discovery) and reads and writes
+  `Temperature`. Without core's handles, every poll discovers, and the game state is found with `FindAllOf`. A
+  character that appears between discoveries (a reinforcement, a joining player) cools at the stock rate for up to
+  about 2 s. Each character whose `Temperature` rose since the last poll gets `last + rise x factor`, clamped to 0..1,
+  with `factor = cold / (200 / divisor[Diffculty])`. The divisors are 1 / 1.5 / 2 / 4 for `EDiffculty` 0 Nightmare,
+  1 Hard, 2 Normal, 3 Easy, and `Diffculty` is read live. A fall or a hold (warming, a reset) is left alone, so heated
+  interiors warm at the stock rate. 0 means the meter never rises outdoors. The per-path state is new each match.
+- **Frostbite Damage** (`frostbite`, HP per second while frozen): a `CallDamageEvent` of 1 or 2 with no enemy context
+  on a victim with `Temperature >= 1`, `CanTakeTemperature`, not `InsideEnoughToStopFreezing`, not `Infected` or
+  `IsMimic?` is a frostbite tick: `Health += amount x (1 - frostbite)` (lowered never below 0.01), checked by the
+  same guard as an enemy hit. Any other 1 or 2 HP call is left alone. With Frostbite 0, the game's frostbite finisher
+  (a `CallDamageEvent(100)` with no enemy context on a frozen player at 0 < Health < 1) is absorbed too, so a frozen
+  player never loses HP to the cold (`HIT enemy=frostbite via=frostbite-finisher ... applied=0`). Any other value
+  leaves the finisher to the game.
+- **Reinforcement Tokens** (`revives`, N): the game counts reinforcements in the host's `TimesUsedReinforcements` and
+  its computer shows `limit - count` (limit 2 / 4 / 6 / 8 for `Classified Minium` 0..3). At the match start the host
+  writes `count = limit - N`, so the computer shows N; afterwards `used = count - (limit - N)`. Re-checked in the
+  callbacks of the radio's three server events (`ReinforceSpecficPlayer`, `SpawnReinforcementMethod2`,
+  `SpawnReinforcmentSpectator`) and in the poll: at `used >= N` the host sets `Disable Reinforcement` once, which
+  closes every computer, modded or not (never when the lobby already disabled reinforcements; N = 0 disables at the
+  start). A `Classified Minium` change re-writes the count as `limit' - N + used`. The imposter mode (`GameMode 1`)
+  is left alone. The host never refuses a request (that needs C++), so a panel already open can still revive.
+  The count isn't replicated, so N - used shows only on the host's computer and on the machine of a player the host
+  revived (the revive's multicast carries the count). Other unmodded clients show the stock limit until
+  `Disable Reinforcement` closes their computer. At a back-off, the count goes back to stock (`used`) once,
+  with one `TOKENS released at back-off used=` line, and the tokens are left alone for the rest of that match.
+- **Guards against other mods:** after each scaled hit or frostbite tick, `Health` must read what the mod planned;
+  after a grab it must still hold the temporary value. Otherwise one `WARN clash: ...; every knob off until the next
+  match`. A failing hook body or poll logs one `ERROR ...; every knob off until the next match` the same way. Any
+  value already written stays, except the token count, which goes back to stock.
 
 ### Dev value source (until stories 6 and 7)
 
@@ -81,6 +113,11 @@ one `WARN knobs: ...`. A deploy without `-Test` writes no `dev.lua`, so a releas
   `HIT enemy=<row|?> via=<site> stock= scaled= rolled= applied= hp=<before> kind=<hit|execution|survivable>` per
   scaled hit; `GRAB enemy= hp= E= game=<s|e> decision=<s|e> flip=<value|none>` per grab;
   `RESTORE enemy= hp=<temp> -> <saved> via=<multicast|next tick>` per restore; `WARN clash: ...` when backing off.
+- Story 4, on the host: `HIT enemy=frostbite via=frostbite stock=<1|2> scaled= rolled= applied= hp= kind=hit` per
+  frostbite tick; every 10 s while Cold Exposure acts, `COLD raw=<game's rises> applied=<written rises> factor=
+  polls= writes= players= avg_ms=<poll cost> clock=<core|os>` (sums since the match start); `TOKENS start limit= N=
+  count=`, `TOKENS used= left= count= via=` per change, `TOKENS disabled at used= N= via=`, `TOKENS minimum changed
+  ...`, and one line when the knob does nothing (imposter, the lobby's own Disable).
 
 ## Scenarios (`check.ps1`)
 
@@ -96,13 +133,14 @@ Run the scenario, then `./check.ps1 -Instance <copy> -Scenario <s>` (or `-Log <f
 | `hand` | any run by hand | connected, `READY`, at least one `WORLD`, no error |
 | `unit` | none | runs `test.ps1` |
 
-### Story 3 scenarios (`run.ps1`)
+### Story 3 and 4 scenarios (`run.ps1`)
 
 `./run.ps1 -Instance <copy> -Scenario <s>` deploys with `-Test -PreCore -Scenario <s>` (Difficulty with the
 scenario's knobs, plus the test-only driver `test/DifficultyDriver` between Nucleus and Difficulty), launches through
 `tools/launch.ps1`, plays one solo hosted match, waits for the driver's `END`, deploys again without the driver,
 keeps the log as `dumps/<copy>/difficulty/<s>.log` and runs `check.ps1` on it. Exit 0 passed, 1 failed, 2 not shown
-(an enemy didn't attack in time: run it again, it never counts as passed). The driver refills Health to 100 between
+(the driver couldn't make the case happen: an enemy didn't attack in time, the player wasn't outdoors, no frostbite
+tick, no reinforcement accepted; run it again, it never counts as passed). The driver refills Health to 100 between
 cases (test only, logged).
 
 | Scenario | Set-up | Expected |
@@ -112,12 +150,26 @@ cases (test only, logged).
 | `per-enemy` | Normal, `dmg.stalker=200` | a Stalker hit takes 50, a Meek hit the stock 25 (no `HIT` for it) |
 | `default` | Hard, no knobs | no `HIT`, `GRAB` or `RESTORE` line; the Meek takes the game's 50 |
 | `clash` | Hard, `enemyDamage=17`; the driver adds 5 HP before every hit | the first hit is scaled (17, minus the driver's 5: takes 12), one `HIT`, one `WARN clash: after the hit ...`; the next hit is stock (50 minus 5: takes 45), with no `HIT` |
+| `cold` | Nightmare, `cold=50`; Temperature set to 0 once, 60 s outdoors | the last `COLD` line's applied is 0.25 x raw (+-10%), `factor=0.25`, `avg_ms` under 0.1; the driver's rise is within a quarter of Nightmare's stock range |
+| `cold-zero` | Nightmare, `cold=0` | `COLD ... applied=0` with raw > 0; Temperature stays at its start for 60 s |
+| `frostbite` | Normal, `frostbite=3`; the driver holds Temperature at 1.5 | only `HIT enemy=frostbite ... scaled=3 applied=3`; 60 HP (+-10%) lost in 20 s |
+| `frostbite-zero` | Normal, `frostbite=0` | only `HIT enemy=frostbite ... applied=0`; no HP lost in 20 s |
+| `tokens-more` | Normal, Classified Minimum 0 (limit 2), `revives=4` | `TOKENS start limit=2 N=4 count=-2`; the computer's text 4; four reinforcements accepted, `Disable Reinforcement` only after the 4th |
+| `tokens-fewer` | Normal, Classified Minimum 3 (limit 8), `revives=2` | `TOKENS start limit=8 N=2 count=6`; Disable after the 2nd, the text 0 |
+
+The token scenarios trigger reinforcements with a synthetic revive (the game state's `UpdateRespawnQue` and the
+radio's `ReinforceSpecficPlayer` on the living host, proven on V8.1.2 only; on V8.1.5 it was refused in every run,
+so the fallback did the reinforcing) and fall back to the radio's
+`SpawnReinforcmentSpectator()` (destroying the orphan character it spawns), logging which (`REVIVE #<i> via=`). The
+text is read from a `NukeComputer_UI_C` widget's `GetText_3`, made with `WidgetBlueprintLibrary:Create` and never
+shown.
 
 ## Tests
 
 - `./test.ps1`: the unit tests, no game needed (Lua: `world.lua`'s cache and adapter, `main.lua`'s bootstrap paths,
   `mod.json`'s settings, `knobs.lua`'s parser, `damage.lua`'s math including the 200-hit distribution and the
-  survivable cap, `hits.lua` against fake hooks; PowerShell: `deploy.ps1` against a fake instance, `check.ps1`
+  survivable cap, `hits.lua` against fake hooks (story 4's cold poll, frostbite and tokens included), `env.lua`'s
+  cold and frostbite math and poll, `tokens.lua`'s math and adapter; PowerShell: `deploy.ps1` against a fake instance, `check.ps1`
   against synthetic logs).
   Lua is the first of `lua`, `lua5.4`, `lua54`, `lua5.3`, `texlua` on PATH.
 

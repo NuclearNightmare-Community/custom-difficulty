@@ -99,8 +99,8 @@ Expect ($scaled -replace 'MATCH start knobs=enemyDamage=17', 'MATCH start knobs=
 Expect ($scaled + @(DR 'FAIL scaled Meek #1 hit took 50.00 HP (want 17.00)')) 'scaled' 1 'scaled: a driver FAIL -> fails' 'FAIL'
 Expect (Without $scaled 'END result=') 'scaled' 1 'scaled: no driver END -> fails' 'END result'
 Expect ($scaled -replace 'SCENARIO scaled', 'SCENARIO flip') 'scaled' 1 'scaled: the driver ran another scenario -> fails' 'SCENARIO'
-Expect ($scaled + @(D 'ERROR HasPerk hook failed: boom; damage and grab changes off until the next match')) 'scaled' 1 'scaled: a hook ERROR -> fails' 'ERROR'
-Expect ($scaled + @(D 'WARN clash: after the hit enemy=meek via=ApplyLockedDamage Health is 88, planned 83 (another mod changed it); damage and grab changes off until the next match')) 'scaled' 1 'scaled: a clash WARN -> fails' 'WARN'
+Expect ($scaled + @(D 'ERROR HasPerk hook failed: boom; every knob off until the next match')) 'scaled' 1 'scaled: a hook ERROR -> fails' 'ERROR'
+Expect ($scaled + @(D 'WARN clash: after the hit enemy=meek via=ApplyLockedDamage Health is 88, planned 83 (another mod changed it); every knob off until the next match')) 'scaled' 1 'scaled: a clash WARN -> fails' 'WARN'
 $noMatch = @($scaled | Where-Object { $_ -notmatch 'MATCH start' })
 $iHost = 0; for ($i = 0; $i -lt $noMatch.Count; $i++) { if ($noMatch[$i] -match 'WORLD host=true') { $iHost = $i } }
 $order3 = @($noMatch[0..($iHost - 1)]) + @(D 'MATCH start knobs=enemyDamage=17') + @($noMatch[$iHost..($noMatch.Count - 1)])
@@ -137,7 +137,7 @@ Expect $default 'default' 0 'default: passes as written' 'All checks passed'
 Expect ($default + @(D 'HIT enemy=meek via=ApplyLockedDamage stock=50 scaled=50 rolled=50 applied=50 hp=100 kind=hit')) 'default' 1 'default: a HIT line -> fails' 'HIT'
 Expect ($default + @(D 'GRAB enemy=meek hp=100 E=50 game=s decision=s flip=none')) 'default' 1 'default: a GRAB line -> fails' 'GRAB'
 
-$clashWarn = D 'WARN clash: after the hit enemy=meek via=ApplyLockedDamage Health is 88, planned 83 (another mod changed it); damage and grab changes off until the next match'
+$clashWarn = D 'WARN clash: after the hit enemy=meek via=ApplyLockedDamage Health is 88, planned 83 (another mod changed it); every knob off until the next match'
 $clash = Story3 'clash' 'enemyDamage=17' @(
     (D 'GRAB enemy=meek hp=100 E=17 game=s decision=s flip=none'),
     (D 'HIT enemy=meek via=ApplyLockedDamage stock=50 scaled=17 rolled=17 applied=17 hp=100 kind=survivable'),
@@ -150,7 +150,71 @@ Expect $clashNotShown 'clash' 2 'clash: END result=NOTSHOWN without HIT or WARN 
 Expect (Without $clash 'WARN clash') 'clash' 1 'clash: no WARN -> fails' 'WARN clash'
 Expect ($clash + @($clashWarn)) 'clash' 1 'clash: two WARNs -> fails' '#1'
 Expect ($clash + @(D 'HIT enemy=meek via=ApplyLockedDamage stock=50 scaled=17 rolled=17 applied=17 hp=100 kind=hit')) 'clash' 1 'clash: a HIT after the WARN -> fails' 'HIT'
-Expect ($clash + @(D "WARN clash: at the grab's restore (enemy=meek) Health is 60, not the temporary 101; left as it is; damage and grab changes off until the next match")) 'clash' 1 'clash: a grab clash WARN is not the hit''s -> fails' 'WARN'
+Expect ($clash + @(D "WARN clash: at the grab's restore (enemy=meek) Health is 60, not the temporary 101; left as it is; every knob off until the next match")) 'clash' 1 'clash: a grab clash WARN is not the hit''s -> fails' 'WARN'
+
+# ---------------------------------------------------------------- story 4 scenarios
+function Cold([string] $raw, [string] $applied, [string] $factor = '0.25', [string] $avg = '0.031') {
+    D "COLD raw=$raw applied=$applied factor=$factor polls=40 writes=38 players=1 avg_ms=$avg clock=core"
+}
+$cold = Story3 'cold' 'cold=50' @((Cold '0.0400' '0.0100'), (Cold '0.1600' '0.0400')) @(
+    (DR 'COLDRUN end seconds=60.0 start=0.0000 end=0.0400 max=0.0400 rise=0.0400 samples=240 indoors_or_vehicle=0 pawn_changed=false'),
+    (DR 'OK cold rise 0.0400 in 60 s within a quarter of Nightmare''s stock (0.0225..0.0532)'))
+Expect $cold 'cold' 0 'cold: passes as written' 'All checks passed'
+Expect ($cold -replace 'raw=0\.1600 applied=0\.0400', 'raw=0.1600 applied=0.1600') 'cold' 1 'cold: the last COLD line unscaled -> fails' 'applied/raw'
+Expect ($cold -replace 'raw=0\.1600 applied=0\.0400', 'raw=0.1600 applied=0.0450') 'cold' 1 'cold: ratio 0.28 (outside 10%) -> fails' 'applied/raw'
+Expect ($cold -replace 'raw=0\.1600 applied=0\.0400', 'raw=0.1600 applied=0.0420') 'cold' 0 'cold: ratio 0.2625 (within 10%) passes' 'All checks passed'
+Expect ($cold -replace 'factor=0\.25', 'factor=0.5') 'cold' 1 'cold: another factor -> fails' 'factor'
+Expect ($cold -replace 'avg_ms=0\.031', 'avg_ms=0.250') 'cold' 1 'cold: a slow poll -> fails' 'avg_ms'
+Expect ($cold -replace 'clock=core', 'clock=os') 'cold' 1 'cold: measured with os.clock -> fails' 'clock'
+Expect ($cold + @(D 'COLD raw=0.2000 applied=0.0500 factor=0.25 polls=50 writes=48 players=1 avg_ms=0.031 clock=os')) 'cold' 1 'cold: one COLD line with clock=os -> fails' 'clock'
+Expect (Without $cold 'COLD raw') 'cold' 1 'cold: no COLD line -> fails' 'COLD'
+Expect ($cold -replace 'raw=0\.\d+ applied=0\.\d+', 'raw=0.0000 applied=0.0000') 'cold' 2 'cold: raw 0 (never cooled) -> not shown' 'NOT SHOWN'
+Expect ($cold -replace 'MATCH start knobs=cold=50', 'MATCH start knobs=cold=0') 'cold' 1 'cold: other knobs -> fails' 'MATCH start'
+$coldNs = @($cold | Where-Object { $_ -notmatch 'OK cold|END result' }) + @((DR 'NOTSHOWN cold: the player was not outdoors on foot throughout (12 of 240 samples; pawn changed false)'), (DR 'END result=NOTSHOWN checks=1 failures=0 notshown=1 dead=false'))
+Expect $coldNs 'cold' 2 'cold: driver NOTSHOWN (indoors) -> exit 2' 'NOT SHOWN'
+
+$coldZero = Story3 'cold-zero' 'cold=0' @((Cold '0.1500' '0.0000' '0')) @((DR 'OK cold-zero Temperature stayed at its start outdoors for 60 s (max 0.0008, want <= 0.005)'))
+Expect $coldZero 'cold-zero' 0 'cold-zero: passes as written' 'All checks passed'
+Expect ($coldZero -replace 'applied=0\.0000', 'applied=0.0300') 'cold-zero' 1 'cold-zero: a rise -> fails' 'applied'
+Expect ($coldZero -replace 'raw=0\.1500', 'raw=0.0000') 'cold-zero' 2 'cold-zero: raw 0 -> not shown' 'NOT SHOWN'
+Expect ($coldZero -replace 'clock=core', 'clock=os') 'cold-zero' 1 'cold-zero: clock=os -> fails' 'clock'
+Expect ($coldZero + @(DR 'FAIL cold-zero Temperature stayed at its start outdoors for 60 s (max 0.0400, want <= 0.005)')) 'cold-zero' 1 'cold-zero: the driver saw a rise -> fails' 'FAIL'
+
+$fb = { param($s, $hp) D "HIT enemy=frostbite via=frostbite stock=1 scaled=$s rolled=$s applied=$s hp=$hp kind=hit" }
+$frostbite = Story3 'frostbite' 'frostbite=3' @((& $fb '3' '100'), (& $fb '3' '97'), (& $fb '3' '94')) @(
+    (DR 'FROSTRUN end seconds=20.0 calls=20 hp 100.00 -> 40.00 loss=60.00 outside_gates=0 pawn_changed=false'),
+    (DR 'OK frostbite lost 60.00 HP in 20 s while frozen (want 60.00 +- 6.00; 20 ticks)'))
+Expect $frostbite 'frostbite' 0 'frostbite: passes as written' 'All checks passed'
+Expect (Without $frostbite 'HIT enemy=frostbite') 'frostbite' 1 'frostbite: no HIT line -> fails' 'HIT enemy=frostbite'
+Expect ($frostbite + @(& $fb '1' '91')) 'frostbite' 1 'frostbite: a stock tick -> fails' 'scaled='
+Expect ($frostbite + @(D 'HIT enemy=meek via=ApplyLockedDamage stock=25 scaled=25 rolled=25 applied=25 hp=100 kind=hit')) 'frostbite' 1 'frostbite: an enemy HIT -> fails' 'HIT enemy='
+Expect ($frostbite + @(D 'WARN clash: after the hit enemy=frostbite via=frostbite Health is 102, planned 97 (another mod changed it); every knob off until the next match')) 'frostbite' 1 'frostbite: a clash WARN -> fails' 'WARN'
+$frostNs = @($frostbite | Where-Object { $_ -notmatch 'HIT enemy|OK frostbite|END result' }) + @((DR 'NOTSHOWN frostbite: no frostbite tick on the player in 20 s (calls 0; inside, a vehicle or a new pawn)'), (DR 'END result=NOTSHOWN checks=1 failures=0 notshown=1 dead=false'))
+Expect $frostNs 'frostbite' 2 'frostbite: driver NOTSHOWN -> exit 2' 'NOT SHOWN'
+$frostZero = Story3 'frostbite-zero' 'frostbite=0' @((& $fb '0' '100'), (& $fb '0' '100')) @((DR 'OK frostbite-zero lost 0.00 HP in 20 s while frozen (want 0.00 +- 0.05; 20 ticks)'))
+Expect $frostZero 'frostbite-zero' 0 'frostbite-zero: passes as written' 'All checks passed'
+Expect ($frostZero + @(& $fb '3' '100')) 'frostbite-zero' 1 'frostbite-zero: a scaled tick -> fails' 'scaled='
+
+$tok = { param($m) D "TOKENS $m" }
+$more = Story3 'tokens-more' 'revives=4' @((& $tok 'start limit=2 N=4 count=-2'), (& $tok 'used=1 left=3 count=-1 via=ReinforceSpecficPlayer'),
+    (& $tok 'used=2 left=2 count=0 via=ReinforceSpecficPlayer'), (& $tok 'used=3 left=1 count=1 via=poll'),
+    (& $tok 'used=4 left=0 count=2 via=SpawnReinforcmentSpectator'), (& $tok 'disabled at used=4 N=4 via=SpawnReinforcmentSpectator')) @(
+    (DR 'TEXT at the start Reinforcement Tokens 4'), (DR 'OK tokens-more the computer''s text at the start is ''Reinforcement Tokens 4'' (got Reinforcement Tokens 4)'),
+    (DR 'REVIVE #1 via=synthetic count -2 -> -1'), (DR 'OK tokens-more Disable Reinforcement set after reinforcement #4 = N (got true)'))
+Expect $more 'tokens-more' 0 'tokens-more: passes as written' 'All checks passed'
+Expect (Without $more 'TOKENS disabled') 'tokens-more' 1 'tokens-more: no Disable -> fails' 'disabled'
+Expect ($more -replace 'disabled at used=4', 'disabled at used=3') 'tokens-more' 1 'tokens-more: Disable too early -> fails' 'disabled'
+Expect ($more -replace 'count=-2', 'count=0') 'tokens-more' 1 'tokens-more: no offset -> fails' 'TOKENS start'
+Expect ($more + @(& $tok 'start limit=2 N=4 count=-2')) 'tokens-more' 1 'tokens-more: two starts -> fails' '#1'
+Expect ($more + @(DR 'FAIL tokens-more Disable Reinforcement still false after reinforcement #3 of 4 (got true)')) 'tokens-more' 1 'tokens-more: a driver FAIL -> fails' 'FAIL'
+$moreNs = @($more | Where-Object { $_ -notmatch 'TOKENS (used|disabled)|OK tokens|END result' }) + @((DR 'NOTSHOWN reinforce #1: neither path moved the count (-2)'), (DR 'END result=NOTSHOWN checks=3 failures=0 notshown=1 dead=false'))
+Expect $moreNs 'tokens-more' 2 'tokens-more: no reinforcement possible -> not shown' 'NOT SHOWN'
+$fewer = Story3 'tokens-fewer' 'revives=2' @((& $tok 'start limit=8 N=2 count=6'), (& $tok 'used=1 left=1 count=7 via=ReinforceSpecficPlayer'),
+    (& $tok 'used=2 left=0 count=8 via=ReinforceSpecficPlayer'), (& $tok 'disabled at used=2 N=2 via=ReinforceSpecficPlayer')) @(
+    (DR 'OK tokens-fewer the computer''s text after N reinforcements is ''Reinforcement Tokens 0'' (got Reinforcement Tokens 0)'))
+Expect $fewer 'tokens-fewer' 0 'tokens-fewer: passes as written' 'All checks passed'
+Expect ($fewer -replace 'limit=8 N=2 count=6', 'limit=8 N=2 count=0') 'tokens-fewer' 1 'tokens-fewer: wrong start count -> fails' 'TOKENS start'
+Expect ($fewer + @(& $tok 'minimum changed limit=8 -> 6 used=1 count=5')) 'tokens-fewer' 1 'tokens-fewer: an unexpected minimum change -> fails' 'minimum'
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)

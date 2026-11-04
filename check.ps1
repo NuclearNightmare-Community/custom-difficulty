@@ -27,7 +27,22 @@
     default    no knobs: no HIT and no GRAB line; the driver saw the stock 50.
     clash      Hard, Enemy Damage 17, the driver adds 5 HP before each hit: exactly one HIT, exactly one
                "WARN clash: after the hit", no HIT after it.
-  When the driver reports NOTSHOWN (the enemy didn't attack in time), the run is not shown: exit 2, never "passed".
+  Story 4 (the same way; each its own match):
+    cold            Nightmare, Cold Exposure 50, the player outdoors: the last COLD summary's applied is 0.25 x raw
+                    (+-10%), factor=0.25, the poll's avg_ms under 0.1, measured with core's clock (clock=core on
+                    every COLD line, in both cold scenarios).
+    cold-zero       Cold Exposure 0: the last COLD summary has applied=0 with raw > 0; the driver saw Temperature stay
+                    at its start for 60 s.
+    frostbite       Frostbite 3, the driver holds Temperature at 1.5: HIT enemy=frostbite stock=1 scaled=3 applied=3
+                    lines only; the driver saw 60 HP (+-10%) lost in 20 s.
+    frostbite-zero  Frostbite 0: HIT enemy=frostbite ... applied=0 lines only; the driver saw no HP lost.
+    tokens-more     Classified Minium 0 (limit 2), N 4: TOKENS start limit=2 N=4 count=-2, used up to 4, one
+                    "TOKENS disabled at used=4"; the driver saw the text 4, four accepted reinforcements, then Disable.
+    tokens-fewer    Classified Minium 3 (limit 8), N 2: TOKENS start limit=8 N=2 count=6, one "disabled at used=2";
+                    the driver saw Disable after two and the text 0.
+  When the driver reports NOTSHOWN (it couldn't make the case happen: an enemy didn't attack in time, the player
+  wasn't outdoors, no frostbite tick came), or a cold run's game never cooled (raw=0), the run is not shown: exit 2,
+  never "passed".
 .EXAMPLE
   ./check.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Scenario ready
   ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.1.5-build26357084\difficulty\old-core.log -Scenario old-core
@@ -35,7 +50,8 @@
 param(
     [string] $Instance,
     [string] $Log,
-    [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit', 'scaled', 'flip', 'per-enemy', 'default', 'clash')]
+    [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit', 'scaled', 'flip', 'per-enemy', 'default', 'clash',
+                 'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer')]
     [string] $Scenario = 'ready'
 )
 if ($Scenario -eq 'unit') { & pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'test.ps1'); exit $LASTEXITCODE }
@@ -57,7 +73,7 @@ $lines = @(Get-Content $Log)
 Write-Host "--- $name lines ($Scenario) ---"
 $lines | Where-Object {
     ($_ -match "\[$C\]" -and $_ -notmatch "\[$C\] (DEBUG )?hud ") -or
-    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR) ") -or
+    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF) ") -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -97,8 +113,25 @@ $story3 = @{
                     "!\[$C\] HIT enemy=meek ")
     'default'   = @("\[$C\] MATCH start knobs=all Default\s*$", "!\[$C\] HIT ", "!\[$C\] GRAB ", "!\[$C\] RESTORE ")
     'clash'     = @("\[$C\] MATCH start knobs=enemyDamage=17\s*$", "#1|\[$C\] HIT ",
-                    "#1|\[$C\] WARN clash: after the hit enemy=meek via=ApplyLockedDamage Health is $n, planned 83 \(another mod changed it\); damage and grab changes off until the next match\s*$")
+                    "#1|\[$C\] WARN clash: after the hit enemy=meek via=ApplyLockedDamage Health is $n, planned 83 \(another mod changed it\); every knob off until the next match\s*$")
 }
+# Story 4: the same flow (driver verdict, MATCH line); the COLD summaries are judged below.
+$frost = { param($scaled) "\[$C\] HIT enemy=frostbite via=frostbite stock=1 scaled=$scaled rolled=$scaled applied=$scaled hp=$n kind=hit\s*$" }
+$story4 = @{
+    'cold'           = @("\[$C\] MATCH start knobs=cold=50\s*$", "\[$C\] COLD raw=.* clock=core\s*$", "!\[$C\] COLD raw=.* clock=(?!core\s*$)", "!\[$C\] HIT ", "!\[$C\] TOKENS ")
+    'cold-zero'      = @("\[$C\] MATCH start knobs=cold=0\s*$", "\[$C\] COLD raw=.* clock=core\s*$", "!\[$C\] COLD raw=.* clock=(?!core\s*$)", "!\[$C\] HIT ", "!\[$C\] TOKENS ")
+    'frostbite'      = @("\[$C\] MATCH start knobs=frostbite=3\s*$", (& $frost '3'), "!\[$C\] HIT enemy=frostbite via=frostbite stock=1 scaled=(?!3 )",
+                         "!\[$C\] HIT enemy=(?!frostbite )", "!\[$C\] COLD ")
+    'frostbite-zero' = @("\[$C\] MATCH start knobs=frostbite=0\s*$", (& $frost '0'), "!\[$C\] HIT enemy=frostbite via=frostbite stock=1 scaled=(?!0 )",
+                         "!\[$C\] HIT enemy=(?!frostbite )", "!\[$C\] COLD ")
+    'tokens-more'    = @("\[$C\] MATCH start knobs=revives=4\s*$", "#1|\[$C\] TOKENS start limit=2 N=4 count=-2\s*$",
+                         "\[$C\] TOKENS used=4 left=0 count=2 via=\S+\s*$", "#1|\[$C\] TOKENS disabled at used=4 N=4 via=\S+\s*$",
+                         "!\[$C\] TOKENS disabled at used=(?!4 )", "!\[$C\] TOKENS minimum changed ", "!\[$C\] COLD ")
+    'tokens-fewer'   = @("\[$C\] MATCH start knobs=revives=2\s*$", "#1|\[$C\] TOKENS start limit=8 N=2 count=6\s*$",
+                         "\[$C\] TOKENS used=2 left=0 count=8 via=\S+\s*$", "#1|\[$C\] TOKENS disabled at used=2 N=2 via=\S+\s*$",
+                         "!\[$C\] TOKENS disabled at used=(?!2 )", "!\[$C\] TOKENS minimum changed ", "!\[$C\] COLD ")
+}
+foreach ($s4Key in $story4.Keys) { $story3[$s4Key] = $story4[$s4Key] }
 $expect = @{
     'ready'    = $running + @($menuWorld)
     'host'     = $running + @($menuWorld, "\[$C\] WORLD host=true standalone=false map=\S+\s*$")
@@ -180,11 +213,35 @@ if ($Scenario -in $story3.Keys) {
     }
 }
 
+# Story 4, cold: the last COLD summary (sums since the match start). raw = 0 means the game never cooled the player
+# (indoors, a vehicle): not shown.
+$coldNotShown = $null
+if ($Scenario -in 'cold', 'cold-zero' -and -not $driverNotShown) {
+    $coldRx = "\[$C\] COLD raw=(\d+(?:\.\d+)?) applied=(-?\d+(?:\.\d+)?) factor=(\S+) .*avg_ms=(\S+) "
+    $last = @($lines | Where-Object { $_ -match $coldRx })[-1]
+    if ($last -and $last -match $coldRx) {
+        $raw, $applied, $factor, $avg = [double]$Matches[1], [double]$Matches[2], $Matches[3], $Matches[4]
+        if ($raw -le 0) { $coldNotShown = "the game never cooled the player (COLD raw=0)" }
+        elseif ($Scenario -eq 'cold') {
+            $ratio = $applied / $raw
+            if ($factor -eq '0.25') { Pass 'COLD factor=0.25 (Nightmare, cold 50)' } else { Fail "COLD factor=$factor, want 0.25" }
+            if ([Math]::Abs($ratio - 0.25) -le 0.025) { Pass ("COLD applied/raw = {0:N4} (0.25 +- 10%; raw {1}, applied {2})" -f $ratio, $raw, $applied) }
+            else { Fail ("COLD applied/raw = {0:N4}, want 0.25 +- 10% (raw {1}, applied {2})" -f $ratio, $raw, $applied) }
+            $avgN = 0.0
+            if ([double]::TryParse($avg, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$avgN) -and $avgN -lt 0.1) { Pass "COLD poll avg_ms=$avg under 0.1" }
+            else { Fail "COLD poll avg_ms=$avg, want under 0.1" }
+        } else {
+            if ($applied -eq 0) { Pass "COLD applied=0 with raw $raw (cold 0: no rise)" } else { Fail "COLD applied=$applied, want 0 (cold 0)" }
+        }
+    } else { Fail 'a COLD summary line' }
+}
+
 if ($failed) { Write-Host "$failed check(s) failed."; exit 1 }
 $notShown = @($lines | Where-Object { $_ -match "\[$([regex]::Escape("${name}Driver"))\] (NOTSHOWN |END result=NOTSHOWN)" })
+if ($coldNotShown) { $notShown += "NOTSHOWN $coldNotShown" }
 if ($notShown.Count) {
-    $notShown | ForEach-Object { Write-Host "not shown: $($_ -replace '^.*?\] NOTSHOWN ', '')" }
-    Write-Host 'NOT SHOWN: an enemy did not attack in time; this run neither passes nor fails. Run it again.'
+    $notShown | ForEach-Object { Write-Host "not shown: $($_ -replace '^.*?NOTSHOWN ', '')" }
+    Write-Host 'NOT SHOWN: the driver could not make the case happen (see above); this run neither passes nor fails. Run it again.'
     exit 2
 }
 Write-Host ("All checks passed{0}." -f $(if ($warned) { " ($warned soft check(s) not met)" } else { '' }))

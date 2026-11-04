@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Runs one Difficulty story 3 scenario end to end on the host: deploy (with the test driver), launch, serve key
+  Runs one Difficulty story 3 or 4 scenario end to end on the host: deploy (with the test driver), launch, serve key
   requests, wait, close, check.
 .DESCRIPTION
   Deploys with deploy.ps1 -Test -PreCore -Scenario <s> (the dev core mode: on a core that already satisfies
@@ -14,7 +14,8 @@
   <seq> to done.txt.
   Afterwards it deploys Difficulty again without the driver and dev.lua (a plain deploy.ps1 -Test -PreCore), keeps
   the log as <workspace>/dumps/<copy>/difficulty/<scenario>.log (ignored by git) and runs check.ps1 on it. Exit code:
-  check.ps1's (0 passed, 1 failed, 2 not shown: an enemy didn't attack in time).
+  check.ps1's (0 passed, 1 failed, 2 not shown: the driver couldn't make the case happen, e.g. an enemy didn't attack
+  in time, the player wasn't outdoors, no frostbite tick came).
   Core must already be installed (Nucleus's own deploy.ps1). Steam must be running. Don't type into the game while
   it runs. No game runs on the host without asking the user first.
 .EXAMPLE
@@ -22,7 +23,8 @@
 #>
 param(
     [Parameter(Mandatory)] [string] $Instance,
-    [Parameter(Mandatory)] [ValidateSet('scaled', 'flip', 'per-enemy', 'default', 'clash')] [string] $Scenario,
+    [Parameter(Mandatory)] [ValidateSet('scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite',
+                 'frostbite-zero', 'tokens-more', 'tokens-fewer')] [string] $Scenario,
     [int] $TimeoutSec = 900
 )
 $ErrorActionPreference = 'Stop'

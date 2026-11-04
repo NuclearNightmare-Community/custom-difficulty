@@ -39,7 +39,7 @@ local function boot(opts)
     W = F.new()
     F.install(W)
     S = { dev = opts.dev, connects = {} }
-    for _, m in ipairs({ "world", "hits", "damage", "knobs", "nucleus.client" }) do package.loaded[m] = nil end
+    for _, m in ipairs({ "world", "hits", "damage", "knobs", "env", "tokens", "nucleus.client" }) do package.loaded[m] = nil end
     package.preload["nucleus.client"] = nil
     if opts.client ~= false then
         package.preload["nucleus.client"] = function()
@@ -128,6 +128,9 @@ do
     ok(iw and ir and iw < ir, "WORLD for the current world comes before READY")
     eq(count("WARN"), 0, "normal mode: no WARN")
     eq(count("running on"), 0, "normal mode: no pre-core WARN")
+    local loops = 0
+    for _, e in ipairs(W.later) do if e.loop and e.ms == 250 then loops = loops + 1 end end
+    eq(loops, 1, "ready: the host poll started (one 250 ms game-thread loop)")
     -- The LoadMap hook for the same menu world (it can fire after ready): no second WORLD line.
     W.loadMapHooks[1](nil, W.param(W.menu))
     eq(count("WORLD host=false standalone=true map=NewMainMenu"), 1, "the same world again: still one WORLD line")
@@ -172,6 +175,51 @@ do -- RegisterLoadMapPostHook fails: one ERROR, no READY.
     ready(newCore())
     eq(count("^%[Difficulty%] ERROR could not register the LoadMap hook"), 1, "hook registration fails: one ERROR")
     eq(count("READY"), 0, "hook registration fails: no READY")
+end
+do -- main.lua passes core's weak handles and clock into hits: a hosted cold match refs the game state and the COLD
+   -- line says clock=core.
+    boot{ dev = 'return { knobs = "cold=50" }' }
+    local now = 1000
+    local realClock = os.clock
+    os.clock = function() return now end
+    local core = newCore("0.4.0")
+    local refs, us = 0, 0
+    local handles = {}
+    core.ref = function(o) refs = refs + 1 handles[refs] = o return refs end
+    core.deref = function(h) return handles[h] end
+    core.free = function(h) handles[h] = nil end
+    core.clock = { micros = function() us = us + 5 return us end }
+    local function obj(class, path, fields)
+        local o = { _full = class .. " " .. path }
+        for k, v in pairs(fields or {}) do o[k] = v end
+        o.IsValid = function() return true end
+        o.GetFullName = function(s) return s._full end
+        o.GetClass = function() return { GetFName = function() return { ToString = function() return class end } end } end
+        return o
+    end
+    local ch = obj("BP_FirstPersonCharacter_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.BP_FirstPersonCharacter_C_1", { Temperature = 0.1 })
+    local ps = obj("BP_NNPlayerState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.PS_1", { PawnPrivate = ch })
+    local gs = obj("BP_FirstPersonGameState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.GS_1", { Diffculty = 0, PlayerArray = { ps } })
+    W.all.BP_FirstPersonGameState_C = { gs }
+    ready(core)
+    W.loadMapHooks[1](nil, W.param(W.match))
+    W.fire("/Game/FirstPerson/Blueprints/BP_FirstPersonGameState.BP_FirstPersonGameState_C:UpdateFriendlyFire", W.p(gs))
+    local loop
+    for _, e in ipairs(W.later) do if e.loop and e.ms == 250 then loop = e.fn end end
+    eq(refs, 1, "wiring: core.ref took the game state's handle at the match start")
+    loop() ch.Temperature = 0.14 loop()
+    ok(math.abs(ch.Temperature - 0.11) < 1e-9, "wiring: the poll scales through main.lua's hits", ch.Temperature)
+    now = now + 11 loop()
+    eq(count("^%[Difficulty%] COLD raw=.* clock=core$"), 1, "wiring: the COLD line says clock=core")
+    ok(refs >= 2, "wiring: the characters are held through core.ref too")
+    os.clock = realClock
+end
+do -- The poll can't start: one ERROR, READY still.
+    boot()
+    LoopInGameThreadWithDelay = function() error("no loop") end
+    ready(newCore())
+    eq(count("^%[Difficulty%] ERROR the host poll could not start %(.*no loop%); cold stays stock$"), 1, "poll fails to start: one ERROR")
+    eq(count("READY"), 1, "poll fails to start: still READY")
 end
 do -- A failing core logger falls back to print.
     boot()

@@ -14,7 +14,23 @@
 --   default    Hard, no knobs: a Meek hit takes the game's 50 (Difficulty logs no HIT line).
 --   clash      Hard, Enemy Damage 17, and this driver's own CallDamageEvent pre-hook adds 5 HP to every hit: the
 --              first hit takes 12 (17 - 5; Difficulty logs one WARN and backs off), the next one the stock 45 (50 - 5).
--- Lines: OK / FAIL <check>; NOTSHOWN <case> (the enemy didn't attack in time: not a pass); END result=PASS|FAIL|NOTSHOWN.
+-- Story 4 (cold, frostbite, reinforcement tokens; no enemy cases, natural enemies cleared every 2 s):
+--   cold            Nightmare, Cold Exposure 50: Temperature set to 0 once (a lowering: a raise would be scaled like
+--                   cooling), then 60 s outdoors; the rise must be a quarter of Nightmare's stock range (60 s / 600..310
+--                   per s, +-10%). Difficulty's COLD line has the exact ratio (check.ps1).
+--   cold-zero       Cold Exposure 0: Temperature stays at its start (0) outdoors for 60 s.
+--   frostbite       Frostbite 3, cold Default: Temperature held at 1.5 (raising it is fine: cold is Default); Health
+--                   loss over 20 s = 60 +-10%.
+--   frostbite-zero  Frostbite 0: no Health loss over 20 s while frozen.
+--   tokens-more     Classified Minium 0 (limit 2), N 4: the computer's text shows 4; four reinforcements accepted,
+--                   then Disable Reinforcement set (and not before).
+--   tokens-fewer    Classified Minium 3 (limit 8), N 2: after two, Disable set and the text shows 0.
+--   A reinforcement is the synthetic revive (the game state's UpdateRespawnQue + the radio's ReinforceSpecficPlayer
+--   on the living host, as test/MarkersDriver did on V8.1.2); if the count doesn't move in 15 s, the radio's
+--   SpawnReinforcmentSpectator() (which has no gate), destroying the orphan character it spawns. The token text is
+--   read from a NukeComputer_UI_C widget made with WidgetBlueprintLibrary:Create and never added to the viewport.
+-- Lines: OK / FAIL <check>; NOTSHOWN <case> (the driver couldn't make the case happen: not a pass);
+-- END result=PASS|FAIL|NOTSHOWN.
 -- Keys it can't press itself (Enter for touchdown) go to run.ps1 through request.txt / done.txt next to this file.
 -- Never keeps a UObject across steps: paths only, re-found each step.
 local ME = "DifficultyDriver"
@@ -36,6 +52,13 @@ local SCENARIOS = {
     ["per-enemy"] = { diff = 2, cases = { { enemy = STALKER, want = 50, tol = 0.05 }, { enemy = MEEK, want = 25, tol = 0.05 } } },
     ["default"] = { diff = 1, cases = { { enemy = MEEK, want = 50, tol = 0.05 } } },
     ["clash"] = { diff = 1, clash = 5, cases = { { enemy = MEEK, want = 12, tol = 0.05 }, { enemy = MEEK, want = 45, tol = 0.05 } } },
+    -- Story 4: one special phase each (cases stay empty).
+    ["cold"] = { diff = 0, special = "cold", factor = 0.25, cases = {} },
+    ["cold-zero"] = { diff = 0, special = "cold", factor = 0, cases = {} },
+    ["frostbite"] = { diff = 2, special = "frost", want = 60, tol = 6, cases = {} },
+    ["frostbite-zero"] = { diff = 2, special = "frost", want = 0, tol = 0.05, cases = {} },
+    ["tokens-more"] = { diff = 2, special = "tokens", cm = 0, limit = 2, n = 4, cases = {} },
+    ["tokens-fewer"] = { diff = 2, special = "tokens", cm = 3, limit = 8, n = 2, cases = {} },
 }
 local SC = SCENARIOS[SCENARIO or ""]
 say("SCENARIO %s", tostring(SCENARIO))
@@ -166,9 +189,11 @@ local function installHooks()
         S.nested = S.nested - 1
         if S.stalkerMine then S.stalkerMine = false onHit("ApplyStalkerDamage", nil) end
     end)
-    -- clash: this driver's own pre-hook changes Health on every enemy hit (as another mod might).
+    -- clash: this driver's own pre-hook changes Health on every enemy hit (as another mod might). frostbite: counts
+    -- the 1-2 HP calls on the local player while the frostbite window is open.
     hook("/Script/NuclearNightmare.NuclearNightmareCharacter:CallDamageEvent", function(selfp, amount)
         local v, n = get(selfp), num(get(amount))
+        if S.frostOn and (n == 1 or n == 2) and isMe(v) then S.frostCalls = (S.frostCalls or 0) + 1 end
         if SC.clash and isMe(v) and n and n > 2 and S.case then
             local hp = hpOf(v)
             pcall(function() v.Health = hp + SC.clash end)
@@ -269,6 +294,10 @@ step("difficulty in the game instance", function()
             local ok = pcall(function() gi.Diffculty = SC.diff end)
             local okL = pcall(function() gi.LobbyMins = 0 end)
             say("GI Diffculty=%d set=%s LobbyMins=0 set=%s", SC.diff, tostring(ok), tostring(okL))
+            if SC.cm then
+                local okC = pcall(function() gi["Minium Classified"] = SC.cm end)
+                say("GI Minium Classified=%d set=%s", SC.cm, tostring(okC))
+            end
         end
     end
     return after(2), 5
@@ -363,6 +392,248 @@ for i, c in ipairs(SC.cases) do
         return after(4), 6
     end)
     step("refill after " .. c.label, function() refill("after " .. c.label) return after(1), 3 end)
+end
+
+-- ---------------------------------------------------------------- story 4 phases
+local COLD_SECONDS, FROST_LEAD, FROST_SECONDS = 60, 3, 20
+local STOCK_COOL_SLOW, STOCK_COOL_FAST = 600, 310 -- s per full meter on Nightmare (knob-mechanics.md "Cooling")
+local NUKE_UI = "/Game/Graphics/Computer/NukeComputer_UI.NukeComputer_UI_C"
+local function readBool(o, k) local ok, v = pcall(function() return o[k] end) if ok then return v end return nil end
+local function temperatureOf(ch) local ok, t = pcall(function() return num(ch.Temperature) end) return ok and t or nil end
+-- Natural enemies are cleared every 2 s during a phase (no enemy case runs in story 4).
+local function keepClear(st) if os.clock() - (st.clearAt or 0) >= 2 then st.clearAt = os.clock() clearOthers(nil) end end
+
+if SC.special == "cold" then
+    local P = { }
+    step("cold", function()
+        local m = me()
+        if not m then if gone() then S.dead = true end return end
+        pcall(function() m.Temperature = 0 end) -- a lowering only (test only): the poll leaves falls alone
+        local t = temperatureOf(m)
+        if not check(t ~= nil, "%s Temperature readable (%s)", SCENARIO, tostring(t)) then return end
+        P.t0, P.start, P.max, P.last, P.samples, P.outside, P.path = os.clock(), t, t, t, 0, 0, pathOf(m)
+        say("COLDRUN start Temperature=0 (test only), %d s outdoors, factor %s", COLD_SECONDS, tostring(SC.factor))
+        return function()
+            local p = me()
+            if not p then if gone() then S.dead = true return true end return false end
+            keepClear(P)
+            if pathOf(p) ~= P.path then P.changed = true end
+            local t = temperatureOf(p)
+            P.samples = P.samples + 1
+            if t then P.last = t if t > P.max then P.max = t end end
+            if readBool(p, "IsInInside") == true or readBool(p, "InsideEnoughToStopFreezing") == true or readBool(p, "CanTakeTemperature") ~= true then
+                P.outside = P.outside + 1
+            end
+            return os.clock() - P.t0 >= COLD_SECONDS
+        end, COLD_SECONDS + 15, "cold phase"
+    end)
+    step("cold verdict", function()
+        if S.dead or not P.t0 then return end
+        local secs = os.clock() - P.t0
+        local rise = P.last - P.start
+        say("COLDRUN end seconds=%.1f start=%.4f end=%.4f max=%.4f rise=%.4f samples=%d indoors_or_vehicle=%d pawn_changed=%s",
+            secs, P.start, P.last, P.max, rise, P.samples, P.outside, tostring(P.changed == true))
+        if P.outside > 0 or P.changed then
+            S.notShown = S.notShown + 1
+            say("NOTSHOWN cold: the player was not outdoors on foot throughout (%d of %d samples; pawn changed %s)", P.outside, P.samples, tostring(P.changed == true))
+            return
+        end
+        if SC.factor == 0 then
+            check(P.max <= 0.005, "%s Temperature stayed at its start outdoors for %.0f s (max %.4f, want <= 0.005)", SCENARIO, secs, P.max)
+            return
+        end
+        if rise <= 0.0005 then
+            S.notShown = S.notShown + 1
+            say("NOTSHOWN cold: Temperature didn't rise in %.0f s (rise %.4f): no cooling here", secs, rise)
+            return
+        end
+        -- A quarter of Nightmare's stock range for this time, +-10% (the weather sets where in the range).
+        local lo, hi = secs * SC.factor / STOCK_COOL_SLOW * 0.9, secs * SC.factor / STOCK_COOL_FAST * 1.1
+        check(rise >= lo and rise <= hi, "%s rise %.4f in %.0f s within a quarter of Nightmare's stock (%.4f..%.4f)", SCENARIO, rise, secs, lo, hi)
+    end)
+elseif SC.special == "frost" then
+    local P = {}
+    step("frostbite", function()
+        local m = me()
+        if not m then if gone() then S.dead = true end return end
+        if not check(temperatureOf(m) ~= nil and hpOf(m) ~= nil, "%s Temperature and Health readable", SCENARIO) then return end
+        P.t0, P.path, P.phase = os.clock(), pathOf(m), "lead"
+        say("FROSTRUN Temperature held at 1.5 (test only; cold is Default), %d s lead, then %d s", FROST_LEAD, FROST_SECONDS)
+        return function()
+            local p = me()
+            if not p then if gone() then S.dead = true return true end return false end
+            keepClear(P)
+            pcall(function() p.Temperature = 1.5 end)
+            if pathOf(p) ~= P.path then P.changed = true end
+            if readBool(p, "InsideEnoughToStopFreezing") == true or readBool(p, "CanTakeTemperature") ~= true then P.outside = (P.outside or 0) + 1 end
+            if P.phase == "lead" and os.clock() - P.t0 >= FROST_LEAD then
+                refill("frostbite window start")
+                P.phase, P.t1, P.hp0 = "window", os.clock(), hpOf(p)
+                S.frostOn, S.frostCalls = true, 0
+                return false
+            end
+            if P.phase == "window" and os.clock() - P.t1 >= FROST_SECONDS then
+                S.frostOn = false
+                P.hp1, P.secs = hpOf(p), os.clock() - P.t1
+                return true
+            end
+            return false
+        end, FROST_LEAD + FROST_SECONDS + 15, "frostbite phase"
+    end)
+    step("frostbite verdict", function()
+        S.frostOn = false
+        local m = me()
+        if m then pcall(function() m.Temperature = 0 end) end -- a lowering: the frost ends (test only)
+        if S.dead or not P.t0 then return end
+        local loss = (P.hp0 and P.hp1) and (P.hp0 - P.hp1) or nil
+        say("FROSTRUN end seconds=%.1f calls=%d hp %s -> %s loss=%s outside_gates=%d pawn_changed=%s", P.secs or 0, S.frostCalls or 0,
+            fmt1(P.hp0), fmt1(P.hp1), fmt1(loss), P.outside or 0, tostring(P.changed == true))
+        if (S.frostCalls or 0) == 0 or P.changed then
+            S.notShown = S.notShown + 1
+            say("NOTSHOWN frostbite: no frostbite tick on the player in %d s (calls %d; inside, a vehicle or a new pawn)", FROST_SECONDS, S.frostCalls or 0)
+            return
+        end
+        check(loss ~= nil and math.abs(loss - SC.want) <= SC.tol, "%s lost %s HP in %.0f s while frozen (want %s +- %s; %d ticks)", SCENARIO,
+            fmt1(loss), P.secs or 0, fmt1(SC.want), fmt1(SC.tol), S.frostCalls)
+    end)
+elseif SC.special == "tokens" then
+    local P = { via = "synthetic" }
+    local function radioActor()
+        for _, r in ipairs(FindAllOf("BP_Radio_C") or {}) do if notDefault(r) and alive(r) then return r end end
+        return nil
+    end
+    local function fpPaths()
+        local t = {}
+        for _, ch in ipairs(FindAllOf(FP) or {}) do if notDefault(ch) and alive(ch) then t[pathOf(ch)] = true end end
+        return t
+    end
+    local function reinf()
+        local g = gameState()
+        if not g then return nil end
+        local cnt, dis, cm
+        pcall(function() cnt = num(g.TimesUsedReinforcements) end)
+        pcall(function() dis = g["Disable Reinforcement"] end)
+        pcall(function() cm = num(g["Classified Minium"]) end)
+        return cnt, dis, cm
+    end
+    -- The computer's own text (GetText_3: "Reinforcement Tokens <limit - count>") from a widget never shown.
+    local function tokenText()
+        local cls = loadClass(NUKE_UI)
+        if not cls then return nil, "class not loaded" end
+        local wbl = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+        local okW, w = pcall(function() return wbl:Create(pc(), cls, pc()) end)
+        if not okW or not valid(w) then return nil, "Create failed: " .. tostring(w) end
+        local okT, t = pcall(function() return w:GetText_3() end)
+        local s
+        if okT then
+            if type(t) == "string" then s = t else pcall(function() s = t:ToString() end) end
+        end
+        pcall(function() w:RemoveFromParent() end)
+        if not s then return nil, "GetText_3 failed: " .. tostring(t) end
+        return s
+    end
+    local function textCheck(left, when)
+        local s, why = tokenText()
+        say("TEXT %s %s", when, tostring(s or why))
+        check(s == ("Reinforcement Tokens " .. left), "%s the computer's text %s is 'Reinforcement Tokens %d' (got %s)", SCENARIO, when, left, tostring(s or why))
+    end
+    step("tokens start", function()
+        local cnt, dis, cm = reinf()
+        say("REINF start count=%s disable=%s classifiedMin=%s", tostring(cnt), tostring(dis), tostring(cm))
+        check(cm == SC.cm, "%s Classified Minium is %d (got %s)", SCENARIO, SC.cm, tostring(cm))
+        check(cnt == SC.limit - SC.n, "%s count at the start is limit - N = %d (got %s)", SCENARIO, SC.limit - SC.n, tostring(cnt))
+        check(dis == false, "%s Disable Reinforcement false at the start (got %s)", SCENARIO, tostring(dis))
+        textCheck(SC.n, "at the start")
+        return after(1), 3
+    end)
+    for i = 1, SC.n do
+        step("reinforce #" .. i, function()
+            if P.abort then return end
+            local p, c, g, r = me(), pc(), gameState(), radioActor()
+            if not (p and c and g and r) then S.notShown = S.notShown + 1 P.abort = true say("NOTSHOWN reinforce #%d: no pawn, controller, game state or radio", i) return end
+            local before = reinf()
+            local t0, others = os.clock(), fpPaths()
+            local function spectator()
+                -- The count right before this call: a late synthetic revive already counted is judged from here.
+                P.via, t0, others, before = "spectator", os.clock(), fpPaths(), reinf()
+                local okS, eS = pcall(function() radioActor():SpawnReinforcmentSpectator() end)
+                say("REVIVE #%d SpawnReinforcmentSpectator ok=%s %s", i, tostring(okS), okS and "" or tostring(eS))
+            end
+            if P.via == "synthetic" then
+                local okQ, eQ = pcall(function() g:UpdateRespawnQue(c, p) end)
+                local okR, eR = pcall(function() r:ReinforceSpecficPlayer(p) end)
+                say("REVIVE #%d synthetic UpdateRespawnQue ok=%s %s; ReinforceSpecficPlayer ok=%s %s", i, tostring(okQ), okQ and "" or tostring(eQ), tostring(okR), okR and "" or tostring(eR))
+            else
+                spectator()
+            end
+            return function()
+                if not me() then if gone() then S.dead = true return true end end
+                keepClear(P)
+                local now = reinf()
+                if now and before and now == before + 1 then
+                    if P.via == "spectator" then
+                        local mine = me() and pathOf(me()) or ""
+                        for path in pairs(fpPaths()) do
+                            if not others[path] and path ~= mine then
+                                local x = StaticFindObject(path)
+                                if valid(x) then pcall(function() x:K2_DestroyActor() end) say("REVIVE #%d destroyed the orphan %s", i, path) end
+                            end
+                        end
+                    end
+                    say("REVIVE #%d via=%s count %d -> %d", i, P.via, before, now)
+                    check(true, "%s reinforcement #%d accepted (via %s)", SCENARIO, i, P.via)
+                    return true
+                end
+                if now and before and now > before + 1 then
+                    -- Both paths landed (a late synthetic revive and the fallback): the case can't be judged one by one.
+                    S.notShown = S.notShown + 1
+                    P.abort = true
+                    say("NOTSHOWN reinforce #%d: the count jumped %d -> %d (a late synthetic revive and the %s path both counted)", i, before, now, P.via)
+                    return true
+                end
+                if P.via == "synthetic" and os.clock() - t0 > 15 then
+                    say("REVIVE #%d the synthetic revive wasn't accepted in 15 s (count %s); falling back to SpawnReinforcmentSpectator()", i, tostring(now))
+                    spectator()
+                    return false
+                end
+                if P.via == "spectator" and os.clock() - t0 > 10 then
+                    S.notShown = S.notShown + 1
+                    P.abort = true
+                    say("NOTSHOWN reinforce #%d: neither path moved the count (%s)", i, tostring(now))
+                    return true
+                end
+                return false
+            end, 40, "reinforcement #" .. i
+        end)
+        -- The new pawn settles, Difficulty's callback or poll re-checks; then Disable is false before N and true at N.
+        step("after reinforce #" .. i, function()
+            if P.abort or S.dead then return end
+            local t0 = os.clock()
+            return function()
+                local m = me()
+                if m then pcall(function() m.Temperature = 0 end) end -- a lowering (cold is Default): no frost while waiting
+                keepClear(P)
+                local _, dis = reinf()
+                if i == SC.n then
+                    if dis == true or os.clock() - t0 > 5 then
+                        check(dis == true, "%s Disable Reinforcement set after reinforcement #%d = N (got %s)", SCENARIO, i, tostring(dis))
+                        return true
+                    end
+                    return false
+                end
+                if os.clock() - t0 < 4 then return false end
+                check(dis == false, "%s Disable Reinforcement still false after reinforcement #%d of %d (got %s)", SCENARIO, i, SC.n, tostring(dis))
+                return true
+            end, 10, "after reinforcement #" .. i
+        end)
+    end
+    step("tokens end", function()
+        if P.abort or S.dead then return end
+        local cnt, dis = reinf()
+        say("REINF end count=%s disable=%s via=%s", tostring(cnt), tostring(dis), P.via)
+        check(cnt == SC.limit, "%s count after N reinforcements is the limit %d (got %s)", SCENARIO, SC.limit, tostring(cnt))
+        textCheck(0, "after N reinforcements")
+    end)
 end
 
 -- ---------------------------------------------------------------- runner (game thread, every 250 ms)

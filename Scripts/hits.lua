@@ -1,17 +1,22 @@
--- Difficulty: enemy damage on the host and survivable grabs for the host's own player (spec-difficulty-v1 story 3;
--- knob-mechanics.md "Enemy damage" and "Survivable grabs"). The game adapter: hooks, match state, attribution,
--- Health compensation, the grab flip and its restore, the guards against other mods. The math is damage.lua's.
+-- Difficulty: the host's match state and every gameplay hook (spec-difficulty-v1 stories 3 and 4; knob-mechanics.md).
+-- Story 3: enemy damage on the host and survivable grabs for the host's own player (attribution, Health
+-- compensation, the grab flip and its restore, the guards against other mods; the math is damage.lua's). Story 4:
+-- frostbite in the CallDamageEvent pre-hook, cold in the host poll (env.lua), reinforcement tokens at the match start,
+-- in the radio's server-event callbacks and in the poll (tokens.lua).
 --
 -- Rules every hook body follows (spec "Always"):
---   * it runs under pcall; a failure logs one ERROR and turns damage and grab changes off for the match (a pending
---     temporary Health is still restored);
+--   * it runs under pcall; a failure logs one ERROR and turns every knob off for the match (a pending temporary
+--     Health is still restored);
 --   * it returns unless this machine hosts the current world, the match started in it (UpdateFriendlyFire ran), the
 --     mod hasn't backed off this match, and a knob the hit or grab depends on isn't Default (all Default: no write);
 --   * GameState.Diffculty is read live at each hit and grab, never written;
 --   * no UObject is kept between callbacks: victims and attackers are kept as paths and found again;
---   * nothing runs per frame; the only deferred call is a grab's next-tick restore fallback.
+--   * nothing runs per frame: one 250 ms game-thread poll (cold, token re-check; no work while those knobs are
+--     Default) and a grab's next-tick restore fallback.
 local damage = require("damage")
 local knobs = require("knobs")
+local env = require("env")
+local tokens = require("tokens")
 local M = {}
 
 local CTX_CDO = "/Script/NuclearNightmare.Default__NNEnemyAttackContext"
@@ -19,6 +24,11 @@ local DOG_CDO = "/Script/NuclearNightmare.Default__NNInfectedDogSupport"
 local GS_CDO = "/Script/Engine.Default__GameplayStatics"
 local FPC = "/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"
 local GAMESTATE = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameState.BP_FirstPersonGameState_C"
+local RADIO = "/Game/Gameplay/ClassifiedMaterials/BP_Radio.BP_Radio_C"
+local FP_SHORT = "BP_FirstPersonCharacter_C"
+M.RADIO = RADIO
+-- The radio's server events: each adds 1 to TimesUsedReinforcements on the host (the callback runs after the body).
+M.RADIO_EVENTS = { "ReinforceSpecficPlayer", "SpawnReinforcementMethod2", "SpawnReinforcmentSpectator" }
 
 M.GRAB_WINDOW = 8     -- s: hits on a victim this long after its grab decision belong to that grab (Stalker 4.9 s)
 M.BAT_RANGE = 300     -- cm: a phase-3 bat this close to the victim made the hit
@@ -101,10 +111,13 @@ A.__index = A
 
 -- new(opts): opts.say(level, fmt, ...), opts.warnOnce(key, fmt, ...), opts.isHost() -> bool (this machine hosts the
 -- current world), opts.world() -> the current world's name, opts.knobs() -> the knob text (dev.lua), opts.alive(obj)
--- (the KismetSystemLibrary:IsValid UFunction), opts.clock() (s), opts.rng() ([0, 1)), opts.seed(n).
+-- (the KismetSystemLibrary:IsValid UFunction), opts.clock() (s), opts.rng() ([0, 1)), opts.seed(n), opts.micros()
+-- (core's microsecond clock, optional: the poll's cost; os.clock otherwise), opts.ref / deref / free (core's weak
+-- handles, optional: the match's game state for the poll; without them the poll falls back to a FindAllOf).
 function M.new(opts)
     local self = setmetatable({ o = opts, hooks = {}, bpHooks = {}, queued = {}, st = nil, installFailed = true }, A) -- until install() hooks the natives
     self.clock = opts.clock or os.clock
+    self.micros = opts.micros
     self.rng = opts.rng or math.random
     self.seed = opts.seed or function(n) math.randomseed(n) end
     self:reset(nil)
@@ -115,6 +128,10 @@ end
 -- always put back.
 function A:reset(world)
     local old = self.st
+    if old and self.o.free then
+        if old.gsRef ~= nil then pcall(self.o.free, old.gsRef) end
+        for _, e in ipairs(old.charRefs or {}) do pcall(self.o.free, e.h) end
+    end
     self.st = {
         world = world, started = false, backedOff = false, values = {},
         grabs = {},     -- victim path -> { kind, attacker, row, at }
@@ -122,6 +139,13 @@ function A:reset(world)
         apply = {},     -- stack of plans (or false) for ApplyLockedDamage / ApplyStalkerDamage
         cde = {},       -- stack of plans (or false) for CallDamageEvent
         pending = old and old.pending or {}, -- victim path -> { saved, temp, label }
+        cold = env.newPoll{ say = self.o.say, clock = function() return self.clock() end, -- per-path state, per match
+                            micros = function() if self.micros then return self.micros() end return nil end },
+        tok = nil,      -- the token state (tokens.start); nil while the knob does nothing
+        gsRef = nil,    -- core's weak handle on this match's game state (onStart), never the object
+        charRefs = nil, -- the characters between discoveries: { h = weak handle, path } (nil: discover next poll)
+        sinceDiscovery = 0,
+        isFP = {},      -- pawn path -> true when it is a BP_FirstPersonCharacter_C (the class check once per path)
     }
 end
 
@@ -130,11 +154,28 @@ function A:active()
     return not self.installFailed and st.started and not st.backedOff and st.world ~= nil and st.world == self.o.world() and self.o.isHost() == true
 end
 
--- backOff(level, fmt, ...): one line, then no damage or grab change until the next match.
+M.OFF = "; every knob off until the next match"
+
+-- releaseTokens(): at a back-off, the token count goes back to stock once (tokens.release) and the token state is
+-- dropped; a failure here is only logged (the back-off already happened).
+function A:releaseTokens()
+    local t = self.st.tok
+    if not t then return end
+    self.st.tok = nil
+    local ok, err = pcall(function()
+        local gs = self:pollGameState(true)
+        if gs then tokens.release(t, gs, self.o) else self.o.say("info", "TOKENS released at back-off used=? (no game state; left as it is)") end
+    end)
+    if not ok then self.o.say("debug", "TOKENS release at back-off failed: %s", tostring(err)) end
+end
+
+-- backOff(level, fmt, ...): one line, then no knob acts until the next match (damage, grabs, frostbite, cold; the
+-- token count goes back to stock; any other value already written stays).
 function A:backOff(level, fmt, ...)
     if self.st.backedOff then return end
     self.st.backedOff = true
-    self.o.say(level, fmt .. "; damage and grab changes off until the next match", ...)
+    self.o.say(level, fmt .. M.OFF, ...)
+    self:releaseTokens()
 end
 
 -- guard(label, fn): fn under pcall; a failure logs one ERROR and backs off.
@@ -144,7 +185,7 @@ function A:guard(label, fn)
         if not ok then
             local first = not self.st.backedOff
             self.st.backedOff = true
-            if first then self.o.say("error", "%s failed: %s; damage and grab changes off until the next match", label, tostring(err))
+            if first then self.o.say("error", "%s failed: %s" .. M.OFF, label, tostring(err)) self:releaseTokens()
             else self.o.say("debug", "%s failed again: %s", label, tostring(err)) end
         end
     end
@@ -153,17 +194,24 @@ end
 -- ---------------------------------------------------------------- reading the game
 function A:alive(o) return exists(o) and self.o.alive(o) == true end
 
--- difficulty(ctx) -> EDiffculty 0..3 read live from the game state, or nil.
-function A:difficulty(ctx)
+-- gameState(ctx) -> the live game state (GetGameState from ctx, else the first live one), or nil.
+function A:gameState(ctx)
     local gs
     local g = cdo(GS_CDO)
-    if g then pcall(function() gs = g:GetGameState(ctx) end) end
+    if g and ctx ~= nil then pcall(function() gs = g:GetGameState(ctx) end) end
     if not exists(gs) then
+        gs = nil
         for _, s in ipairs(FindAllOf("BP_FirstPersonGameState_C") or {}) do
             local p = pathOf(s)
             if p and not p:find("Default__", 1, true) and self:alive(s) then gs = s break end
         end
     end
+    return gs
+end
+
+-- difficulty(ctx, gs) -> EDiffculty 0..3 read live from the game state (gs, or the one found from ctx), or nil.
+function A:difficulty(ctx, gs)
+    gs = gs or self:gameState(ctx)
     if not exists(gs) then return nil end
     local ok, d = pcall(function() return gs.Diffculty end)
     d = ok and num(d) or nil
@@ -357,15 +405,69 @@ function A:onCde(selfp, amount)
     if b then
         row, via, apath = b.row, "CommitLethalDamage", b.path
     else
-        -- Frostbite (1 or 2 with no enemy context) is story 4's; never touched here.
-        if n == 1 or n == 2 then return end
+        -- 1 or 2 with no enemy context: frostbite when the victim is frozen (env.lua's rule), else left alone.
+        if n == 1 or n == 2 then
+            local p = self:frost(v, vpath, n)
+            if p then p.delivered = true end
+            st.cde[slot] = p
+            return
+        end
         row, via = self:nativeAttacker(v, vpath)
-        if not row then return end -- environmental, unknown or a Blueprint-wrapper enemy: never touched
+        if not row then
+            -- Frostbite 0: the game's finisher (100 on a frozen player at 0 < Health < 1) is absorbed too.
+            local p = self:finisher(v, vpath, n)
+            if p then p.delivered = true end
+            st.cde[slot] = p
+            return -- environmental, unknown or a Blueprint-wrapper enemy: never touched
+        end
     end
     local p = self:plan(v, n, row, via, apath, false)
     if p then p.delivered = true end
     st.cde[slot] = p
 end
+local function frostState(v)
+    local s = {}
+    pcall(function() s.temp = num(v.Temperature) end)
+    pcall(function() s.can = v.CanTakeTemperature end)
+    pcall(function() s.inside = v.InsideEnoughToStopFreezing end)
+    pcall(function() s.infected = v.Infected end)
+    pcall(function() s.mimic = v["IsMimic?"] end)
+    return s
+end
+
+-- finisher(v, vpath, n) -> with Frostbite 0, a plan absorbing the game's frostbite finisher (Health unchanged after
+-- the native, checked by onCdePost's guard), or false.
+function A:finisher(v, vpath, n)
+    local chosen = self.st.values.frostbite
+    if chosen ~= 0 or n ~= 100 or not vpath then return false end
+    local hp = hpOf(v)
+    if not env.isFinisher(n, hp, frostState(v), chosen) then return false end
+    local p = env.frostbite(hp, n, 0)
+    if not setHp(v, p.new) then error("could not write Health on " .. vpath) end
+    p.path, p.before, p.kind, p.row, p.via = vpath, hp, "hit", "frostbite", "frostbite-finisher"
+    self.o.say("info", "HIT enemy=frostbite via=frostbite-finisher stock=%s scaled=%s rolled=%s applied=%s hp=%s kind=hit",
+        F(p.stock), F(p.scaled), F(p.rolled), F(p.applied), F(hp))
+    return p
+end
+
+-- frost(v, vpath, n) -> a plan (Health compensated; onCdePost's guard checks it like any hit) or false.
+function A:frost(v, vpath, n)
+    local chosen = self.st.values.frostbite
+    if chosen == nil or not vpath then return false end
+    local s = frostState(v)
+    if not env.isFrostbite(n, s) then return false end
+    if self.st.pending[vpath] then self:restore(vpath, "hit") end
+    local hp = hpOf(v)
+    if not hp then return false end
+    local p = env.frostbite(hp, n, chosen)
+    if not p then return false end
+    if not setHp(v, p.new) then error("could not write Health on " .. vpath) end
+    p.path, p.before, p.kind, p.row, p.via = vpath, hp, "hit", "frostbite", "frostbite"
+    self.o.say("info", "HIT enemy=frostbite via=frostbite stock=%s scaled=%s rolled=%s applied=%s hp=%s kind=hit",
+        F(p.stock), F(p.scaled), F(p.rolled), F(p.applied), F(hp))
+    return p
+end
+
 function A:onCdePost()
     local p = table.remove(self.st.cde)
     if p then self:check(p) end
@@ -438,7 +540,7 @@ function A:later(vpath)
 end
 
 -- UpdateFriendlyFire (host): the match starts. Knob values are parsed again for every match.
-function A:onStart()
+function A:onStart(gsParam)
     if not self.o.isHost() then return end
     local world = self.o.world()
     -- Only the first call per world starts the match (it is a server RPC a client can call again).
@@ -451,8 +553,166 @@ function A:onStart()
     self.seed(math.floor((os.time() % 1000000) * 1000 + (self.clock() * 1000) % 1000))
     st.started = true
     self.o.say("info", "MATCH start knobs=%s", knobs.describe(values))
-    -- Grab classes loaded by now are hooked before their first grab.
+    local gs0 = (values.cold ~= nil or values.revives ~= nil) and self:gameState(get(gsParam)) or nil
+    -- The poll re-finds this game state through a weak handle each tick (no scan, no UObject kept).
+    if self.o.ref and gs0 then
+        local okR, h = false, nil
+        if gs0 then okR, h = pcall(self.o.ref, gs0) end
+        if okR and h ~= nil then st.gsRef = h
+        else self.o.say("debug", "no weak handle on the game state (%s); the poll finds it with FindAllOf", tostring(h)) end
+    end
+    -- Grab classes and the radio loaded by now are hooked before their first use.
     for _, g in ipairs(M.GRABS) do self:installClass(g.class) end
+    self:installClass(RADIO)
+    -- Tokens: the offset count (and Disable at N = 0) now; re-checked in the radio callbacks and the poll.
+    if values.revives ~= nil then
+        local gs = gs0
+        if gs then st.tok = tokens.start(gs, values.revives, self.o)
+        else self.o.warnOnce("tokens:gs", "TOKENS no game state at the match start; tokens stay stock") end
+    end
+end
+
+-- The radio's server-event callbacks (host only; they run after the body, so the count already moved).
+function A:onRadio(event)
+    if not self.st.tok or not self:active() then return end
+    local gs = self:pollGameState(true) -- the match's handle; a FindAllOf only without core's handles
+    if gs then tokens.check(self.st.tok, gs, event, self.o) end
+end
+
+-- ---------------------------------------------------------------- the host poll (cold, token re-check)
+function A:now()
+    if self.micros then
+        local ok, us = pcall(self.micros)
+        if ok and type(us) == "number" then return us, "core" end
+    end
+    return os.clock() * 1e6, "os"
+end
+
+M.REDISCOVER_EVERY = 8 -- polls: the characters are found again every 2 s (and on a match's first poll)
+
+-- handles() -> true when the poll keeps weak handles (core has them and the game state has one this match).
+function A:handles() return self.st.gsRef ~= nil and self.o.ref ~= nil and self.o.deref ~= nil end
+
+-- pollGameState(check) -> this match's game state: through the weak handle (nil once it is gone: the tick is
+-- skipped; the KSL liveness check only when check is set, at a discovery), or without core's handles the old way
+-- (a FindAllOf of the game states).
+function A:pollGameState(check)
+    local st = self.st
+    if st.gsRef ~= nil and self.o.deref then
+        local ok, gs = pcall(self.o.deref, st.gsRef)
+        if ok and gs ~= nil and (not check or self:alive(gs)) then return gs end
+        return nil
+    end
+    return self:gameState(nil)
+end
+
+-- freeChars(): the character handles go (a rediscovery, a dropped entry handled by the caller).
+function A:freeChars()
+    for _, e in ipairs(self.st.charRefs or {}) do if self.o.free then pcall(self.o.free, e.h) end end
+    self.st.charRefs = nil
+end
+
+-- pollChars(gs) -> chars, discovered. With handles: a discovery (PlayerArray, liveness, paths, one handle per
+-- character) on a match's first poll and every REDISCOVER_EVERY polls; between, only a deref per handle (an entry
+-- whose deref is nil is dropped until the next discovery). Without handles: a discovery every poll.
+function A:pollChars(gs)
+    local st = self.st
+    if not self:handles() then return self:players(gs), true end
+    if st.charRefs == nil or st.sinceDiscovery >= M.REDISCOVER_EVERY - 1 then
+        self:freeChars()
+        local found = self:players(gs)
+        local refs = {}
+        for _, c in ipairs(found) do
+            local ok, h = pcall(self.o.ref, c.obj)
+            if ok and h ~= nil then refs[#refs + 1] = { h = h, path = c.path } end
+        end
+        st.charRefs, st.sinceDiscovery = refs, 0
+        return found, true
+    end
+    st.sinceDiscovery = st.sinceDiscovery + 1
+    local chars, keep = {}, {}
+    for _, e in ipairs(st.charRefs) do
+        local ok, o = pcall(self.o.deref, e.h)
+        if ok and o ~= nil then
+            chars[#chars + 1] = { obj = o, path = e.path }
+            keep[#keep + 1] = e
+        elseif self.o.free then
+            pcall(self.o.free, e.h)
+        end
+    end
+    st.charRefs = keep
+    return chars, false
+end
+
+-- players(gs) -> { { obj, path } } for each player state's pawn in gs.PlayerArray that is a live
+-- BP_FirstPersonCharacter_C (no FindAllOf: the AI-controlled infected aren't players, and the game skips them too).
+function A:players(gs)
+    local chars = {}
+    local okA, arr = pcall(function() return gs.PlayerArray end)
+    if not okA or arr == nil then return chars end
+    local okN, n = pcall(function() return #arr end)
+    if not okN or type(n) ~= "number" then okN, n = pcall(function() return arr:GetArrayNum() end) end
+    if not okN or type(n) ~= "number" then return chars end
+    for i = 1, math.min(n, 64) do
+        local okE, ps = pcall(function() return arr[i] end)
+        if okE and ps ~= nil then
+            local okG, inner = pcall(function() return ps:get() end) -- an element wrapper, if UE4SS hands one
+            if okG and inner ~= nil and type(inner) ~= "boolean" then ps = inner end
+            local pawn
+            pcall(function() pawn = ps.PawnPrivate end)
+            if not exists(pawn) then pawn = nil pcall(function() pawn = ps:GetPawn() end) end
+            if exists(pawn) and self:alive(pawn) then
+                local path = pathOf(pawn)
+                if path then
+                    local fp = self.st.isFP[path]
+                    if fp == nil then
+                        local cls = classOf(pawn)
+                        fp = cls == FP_SHORT
+                        if cls ~= nil then self.st.isFP[path] = fp end -- a failed class read is tried again next time
+                    end
+                    if fp then chars[#chars + 1] = { obj = pawn, path = path } end
+                end
+            end
+        end
+    end
+    return chars
+end
+
+-- onPoll(): every 250 ms on the game thread. No work unless the match is active here and cold or tokens act. The game
+-- state through the weak handle, the characters from its PlayerArray (no FindAllOf, no StaticFindObject miss).
+function A:onPoll()
+    local st = self.st
+    if not st.started or st.backedOff then return end
+    local cold = st.values.cold
+    if cold == nil and not st.tok then return end
+    if not self:active() then return end
+    local t0, clockName = self:now()
+    local discovering = not self:handles() or st.charRefs == nil or st.sinceDiscovery >= M.REDISCOVER_EVERY - 1
+    local gs = self:pollGameState(discovering)
+    if not gs then return end
+    local chars, discovered = {}, false
+    if cold ~= nil then chars, discovered = self:pollChars(gs) end
+    local tFind = self:now()
+    if cold ~= nil then
+        local d = gs and self:difficulty(nil, gs) or nil
+        if d then st.cold:tick(chars, cold, d) end
+    end
+    if st.tok and gs then tokens.check(st.tok, gs, "poll", self.o) end
+    if cold ~= nil then
+        st.cold:cost(self:now() - t0, tFind - t0, discovered)
+        st.cold:summary(clockName)
+    end
+end
+
+-- startPoll() -> ok, problem: the one LoopInGameThreadWithDelay loop, for the session (never LoopAsync). Its body
+-- returns at once while no match is active or cold and tokens are Default.
+function A:startPoll()
+    if self.pollHandle ~= nil then return true end
+    local fn = self:guard("poll", A.onPoll)
+    local ok, h = pcall(LoopInGameThreadWithDelay, env.POLL_MS, function() fn() end)
+    if not ok then return false, tostring(h) end
+    self.pollHandle = h or true
+    return true
 end
 
 -- ---------------------------------------------------------------- registration
@@ -498,6 +758,10 @@ function A:classDefs(classPath)
         defs[#defs + 1] = { FPC .. ":PlayDamageEvent", self:guard("PlayDamageEvent hook", function(s, ...) s:onGrabMulticast(0, ...) end) }
     elseif classPath == GAMESTATE then
         defs[#defs + 1] = { GAMESTATE .. ":UpdateFriendlyFire", self:guard("UpdateFriendlyFire hook", A.onStart) }
+    elseif classPath == RADIO then
+        for _, ev in ipairs(M.RADIO_EVENTS) do
+            defs[#defs + 1] = { RADIO .. ":" .. ev, self:guard(ev .. " hook", function(s) s:onRadio(ev) end) }
+        end
     end
     for _, g in ipairs(M.GRABS) do
         if g.class == classPath then
@@ -510,6 +774,7 @@ end
 function A:classes()
     local t = { GAMESTATE, FPC }
     for _, g in ipairs(M.GRABS) do t[#t + 1] = g.class end
+    t[#t + 1] = RADIO
     return t
 end
 
@@ -535,8 +800,9 @@ function A:needClassHooks(short)
     end
 end
 
--- onWorld(name, host, fresh): per world (main.lua's LoadMap evaluation). A fresh world is a new match state; the
--- Blueprint hooks of the last world are unregistered and, on a host world, registered again for the loaded classes.
+-- onWorld(name, host, fresh): per world (main.lua's LoadMap evaluation). A fresh world is a new match state (the
+-- poll's per-path cold state and the token state go with it); the Blueprint hooks of the last world are unregistered
+-- and, on a host world, registered again for the loaded classes.
 function A:onWorld(name, host, fresh)
     if fresh or self.st.world ~= name then self:reset(name) end
     for path, ids in pairs(self.bpHooks) do pcall(UnregisterHook, path, ids.pre, ids.post) end

@@ -83,6 +83,75 @@ Expect $noCore 'no-core' 0 'no-core: passes as written' 'All checks passed'
 Expect ($noCore + @(D 'READY version=0.1.0 Nucleus=0.4.0 need=0.4.0')) 'no-core' 1 'no-core: a second Difficulty line -> fails' '#1'
 Expect ($noCore -replace 'not installed', 'missing') 'no-core' 1 'no-core: another wording -> fails' 'not installed'
 
+# ---------------------------------------------------------------- story 3 scenarios (driver + Difficulty's lines)
+function DR([string] $msg) { L 'DifficultyDriver' $msg }
+function Story3([string] $scenario, [string] $knobs, [string[]] $mid, [string[]] $driver) {
+    $hostLog + @((D "MATCH start knobs=$knobs"), (DR "SCENARIO $scenario")) + $mid + $driver + @(DR 'END result=PASS checks=3 failures=0 notshown=0 dead=false')
+}
+$scaled = Story3 'scaled' 'enemyDamage=17' @(
+    (D 'GRAB enemy=meek hp=100 E=17 game=s decision=s flip=none'),
+    (D 'HIT enemy=meek via=ApplyLockedDamage stock=50 scaled=17 rolled=17 applied=17 hp=100 kind=survivable')) @(
+    (DR 'OK scaled Meek #1 hit took 17.00 HP (want 17.00) via ApplyLockedDamage, hp now 83.00'))
+Expect $scaled 'scaled' 0 'scaled: passes as written' 'All checks passed'
+Expect ($scaled -replace 'scaled=17 rolled=17 applied=17', 'scaled=50 rolled=50 applied=50') 'scaled' 1 'scaled: a stock hit -> fails' 'HIT enemy=meek'
+Expect (Without $scaled 'MATCH start') 'scaled' 1 'scaled: no MATCH line -> fails' 'MATCH start'
+Expect ($scaled -replace 'MATCH start knobs=enemyDamage=17', 'MATCH start knobs=all Default') 'scaled' 1 'scaled: other knobs -> fails' 'MATCH start'
+Expect ($scaled + @(DR 'FAIL scaled Meek #1 hit took 50.00 HP (want 17.00)')) 'scaled' 1 'scaled: a driver FAIL -> fails' 'FAIL'
+Expect (Without $scaled 'END result=') 'scaled' 1 'scaled: no driver END -> fails' 'END result'
+Expect ($scaled -replace 'SCENARIO scaled', 'SCENARIO flip') 'scaled' 1 'scaled: the driver ran another scenario -> fails' 'SCENARIO'
+Expect ($scaled + @(D 'ERROR HasPerk hook failed: boom; damage and grab changes off until the next match')) 'scaled' 1 'scaled: a hook ERROR -> fails' 'ERROR'
+Expect ($scaled + @(D 'WARN clash: after the hit enemy=meek via=ApplyLockedDamage Health is 88, planned 83 (another mod changed it); damage and grab changes off until the next match')) 'scaled' 1 'scaled: a clash WARN -> fails' 'WARN'
+$noMatch = @($scaled | Where-Object { $_ -notmatch 'MATCH start' })
+$iHost = 0; for ($i = 0; $i -lt $noMatch.Count; $i++) { if ($noMatch[$i] -match 'WORLD host=true') { $iHost = $i } }
+$order3 = @($noMatch[0..($iHost - 1)]) + @(D 'MATCH start knobs=enemyDamage=17') + @($noMatch[$iHost..($noMatch.Count - 1)])
+Expect $order3 'scaled' 1 'scaled: MATCH before the hosted world -> fails' 'MATCH start comes after'
+$notShown = @($scaled | Where-Object { $_ -notmatch 'HIT enemy|OK scaled|END result' }) + @((DR "NOTSHOWN Meek #1: the Meek didn't hit in 120 s"), (DR 'END result=NOTSHOWN checks=2 failures=0 notshown=1 dead=false'))
+Expect $notShown 'scaled' 2 'scaled: END result=NOTSHOWN without a HIT -> exit 2 (not shown, not failed)' 'NOT SHOWN'
+Expect ($notShown + @(DR 'FAIL scaled Meek #1 hit took 50.00 HP (want 17.00)')) 'scaled' 1 'scaled: NOTSHOWN with a driver FAIL -> fails' 'FAIL'
+Expect (Without $notShown 'MATCH start') 'scaled' 1 'scaled: NOTSHOWN still needs the MATCH line' 'MATCH start'
+Expect ($scaled + @(DR 'NOTSHOWN Meek #2: no grab seen')) 'scaled' 2 'scaled: a NOTSHOWN line -> exit 2, not passed' 'NOT SHOWN'
+
+$flip = Story3 'flip' 'enemyDamage=25' @(
+    (D 'GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101'),
+    (D 'RESTORE enemy=meek hp=101 -> 100 via=multicast'),
+    (D 'HIT enemy=meek via=ApplyLockedDamage stock=100 scaled=25 rolled=25 applied=25 hp=100 kind=survivable')) @(
+    (DR 'OK flip Meek #1 grab played the survivable montage (Animatronic_Paired_StabStomach_Victim_Montage; want *StabStomach*)'),
+    (DR 'OK flip Meek #1 hit took 25.00 HP (want 25.00) via ApplyLockedDamage, hp now 75.00'),
+    (DR 'OK flip Meek #1 moving again 6 s after the grab (PlayingMontage=false movement=1 montage=none hp=75.00)'))
+Expect $flip 'flip' 0 'flip: passes as written' 'All checks passed'
+Expect ($flip -replace 'via=multicast', 'via=next tick') 'flip' 0 'flip: the next-tick restore also passes' 'All checks passed'
+Expect (Without $flip 'RESTORE') 'flip' 1 'flip: no RESTORE -> fails' 'RESTORE'
+Expect ($flip -replace 'flip=101', 'flip=none') 'flip' 1 'flip: no flip -> fails' 'GRAB'
+Expect ($flip -replace 'kind=survivable', 'kind=hit') 'flip' 1 'flip: the hit not the grab''s -> fails' 'HIT enemy'
+
+$perEnemy = Story3 'per-enemy' 'dmg.stalker=200' @(
+    (D 'GRAB enemy=stalker hp=100 E=50 game=s decision=s flip=none'),
+    (D 'HIT enemy=stalker via=ApplyStalkerDamage stock=25 scaled=50 rolled=50 applied=50 hp=100 kind=survivable')) @(
+    (DR 'OK per-enemy Stalker #1 hit took 50.00 HP (want 50.00) via ApplyStalkerDamage, hp now 50.00'),
+    (DR 'OK per-enemy Meek #2 hit took 25.00 HP (want 25.00) via ApplyLockedDamage, hp now 75.00'))
+Expect $perEnemy 'per-enemy' 0 'per-enemy: passes as written' 'All checks passed'
+Expect ($perEnemy + @(D 'HIT enemy=meek via=ApplyLockedDamage stock=25 scaled=25 rolled=25 applied=25 hp=100 kind=hit')) 'per-enemy' 1 'per-enemy: a HIT for the Meek -> fails' 'HIT enemy=meek'
+
+$default = Story3 'default' 'all Default' @() @((DR 'OK default Meek #1 hit took 50.00 HP (want 50.00) via ApplyLockedDamage, hp now 50.00'))
+Expect $default 'default' 0 'default: passes as written' 'All checks passed'
+Expect ($default + @(D 'HIT enemy=meek via=ApplyLockedDamage stock=50 scaled=50 rolled=50 applied=50 hp=100 kind=hit')) 'default' 1 'default: a HIT line -> fails' 'HIT'
+Expect ($default + @(D 'GRAB enemy=meek hp=100 E=50 game=s decision=s flip=none')) 'default' 1 'default: a GRAB line -> fails' 'GRAB'
+
+$clashWarn = D 'WARN clash: after the hit enemy=meek via=ApplyLockedDamage Health is 88, planned 83 (another mod changed it); damage and grab changes off until the next match'
+$clash = Story3 'clash' 'enemyDamage=17' @(
+    (D 'GRAB enemy=meek hp=100 E=17 game=s decision=s flip=none'),
+    (D 'HIT enemy=meek via=ApplyLockedDamage stock=50 scaled=17 rolled=17 applied=17 hp=100 kind=survivable'),
+    $clashWarn) @(
+    (DR 'OK clash Meek #1 hit took 12.00 HP (want 12.00) via ApplyLockedDamage, hp now 88.00'),
+    (DR 'OK clash Meek #2 hit took 45.00 HP (want 45.00) via ApplyLockedDamage, hp now 55.00'))
+Expect $clash 'clash' 0 'clash: passes as written' 'All checks passed'
+$clashNotShown = @($clash | Where-Object { $_ -notmatch 'HIT enemy|WARN clash|OK clash|END result' }) + @((DR "NOTSHOWN Meek #1: the Meek didn't hit in 120 s"), (DR 'END result=NOTSHOWN checks=2 failures=0 notshown=2 dead=false'))
+Expect $clashNotShown 'clash' 2 'clash: END result=NOTSHOWN without HIT or WARN -> exit 2' 'NOT SHOWN'
+Expect (Without $clash 'WARN clash') 'clash' 1 'clash: no WARN -> fails' 'WARN clash'
+Expect ($clash + @($clashWarn)) 'clash' 1 'clash: two WARNs -> fails' '#1'
+Expect ($clash + @(D 'HIT enemy=meek via=ApplyLockedDamage stock=50 scaled=17 rolled=17 applied=17 hp=100 kind=hit')) 'clash' 1 'clash: a HIT after the WARN -> fails' 'HIT'
+Expect ($clash + @(D "WARN clash: at the grab's restore (enemy=meek) Health is 60, not the temporary 101; left as it is; damage and grab changes off until the next match")) 'clash' 1 'clash: a grab clash WARN is not the hit''s -> fails' 'WARN'
+
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)
 exit $(if ($script:failed) { 1 } else { 0 })

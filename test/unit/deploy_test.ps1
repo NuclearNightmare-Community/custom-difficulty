@@ -140,7 +140,8 @@ try {
     Ok ($d.Code -eq 0) 'deploy: core 0.4.2 -> installed' $d.Out
     Eq (Txt) ("Nucleus : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy: Difficulty below Nucleus, above Keybinds; DifficultyProbe line kept'
     $files = @(Get-ChildItem $dest -Recurse -File | ForEach-Object { $_.FullName.Substring($dest.Length + 1) } | Sort-Object)
-    Eq ($files -join ',') 'mod.json,Scripts\main.lua,Scripts\world.lua' 'deploy: exactly the Difficulty files (no dev.lua, no settings.lua)'
+    Eq ($files -join ',') 'mod.json,Scripts\damage.lua,Scripts\hits.lua,Scripts\knobs.lua,Scripts\main.lua,Scripts\world.lua' 'deploy: exactly the Difficulty files (no dev.lua, no settings.lua)'
+    Ok (-not (Test-Path (Join-Path $mods 'DifficultyDriver'))) 'deploy: no driver without -Scenario'
     Ok (Test-Path (Join-Path $mods 'DifficultyProbe')) 'deploy: story 2''s driver folder untouched'
 
     # -Test: dev.lua with debug only.
@@ -150,6 +151,38 @@ try {
     Ok ($dev -match '(?m)^return \{ debug = true \}$') 'deploy -Test: dev.lua = { debug = true }' $dev
     $d = Deploy @()
     Ok (-not (Test-Path (Join-Path $dest 'Scripts\dev.lua'))) 'deploy without -Test removes dev.lua'
+
+    # -Knobs and -Scenario (story 3): dev only; the driver between core and Difficulty.
+    $d = Deploy @('-Knobs', '"enemyDamage=17"')
+    Ok ($d.Code -eq 1 -and $d.Out -match '-Knobs is a dev mode and needs -Test') 'deploy -Knobs without -Test: refused' $d.Out
+    $d = Deploy @('-Scenario', 'flip')
+    Ok ($d.Code -eq 1 -and $d.Out -match '-Scenario is a dev mode and needs -Test') 'deploy -Scenario without -Test: refused' $d.Out
+    $d = Deploy @('-Test', '-Knobs', '"enemyDamage=17;spread=20"')
+    $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+    Ok ($d.Code -eq 0 -and $dev -match '(?m)^return \{ debug = true, knobs = "enemyDamage=17;spread=20" \}$') 'deploy -Test -Knobs: knobs in dev.lua' $dev
+    Ok (-not (Test-Path (Join-Path $mods 'DifficultyDriver'))) 'deploy -Test -Knobs: no driver'
+    $d = Deploy @('-Test', '-Knobs', '"enemyDamage=17`"; os.exit(1) --"')
+    Ok ($d.Code -eq 1 -and $d.Out -match '-Knobs may hold only letters') 'deploy -Knobs: a quote or other code is refused' $d.Out
+    $d = Deploy @('-Test', '-Knobs', '"enemyDamage=17`n"')
+    Ok ($d.Code -eq 1 -and $d.Out -match '-Knobs may hold only letters') 'deploy -Knobs: a trailing newline is refused' $d.Out
+    $d = Deploy @('-Test', '-Scenario', 'flip')
+    Ok ($d.Code -eq 0 -and $d.Out -match 'with DifficultyDriver, scenario flip') 'deploy -Test -Scenario flip: installed' $d.Out
+    $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+    Ok ($dev -match '(?m)^return \{ debug = true, knobs = "enemyDamage=25" \}$') 'deploy -Scenario flip: the scenario''s knobs' $dev
+    Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) 'flip' 'deploy -Scenario: scenario.txt'
+    Ok (Test-Path (Join-Path $mods 'DifficultyDriver\Scripts\main.lua')) 'deploy -Scenario: the driver installed'
+    Eq (Txt) ("Nucleus : 1`r`nDifficultyDriver : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy -Scenario: Nucleus, DifficultyDriver, Difficulty'
+    $d = Deploy @('-Test', '-Scenario', 'default')
+    $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+    Ok ($dev -match '(?m)^return \{ debug = true \}$') 'deploy -Scenario default: no knobs' $dev
+    $d = Deploy @('-Test', '-Scenario', 'scaled', '-Knobs', '"spread=5"')
+    $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+    Ok ($dev -match 'knobs = "spread=5"') '-Knobs overrides the scenario''s knobs' $dev
+    $d = Deploy @('-Test')
+    Ok (-not (Test-Path (Join-Path $mods 'DifficultyDriver'))) 'deploy without -Scenario removes the driver'
+    Eq (Txt) ("Nucleus : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy without -Scenario: the driver line gone'
+    $d = Deploy @()
+    Ok (-not (Test-Path (Join-Path $dest 'Scripts\dev.lua'))) 'a release deploy: no dev.lua, so no knob source'
 
     # -Test -PreCore on core 0.3.0: accepted, dev.lua with preCore.
     Set-Core '0.3.0'
@@ -176,8 +209,11 @@ try {
     Ok ($d.Code -eq 0) 'deploy -Force without core: installed' $d.Out
     Eq (Txt) "CheatManagerEnablerMod : 1`r`nBPModLoaderMod : 1`r`nDifficulty : 1`r`nKeybinds : 1`r`n" 'deploy -Force without core: above Keybinds'
 
-    # -Remove: back to the stock files; other lines untouched.
+    # -Remove: back to the stock files; other lines untouched (the driver too).
+    New-Item -ItemType Directory -Force (Join-Path $mods 'DifficultyDriver\Scripts') | Out-Null
+    [IO.File]::WriteAllText($modsTxt, "CheatManagerEnablerMod : 1`r`nBPModLoaderMod : 1`r`nDifficultyDriver : 1`r`nDifficulty : 1`r`nKeybinds : 1`r`n")
     $d = Deploy @('-Remove')
+    Ok (-not (Test-Path (Join-Path $mods 'DifficultyDriver'))) 'deploy -Remove: the driver removed too'
     Ok ($d.Code -eq 0 -and -not (Test-Path $dest)) 'deploy -Remove: no Difficulty files' $d.Out
     Eq (Txt) $stockTxt 'deploy -Remove: mods.txt byte-identical to stock'
     $before = Txt

@@ -5,21 +5,31 @@
   Refuses (exit 1, one line) unless Nucleus (core) is installed in the copy, enabled in mods.txt, its installed
   mod.json has id nucleus, and its version satisfies Difficulty's dependsOn (^ rules, deploy-lib.ps1). -Force installs
   anyway with a warning, for the failure scenarios (Difficulty's own runtime check then has to catch it).
-  Installs ue4ss/Mods/Difficulty/{mod.json, Scripts/main.lua, Scripts/world.lua} and writes "Difficulty : 1" into
-  mods.txt right below Nucleus's line and above "Keybinds : 1", moving it there if it was elsewhere. Never writes
-  outside Mods/Difficulty and that mods.txt line, and never bundles any of core's files. Story 2's test drivers
-  (DifficultyProbe, DifficultyPair) are left alone.
+  Installs ue4ss/Mods/Difficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua} and writes
+  "Difficulty : 1" into mods.txt right below Nucleus's line and above "Keybinds : 1", moving it there if it was
+  elsewhere. Never writes outside Mods/Difficulty, Mods/DifficultyDriver and their mods.txt lines, and never bundles
+  any of core's files. Story 2's test drivers (DifficultyProbe, DifficultyPair) are left alone.
   -Test writes Scripts/dev.lua (return { debug = true }): Difficulty's DEBUG lines, which check.ps1 reads.
+  -Knobs "<key>=<v>;..." (only with -Test) adds knobs = "<text>" to dev.lua: the test-only source of the knob values
+  until stories 6 and 7 (sidecar syntax, presets-and-ui.md; Difficulty parses and bounds it at each match start).
+  Only letters, digits, '.', '=', ';', '-' and spaces, at most 1024 characters.
+  -Scenario <s> (only with -Test) also installs the test driver test/DifficultyDriver as Mods/DifficultyDriver
+  (mods.txt: Nucleus, DifficultyDriver, Difficulty) with the scenario in its Scripts/scenario.txt, and, unless -Knobs
+  is given, the scenario's knobs: scaled and clash "enemyDamage=17", flip "enemyDamage=25", per-enemy
+  "dmg.stalker=200", default none. A deploy without -Scenario removes the driver. Neither the driver nor dev.lua is
+  ever shipped: a deploy without -Test installs no knob source at all.
   -PreCore (only with -Test) is the dev core mode: it also accepts an installed core ^0.3.0 (before core 0.4.0, which
   brings the UI) and writes dev.lua with preCore = true, so main.lua connects with need 0.3.0 and logs one WARN. On a
   core that already satisfies dependsOn, -PreCore changes nothing: dev.lua is { debug = true } and need stays 0.4.0.
   dev.lua is git-ignored and never shipped.
-  -Remove deletes Mods/Difficulty and its mods.txt line; nothing else changes (mods.txt keeps its bytes when it had no
-  Difficulty line).
+  -Remove deletes Mods/Difficulty, Mods/DifficultyDriver and their mods.txt lines; nothing else changes (mods.txt
+  keeps its bytes when it had neither line).
   Pass the main checkout's instance path when running from a worktree.
 .EXAMPLE
   ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084
   ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Test -PreCore
+  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Test -PreCore -Scenario flip
+  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Test -Knobs "enemyDamage=17;spread=20"
   ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Force
   ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Remove
 #>
@@ -27,6 +37,8 @@ param(
     [Parameter(Mandatory)] [string] $Instance,
     [switch] $Test,
     [switch] $PreCore,
+    [string] $Knobs,
+    [ValidateSet('', 'scaled', 'flip', 'per-enemy', 'default', 'clash')] [string] $Scenario = '',
     [switch] $Force,
     [switch] $Remove
 )
@@ -39,11 +51,18 @@ $here     = $PSScriptRoot
 $manifest = Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json
 $name     = $manifest.name
 if ("$name" -notmatch '^[A-Za-z][A-Za-z0-9_-]*$') { throw "mod.json's name '$name' is not a plain name; refusing to deploy" }
-$files    = 'main.lua', 'world.lua'
+$files    = 'main.lua', 'world.lua', 'knobs.lua', 'damage.lua', 'hits.lua'
+$driver   = "${name}Driver"
+# The knobs each driver scenario needs (test/DifficultyDriver); -Knobs overrides them.
+$ScenarioKnobs = @{ 'scaled' = 'enemyDamage=17'; 'flip' = 'enemyDamage=25'; 'per-enemy' = 'dmg.stalker=200'; 'default' = ''; 'clash' = 'enemyDamage=17' }
 
 function Stop-Deploy([string] $why) { Write-Host "$name not deployed: $why"; exit 1 }
 
 if ($PreCore -and -not $Test) { Stop-Deploy '-PreCore is a dev mode and needs -Test.' }
+if ($PSBoundParameters.ContainsKey('Knobs') -and -not $Test) { Stop-Deploy '-Knobs is a dev mode and needs -Test.' }
+if ($Scenario -and -not $Test) { Stop-Deploy '-Scenario is a dev mode and needs -Test.' }
+if ($Scenario -and -not $PSBoundParameters.ContainsKey('Knobs')) { $Knobs = $ScenarioKnobs[$Scenario] }
+if ($Knobs -and ($Knobs.Length -gt 1024 -or $Knobs -notmatch '\A[A-Za-z0-9.=; -]*\z')) { Stop-Deploy "-Knobs may hold only letters, digits, '.', '=', ';', '-' and spaces, at most 1024 characters." }
 $inst     = (Resolve-Path $Instance).Path
 $win64    = Join-Path $inst 'NuclearNightmare\Binaries\Win64'
 $ue4ss    = Join-Path $win64 'ue4ss'
@@ -56,12 +75,12 @@ if (-not (Test-Path $modsTxt)) { Stop-Deploy "no mods.txt in $modsDir" }
 if (Get-Process -Name 'NuclearNightmare*' -ErrorAction SilentlyContinue) { Stop-Deploy 'Nuclear Nightmare is running; close it first.' }
 
 $file  = Read-ModsTxt $modsTxt
-$clean = Edit-ModsTxt -Lines $file.Lines -Remove @($name)
+$clean = Edit-ModsTxt -Lines $file.Lines -Remove @($name, $driver)
 
 if ($Remove) {
-    Remove-Item (Join-Path $modsDir $name) -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $modsDir $name), (Join-Path $modsDir $driver) -Recurse -Force -ErrorAction SilentlyContinue
     if ($clean.Count -ne $file.Lines.Count) { Write-ModsTxt $modsTxt $file $clean }
-    Write-Host "$name removed."
+    Write-Host "$name removed (and $driver, if it was installed)."
     return
 }
 
@@ -100,24 +119,35 @@ if ($problem) {
 }
 
 # Difficulty's files (and dev.lua for -Test).
-Remove-Item (Join-Path $modsDir $name) -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $modsDir $name), (Join-Path $modsDir $driver) -Recurse -Force -ErrorAction SilentlyContinue
 $dest = Join-Path $modsDir "$name\Scripts"
 New-Item -ItemType Directory -Force $dest | Out-Null
 Copy-Item (Join-Path $here 'mod.json') (Join-Path $modsDir $name) -Force
 foreach ($f in $files) { Copy-Item (Join-Path $here "Scripts\$f") $dest -Force }
 $devText = $null
 if ($Test) {
-    $devText = if ($preCoreUsed) { 'return { debug = true, preCore = true }' } else { 'return { debug = true }' }
+    $knobsField = if ($Knobs) { ", knobs = `"$Knobs`"" } else { '' }
+    $devText = if ($preCoreUsed) { "return { debug = true, preCore = true$knobsField }" } else { "return { debug = true$knobsField }" }
     $devText = "-- Written by deploy.ps1 -Test$(if ($PreCore) { ' -PreCore' }); dev only, never shipped.`n$devText`n"
     [IO.File]::WriteAllText((Join-Path $dest 'dev.lua'), $devText, [Text.UTF8Encoding]::new($false))
 }
 
+# The driver (-Scenario): between core and Difficulty.
+$add = @($name)
+if ($Scenario) {
+    $dDest = Join-Path $modsDir "$driver\Scripts"
+    New-Item -ItemType Directory -Force $dDest | Out-Null
+    Copy-Item (Join-Path $here "test\$driver\Scripts\main.lua") $dDest -Force
+    [IO.File]::WriteAllText((Join-Path $dDest 'scenario.txt'), $Scenario)
+    $add = @($driver, $name)
+}
+
 # mods.txt: below core, above Keybinds.
-$lines = Edit-ModsTxt -Lines $clean -Add @($name) -After $CoreName
+$lines = Edit-ModsTxt -Lines $clean -Add $add -After $CoreName
 Write-ModsTxt $modsTxt $file $lines
 
 if ($PreCore -and -not $preCoreUsed -and -not $problem) { Write-Host "-PreCore not needed: $CoreName $coreVersion satisfies $($dep.version); dev.lua without preCore (need $($dep.version.TrimStart('^')))." }
-Write-Host "$name $($manifest.version) deployed$(if ($Test) { ' (test' + $(if ($preCoreUsed) { ", dev core mode: $CoreName $coreVersion" }) + ')' }):"
+Write-Host "$name $($manifest.version) deployed$(if ($Test) { ' (test' + $(if ($preCoreUsed) { ", dev core mode: $CoreName $coreVersion" }) + $(if ($Scenario) { ", with $driver, scenario $Scenario" }) + ')' }):"
 Get-ChildItem (Join-Path $modsDir $name) -Recurse -File | ForEach-Object { Write-Host "  Mods/$name/$($_.FullName.Substring((Join-Path $modsDir $name).Length + 1)) ($($_.Length) bytes)" }
 if ($devText) { Write-Host "  dev.lua: $(($devText -split "`n")[1])" }
 Write-Host "mods.txt: $(($lines | Where-Object { $_ -match '^\s*[\w-]+\s*:\s*1' }) -join ', ')"

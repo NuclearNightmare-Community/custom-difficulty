@@ -156,12 +156,26 @@ end
 
 M.OFF = "; every knob off until the next match"
 
--- backOff(level, fmt, ...): one line, then no knob acts until the next match (damage, grabs, frostbite, cold, tokens;
--- what was already written stays).
+-- releaseTokens(): at a back-off, the token count goes back to stock once (tokens.release) and the token state is
+-- dropped; a failure here is only logged (the back-off already happened).
+function A:releaseTokens()
+    local t = self.st.tok
+    if not t then return end
+    self.st.tok = nil
+    local ok, err = pcall(function()
+        local gs = self:pollGameState(true)
+        if gs then tokens.release(t, gs, self.o) else self.o.say("info", "TOKENS released at back-off used=? (no game state; left as it is)") end
+    end)
+    if not ok then self.o.say("debug", "TOKENS release at back-off failed: %s", tostring(err)) end
+end
+
+-- backOff(level, fmt, ...): one line, then no knob acts until the next match (damage, grabs, frostbite, cold; the
+-- token count goes back to stock; any other value already written stays).
 function A:backOff(level, fmt, ...)
     if self.st.backedOff then return end
     self.st.backedOff = true
     self.o.say(level, fmt .. M.OFF, ...)
+    self:releaseTokens()
 end
 
 -- guard(label, fn): fn under pcall; a failure logs one ERROR and backs off.
@@ -171,7 +185,7 @@ function A:guard(label, fn)
         if not ok then
             local first = not self.st.backedOff
             self.st.backedOff = true
-            if first then self.o.say("error", "%s failed: %s" .. M.OFF, label, tostring(err))
+            if first then self.o.say("error", "%s failed: %s" .. M.OFF, label, tostring(err)) self:releaseTokens()
             else self.o.say("debug", "%s failed again: %s", label, tostring(err)) end
         end
     end
@@ -399,22 +413,48 @@ function A:onCde(selfp, amount)
             return
         end
         row, via = self:nativeAttacker(v, vpath)
-        if not row then return end -- environmental, unknown or a Blueprint-wrapper enemy: never touched
+        if not row then
+            -- Frostbite 0: the game's finisher (100 on a frozen player at 0 < Health < 1) is absorbed too.
+            local p = self:finisher(v, vpath, n)
+            if p then p.delivered = true end
+            st.cde[slot] = p
+            return -- environmental, unknown or a Blueprint-wrapper enemy: never touched
+        end
     end
     local p = self:plan(v, n, row, via, apath, false)
     if p then p.delivered = true end
     st.cde[slot] = p
 end
--- frost(v, vpath, n) -> a plan (Health compensated; onCdePost's guard checks it like any hit) or false.
-function A:frost(v, vpath, n)
-    local chosen = self.st.values.frostbite
-    if chosen == nil or not vpath then return false end
+local function frostState(v)
     local s = {}
     pcall(function() s.temp = num(v.Temperature) end)
     pcall(function() s.can = v.CanTakeTemperature end)
     pcall(function() s.inside = v.InsideEnoughToStopFreezing end)
     pcall(function() s.infected = v.Infected end)
     pcall(function() s.mimic = v["IsMimic?"] end)
+    return s
+end
+
+-- finisher(v, vpath, n) -> with Frostbite 0, a plan absorbing the game's frostbite finisher (Health unchanged after
+-- the native, checked by onCdePost's guard), or false.
+function A:finisher(v, vpath, n)
+    local chosen = self.st.values.frostbite
+    if chosen ~= 0 or n ~= 100 or not vpath then return false end
+    local hp = hpOf(v)
+    if not env.isFinisher(n, hp, frostState(v), chosen) then return false end
+    local p = env.frostbite(hp, n, 0)
+    if not setHp(v, p.new) then error("could not write Health on " .. vpath) end
+    p.path, p.before, p.kind, p.row, p.via = vpath, hp, "hit", "frostbite", "frostbite-finisher"
+    self.o.say("info", "HIT enemy=frostbite via=frostbite-finisher stock=%s scaled=%s rolled=%s applied=%s hp=%s kind=hit",
+        F(p.stock), F(p.scaled), F(p.rolled), F(p.applied), F(hp))
+    return p
+end
+
+-- frost(v, vpath, n) -> a plan (Health compensated; onCdePost's guard checks it like any hit) or false.
+function A:frost(v, vpath, n)
+    local chosen = self.st.values.frostbite
+    if chosen == nil or not vpath then return false end
+    local s = frostState(v)
     if not env.isFrostbite(n, s) then return false end
     if self.st.pending[vpath] then self:restore(vpath, "hit") end
     local hp = hpOf(v)
@@ -513,9 +553,9 @@ function A:onStart(gsParam)
     self.seed(math.floor((os.time() % 1000000) * 1000 + (self.clock() * 1000) % 1000))
     st.started = true
     self.o.say("info", "MATCH start knobs=%s", knobs.describe(values))
+    local gs0 = (values.cold ~= nil or values.revives ~= nil) and self:gameState(get(gsParam)) or nil
     -- The poll re-finds this game state through a weak handle each tick (no scan, no UObject kept).
-    if self.o.ref and (values.cold ~= nil or values.revives ~= nil) then
-        local gs0 = self:gameState(get(gsParam))
+    if self.o.ref and gs0 then
         local okR, h = false, nil
         if gs0 then okR, h = pcall(self.o.ref, gs0) end
         if okR and h ~= nil then st.gsRef = h
@@ -526,7 +566,7 @@ function A:onStart(gsParam)
     self:installClass(RADIO)
     -- Tokens: the offset count (and Disable at N = 0) now; re-checked in the radio callbacks and the poll.
     if values.revives ~= nil then
-        local gs = self:gameState(get(gsParam))
+        local gs = gs0
         if gs then st.tok = tokens.start(gs, values.revives, self.o)
         else self.o.warnOnce("tokens:gs", "TOKENS no game state at the match start; tokens stay stock") end
     end
@@ -535,7 +575,7 @@ end
 -- The radio's server-event callbacks (host only; they run after the body, so the count already moved).
 function A:onRadio(event)
     if not self.st.tok or not self:active() then return end
-    local gs = self:gameState(nil)
+    local gs = self:pollGameState(true) -- the match's handle; a FindAllOf only without core's handles
     if gs then tokens.check(self.st.tok, gs, event, self.o) end
 end
 
@@ -625,7 +665,11 @@ function A:players(gs)
                 local path = pathOf(pawn)
                 if path then
                     local fp = self.st.isFP[path]
-                    if fp == nil then fp = classOf(pawn) == FP_SHORT self.st.isFP[path] = fp end
+                    if fp == nil then
+                        local cls = classOf(pawn)
+                        fp = cls == FP_SHORT
+                        if cls ~= nil then self.st.isFP[path] = fp end -- a failed class read is tried again next time
+                    end
                     if fp then chars[#chars + 1] = { obj = pawn, path = path } end
                 end
             end

@@ -153,6 +153,7 @@ do -- Default and bad values
     eq(tokens.start(g3, 4, op), nil, "unreadable count: stock")
     eq(next(w3), nil, "unreadable count: nothing written")
     eq(tokens.start(gs(), 2.5, op), nil, "N 2.5: stock")
+    eq(count("^WARN TOKENS N=2%.5 is not a whole number"), 1, "N 2.5: the WARN names the value given", dump())
     -- A count already above 0 at the start (reinforcements before the knob's start): kept as used.
     local g4, f4 = gs{ ["Classified Minium"] = 3, TimesUsedReinforcements = 1 }
     local t4 = tokens.start(g4, 2, op)
@@ -169,6 +170,20 @@ do -- Default and bad values
     f5._readonly = true
     ok(not pcall(tokens.start, g5, 2, op), "a failed count write raises")
     eq(tokens.check(nil, g, "poll", op), nil, "check with no state: nothing")
+end
+
+do -- release at a back-off: the count back to stock (used), once
+    local op = o()
+    local g, f = gs{ ["Classified Minium"] = 0 }
+    local t = tokens.start(g, 4, op)
+    reinforce(t, g, f, op)
+    eq(f.TimesUsedReinforcements, -1, "release: count -1 before")
+    tokens.release(t, g, op)
+    eq(f.TimesUsedReinforcements, 1, "release: the count back to used (1)")
+    eq(count("^TOKENS released at back%-off used=1 count=%-1 %-> 1$"), 1, "release: one line", dump())
+    tokens.release(t, g, op)
+    eq(count("^TOKENS released"), 1, "release: only once")
+    eq(tokens.release(nil, g, op), nil, "release with no state: nothing")
 end
 
 -- ---------------------------------------------------------------- the source

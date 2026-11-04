@@ -165,6 +165,8 @@ Expect ($cold -replace 'raw=0\.1600 applied=0\.0400', 'raw=0.1600 applied=0.0450
 Expect ($cold -replace 'raw=0\.1600 applied=0\.0400', 'raw=0.1600 applied=0.0420') 'cold' 0 'cold: ratio 0.2625 (within 10%) passes' 'All checks passed'
 Expect ($cold -replace 'factor=0\.25', 'factor=0.5') 'cold' 1 'cold: another factor -> fails' 'factor'
 Expect ($cold -replace 'avg_ms=0\.031', 'avg_ms=0.250') 'cold' 1 'cold: a slow poll -> fails' 'avg_ms'
+Expect ($cold -replace 'clock=core', 'clock=os') 'cold' 1 'cold: measured with os.clock -> fails' 'clock'
+Expect ($cold + @(D 'COLD raw=0.2000 applied=0.0500 factor=0.25 polls=50 writes=48 players=1 avg_ms=0.031 clock=os')) 'cold' 1 'cold: one COLD line with clock=os -> fails' 'clock'
 Expect (Without $cold 'COLD raw') 'cold' 1 'cold: no COLD line -> fails' 'COLD'
 Expect ($cold -replace 'raw=0\.\d+ applied=0\.\d+', 'raw=0.0000 applied=0.0000') 'cold' 2 'cold: raw 0 (never cooled) -> not shown' 'NOT SHOWN'
 Expect ($cold -replace 'MATCH start knobs=cold=50', 'MATCH start knobs=cold=0') 'cold' 1 'cold: other knobs -> fails' 'MATCH start'
@@ -175,6 +177,7 @@ $coldZero = Story3 'cold-zero' 'cold=0' @((Cold '0.1500' '0.0000' '0')) @((DR 'O
 Expect $coldZero 'cold-zero' 0 'cold-zero: passes as written' 'All checks passed'
 Expect ($coldZero -replace 'applied=0\.0000', 'applied=0.0300') 'cold-zero' 1 'cold-zero: a rise -> fails' 'applied'
 Expect ($coldZero -replace 'raw=0\.1500', 'raw=0.0000') 'cold-zero' 2 'cold-zero: raw 0 -> not shown' 'NOT SHOWN'
+Expect ($coldZero -replace 'clock=core', 'clock=os') 'cold-zero' 1 'cold-zero: clock=os -> fails' 'clock'
 Expect ($coldZero + @(DR 'FAIL cold-zero Temperature stayed at its start outdoors for 60 s (max 0.0400, want <= 0.005)')) 'cold-zero' 1 'cold-zero: the driver saw a rise -> fails' 'FAIL'
 
 $fb = { param($s, $hp) D "HIT enemy=frostbite via=frostbite stock=1 scaled=$s rolled=$s applied=$s hp=$hp kind=hit" }

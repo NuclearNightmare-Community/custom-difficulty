@@ -29,7 +29,8 @@
                "WARN clash: after the hit", no HIT after it.
   Story 4 (the same way; each its own match):
     cold            Nightmare, Cold Exposure 50, the player outdoors: the last COLD summary's applied is 0.25 x raw
-                    (+-10%), factor=0.25, the poll's avg_ms under 0.1.
+                    (+-10%), factor=0.25, the poll's avg_ms under 0.1, measured with core's clock (clock=core on
+                    every COLD line, in both cold scenarios).
     cold-zero       Cold Exposure 0: the last COLD summary has applied=0 with raw > 0; the driver saw Temperature stay
                     at its start for 60 s.
     frostbite       Frostbite 3, the driver holds Temperature at 1.5: HIT enemy=frostbite stock=1 scaled=3 applied=3
@@ -117,8 +118,8 @@ $story3 = @{
 # Story 4: the same flow (driver verdict, MATCH line); the COLD summaries are judged below.
 $frost = { param($scaled) "\[$C\] HIT enemy=frostbite via=frostbite stock=1 scaled=$scaled rolled=$scaled applied=$scaled hp=$n kind=hit\s*$" }
 $story4 = @{
-    'cold'           = @("\[$C\] MATCH start knobs=cold=50\s*$", "\[$C\] COLD raw=", "!\[$C\] HIT ", "!\[$C\] TOKENS ")
-    'cold-zero'      = @("\[$C\] MATCH start knobs=cold=0\s*$", "\[$C\] COLD raw=", "!\[$C\] HIT ", "!\[$C\] TOKENS ")
+    'cold'           = @("\[$C\] MATCH start knobs=cold=50\s*$", "\[$C\] COLD raw=.* clock=core\s*$", "!\[$C\] COLD raw=.* clock=(?!core\s*$)", "!\[$C\] HIT ", "!\[$C\] TOKENS ")
+    'cold-zero'      = @("\[$C\] MATCH start knobs=cold=0\s*$", "\[$C\] COLD raw=.* clock=core\s*$", "!\[$C\] COLD raw=.* clock=(?!core\s*$)", "!\[$C\] HIT ", "!\[$C\] TOKENS ")
     'frostbite'      = @("\[$C\] MATCH start knobs=frostbite=3\s*$", (& $frost '3'), "!\[$C\] HIT enemy=frostbite via=frostbite stock=1 scaled=(?!3 )",
                          "!\[$C\] HIT enemy=(?!frostbite )", "!\[$C\] COLD ")
     'frostbite-zero' = @("\[$C\] MATCH start knobs=frostbite=0\s*$", (& $frost '0'), "!\[$C\] HIT enemy=frostbite via=frostbite stock=1 scaled=(?!0 )",

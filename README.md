@@ -54,15 +54,24 @@ runtime refuse core 0.3.0.
   game's choice (story 5 adds modded clients).
 - Everything waits for the match to start (`UpdateFriendlyFire` in this world), acts only on the host, and does
   nothing at all for a knob that is Default.
-- **Cold Exposure** (`cold`, the freeze rate in % of Normal's): one 250 ms game-thread poll on the host. Each
-  character found that poll (`FindAllOf`, kept only as a path) whose `Temperature` rose since the last poll gets
-  `last + rise x factor`, clamped to 0..1, with `factor = cold / (200 / divisor[Diffculty])` (divisors 1 / 1.5 / 2 / 4,
-  `Diffculty` read live). A fall or a hold (warming, a reset) is left alone, so heated interiors warm at the stock
-  rate. 0 means the meter never rises outdoors. The per-path state is new each match.
+- **Cold Exposure** (`cold`, the freeze rate in % of Normal's): one 250 ms game-thread poll on the host. The match's
+  game state is held as a core weak handle (taken at the match start). On a match's first poll and every 8th poll
+  (2 s) the poll discovers the characters: the game state's `PlayerArray`, each player state's pawn, live
+  `BP_FirstPersonCharacter_C`s only, each kept as a core weak handle plus its path. Between discoveries a poll only
+  derefs those handles (an entry whose deref is nil is dropped until the next discovery) and reads and writes
+  `Temperature`. Without core's handles, every poll discovers, and the game state is found with `FindAllOf`. A
+  character that appears between discoveries (a reinforcement, a joining player) cools at the stock rate for up to
+  about 2 s. Each character whose `Temperature` rose since the last poll gets `last + rise x factor`, clamped to 0..1,
+  with `factor = cold / (200 / divisor[Diffculty])`. The divisors are 1 / 1.5 / 2 / 4 for `EDiffculty` 0 Nightmare,
+  1 Hard, 2 Normal, 3 Easy, and `Diffculty` is read live. A fall or a hold (warming, a reset) is left alone, so heated
+  interiors warm at the stock rate. 0 means the meter never rises outdoors. The per-path state is new each match.
 - **Frostbite Damage** (`frostbite`, HP per second while frozen): a `CallDamageEvent` of 1 or 2 with no enemy context
   on a victim with `Temperature >= 1`, `CanTakeTemperature`, not `InsideEnoughToStopFreezing`, not `Infected` or
   `IsMimic?` is a frostbite tick: `Health += amount x (1 - frostbite)` (lowered never below 0.01), checked by the
-  same guard as an enemy hit. Any other 1 or 2 HP call is left alone.
+  same guard as an enemy hit. Any other 1 or 2 HP call is left alone. With Frostbite 0, the game's frostbite finisher
+  (a `CallDamageEvent(100)` with no enemy context on a frozen player at 0 < Health < 1) is absorbed too, so a frozen
+  player never loses HP to the cold (`HIT enemy=frostbite via=frostbite-finisher ... applied=0`). Any other value
+  leaves the finisher to the game.
 - **Reinforcement Tokens** (`revives`, N): the game counts reinforcements in the host's `TimesUsedReinforcements` and
   its computer shows `limit - count` (limit 2 / 4 / 6 / 8 for `Classified Minium` 0..3). At the match start the host
   writes `count = limit - N`, so the computer shows N; afterwards `used = count - (limit - N)`. Re-checked in the
@@ -71,10 +80,14 @@ runtime refuse core 0.3.0.
   closes every computer, modded or not (never when the lobby already disabled reinforcements; N = 0 disables at the
   start). A `Classified Minium` change re-writes the count as `limit' - N + used`. The imposter mode (`GameMode 1`)
   is left alone. The host never refuses a request (that needs C++), so a panel already open can still revive.
+  The count isn't replicated, so N - used shows only on the host's computer and on the machine of a player the host
+  revived (the revive's multicast carries the count). Other unmodded clients show the stock limit until
+  `Disable Reinforcement` closes their computer. At a back-off, the count goes back to stock (`used`) once,
+  with one `TOKENS released at back-off used=` line, and the tokens are left alone for the rest of that match.
 - **Guards against other mods:** after each scaled hit or frostbite tick, `Health` must read what the mod planned;
   after a grab it must still hold the temporary value. Otherwise one `WARN clash: ...; every knob off until the next
-  match`. A failing hook body or poll logs one `ERROR ...; every knob off until the next match` the same way. What
-  was already written stays (the token count keeps its offset).
+  match`. A failing hook body or poll logs one `ERROR ...; every knob off until the next match` the same way. Any
+  value already written stays, except the token count, which goes back to stock.
 
 ### Dev value source (until stories 6 and 7)
 
@@ -145,7 +158,8 @@ cases (test only, logged).
 | `tokens-fewer` | Normal, Classified Minimum 3 (limit 8), `revives=2` | `TOKENS start limit=8 N=2 count=6`; Disable after the 2nd, the text 0 |
 
 The token scenarios trigger reinforcements with a synthetic revive (the game state's `UpdateRespawnQue` and the
-radio's `ReinforceSpecficPlayer` on the living host, proven on V8.1.2 only) and fall back to the radio's
+radio's `ReinforceSpecficPlayer` on the living host, proven on V8.1.2 only; on V8.1.5 it was refused in every run,
+so the fallback did the reinforcing) and fall back to the radio's
 `SpawnReinforcmentSpectator()` (destroying the orphan character it spawns), logging which (`REVIVE #<i> via=`). The
 text is read from a `NukeComputer_UI_C` widget's `GetText_3`, made with `WidgetBlueprintLibrary:Create` and never
 shown.

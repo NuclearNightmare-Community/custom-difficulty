@@ -554,7 +554,8 @@ elseif SC.special == "tokens" then
             local before = reinf()
             local t0, others = os.clock(), fpPaths()
             local function spectator()
-                P.via, t0, others = "spectator", os.clock(), fpPaths()
+                -- The count right before this call: a late synthetic revive already counted is judged from here.
+                P.via, t0, others, before = "spectator", os.clock(), fpPaths(), reinf()
                 local okS, eS = pcall(function() radioActor():SpawnReinforcmentSpectator() end)
                 say("REVIVE #%d SpawnReinforcmentSpectator ok=%s %s", i, tostring(okS), okS and "" or tostring(eS))
             end
@@ -583,7 +584,13 @@ elseif SC.special == "tokens" then
                     check(true, "%s reinforcement #%d accepted (via %s)", SCENARIO, i, P.via)
                     return true
                 end
-                if now and before and now > before + 1 then check(false, "%s reinforcement #%d: count jumped %d -> %d", SCENARIO, i, before, now) return true end
+                if now and before and now > before + 1 then
+                    -- Both paths landed (a late synthetic revive and the fallback): the case can't be judged one by one.
+                    S.notShown = S.notShown + 1
+                    P.abort = true
+                    say("NOTSHOWN reinforce #%d: the count jumped %d -> %d (a late synthetic revive and the %s path both counted)", i, before, now, P.via)
+                    return true
+                end
                 if P.via == "synthetic" and os.clock() - t0 > 15 then
                     say("REVIVE #%d the synthetic revive wasn't accepted in 15 s (count %s); falling back to SpawnReinforcmentSpectator()", i, tostring(now))
                     spectator()

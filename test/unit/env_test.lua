@@ -64,6 +64,16 @@ ok(not env.isFrostbite(1, with("infected", true)), "not frostbite: infected")
 ok(not env.isFrostbite(1, with("mimic", true)), "not frostbite: the imposter")
 ok(not env.isFrostbite(1, nil), "not frostbite: no state")
 
+-- ---------------------------------------------------------------- the finisher rule (Frostbite 0 only)
+ok(env.isFinisher(100, 0.5, frozen, 0), "finisher: Frostbite 0, 100 on a frozen player at 0.5 HP")
+ok(not env.isFinisher(100, 0.5, frozen, 3), "finisher: any other knob value -> the game's")
+ok(not env.isFinisher(100, 0.5, frozen, nil), "finisher: Default -> the game's")
+ok(not env.isFinisher(100, 1, frozen, 0), "finisher: Health 1 -> not the finisher")
+ok(not env.isFinisher(100, 0, frozen, 0), "finisher: Health 0 -> not the finisher")
+ok(not env.isFinisher(50, 0.5, frozen, 0), "finisher: another amount")
+ok(not env.isFinisher(100, 0.5, with("temp", 0.5), 0), "finisher: not frozen")
+ok(not env.isFinisher(100, 0.5, with("inside", true), 0), "finisher: inside")
+
 -- ---------------------------------------------------------------- frostbite compensation
 do
     local p = env.frostbite(100, 1, 3)

@@ -176,6 +176,44 @@ do -- RegisterLoadMapPostHook fails: one ERROR, no READY.
     eq(count("^%[Difficulty%] ERROR could not register the LoadMap hook"), 1, "hook registration fails: one ERROR")
     eq(count("READY"), 0, "hook registration fails: no READY")
 end
+do -- main.lua passes core's weak handles and clock into hits: a hosted cold match refs the game state and the COLD
+   -- line says clock=core.
+    boot{ dev = 'return { knobs = "cold=50" }' }
+    local now = 1000
+    local realClock = os.clock
+    os.clock = function() return now end
+    local core = newCore("0.4.0")
+    local refs, us = 0, 0
+    local handles = {}
+    core.ref = function(o) refs = refs + 1 handles[refs] = o return refs end
+    core.deref = function(h) return handles[h] end
+    core.free = function(h) handles[h] = nil end
+    core.clock = { micros = function() us = us + 5 return us end }
+    local function obj(class, path, fields)
+        local o = { _full = class .. " " .. path }
+        for k, v in pairs(fields or {}) do o[k] = v end
+        o.IsValid = function() return true end
+        o.GetFullName = function(s) return s._full end
+        o.GetClass = function() return { GetFName = function() return { ToString = function() return class end } end } end
+        return o
+    end
+    local ch = obj("BP_FirstPersonCharacter_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.BP_FirstPersonCharacter_C_1", { Temperature = 0.1 })
+    local ps = obj("BP_NNPlayerState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.PS_1", { PawnPrivate = ch })
+    local gs = obj("BP_FirstPersonGameState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.GS_1", { Diffculty = 0, PlayerArray = { ps } })
+    W.all.BP_FirstPersonGameState_C = { gs }
+    ready(core)
+    W.loadMapHooks[1](nil, W.param(W.match))
+    W.fire("/Game/FirstPerson/Blueprints/BP_FirstPersonGameState.BP_FirstPersonGameState_C:UpdateFriendlyFire", W.p(gs))
+    local loop
+    for _, e in ipairs(W.later) do if e.loop and e.ms == 250 then loop = e.fn end end
+    eq(refs, 1, "wiring: core.ref took the game state's handle at the match start")
+    loop() ch.Temperature = 0.14 loop()
+    ok(math.abs(ch.Temperature - 0.11) < 1e-9, "wiring: the poll scales through main.lua's hits", ch.Temperature)
+    now = now + 11 loop()
+    eq(count("^%[Difficulty%] COLD raw=.* clock=core$"), 1, "wiring: the COLD line says clock=core")
+    ok(refs >= 2, "wiring: the characters are held through core.ref too")
+    os.clock = realClock
+end
 do -- The poll can't start: one ERROR, READY still.
     boot()
     LoopInGameThreadWithDelay = function() error("no loop") end

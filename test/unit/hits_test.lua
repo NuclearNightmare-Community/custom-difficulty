@@ -831,7 +831,67 @@ do -- a grab's temporary Health in place: restored before the frostbite plan
     eq(count("WARN"), 0, "frostbite while pending: no false clash")
 end
 
+do -- Frostbite 0 absorbs the game's finisher; any other value leaves it alone
+    setup{ knobs = "frostbite=0" }
+    frozen(T.me)
+    T.me._hp = 0.5
+    cde(T.me, 100)
+    eq(T.me._hp, 0.5, "finisher, Frostbite 0: Health unchanged")
+    eq(count("^HIT enemy=frostbite via=frostbite%-finisher stock=100 scaled=0 rolled=0 applied=0 hp=0%.5 kind=hit$"), 1, "finisher: HIT line", dump())
+    eq(count("WARN"), 0, "finisher: the guard is satisfied")
+    T.me._hp = 0.5
+    cde(T.me, 100, function() T.me._hp = T.me._hp + 5 end)
+    eq(count("^WARN clash: after the hit enemy=frostbite via=frostbite%-finisher "), 1, "finisher: checked by the guard", dump())
+    setup{ knobs = "frostbite=0" }
+    T.me._hp = 0.5
+    cde(T.me, 100)
+    ok(T.me._hp < 0 and T.me.writes == 0, "finisher: not frozen -> the game's", T.me._hp)
+    frozen(T.me) T.me._hp, T.me.writes = 5, 0
+    cde(T.me, 100)
+    ok(T.me._hp < 0 and T.me.writes == 0, "finisher: Health >= 1 -> the game's", T.me._hp)
+    setup{ knobs = "frostbite=3" }
+    frozen(T.me) T.me._hp = 0.5
+    cde(T.me, 100)
+    ok(T.me._hp < 0 and T.me.writes == 0, "finisher: Frostbite 3 -> the game's", T.me._hp)
+end
+
 -- ---------------------------------------------------------------- tokens
+do -- a back-off puts the token count back to stock, once; nothing more with tokens that match
+    setup{ knobs = "revives=4;enemyDamage=17", cm = 0 }
+    radio("ReinforceSpecficPlayer")
+    eq(T.gs._f.TimesUsedReinforcements, -1, "release: offset count before")
+    T.locked[T.meek._path] = T.me
+    lockedHit(T.meek, 50, { inner = function() T.me._hp = T.me._hp + 5 end }) -- a clash
+    eq(T.gs._f.TimesUsedReinforcements, 1, "release: the count back to used at the back-off")
+    eq(count("^TOKENS released at back%-off used=1 count=%-1 %-> 1$"), 1, "release: one line", dump())
+    radio("ReinforceSpecficPlayer") T.poll()
+    eq(count("^TOKENS"), 3, "release: no TOKENS line after it (start, used=1, released)", dump())
+    eq(T.gs._w["Disable Reinforcement"], nil, "release: Disable never written")
+    -- A failing hook body backs off the same way.
+    setup{ knobs = "revives=4;cold=50", cm = 0, diff = 0 }
+    T.me._f.Temperature = 0.1 T.poll()
+    T.me._ro.Temperature = true
+    T.me._f.Temperature = 0.2 T.poll()
+    eq(T.gs._f.TimesUsedReinforcements, 0, "release: a poll fault puts the count back too")
+end
+do -- the radio callbacks use the match's handle (no FindAllOf); a failed class read isn't cached
+    setup{ knobs = "revives=2;cold=50", cm = 3, diff = 0 }
+    local finds, real = 0, FindAllOf
+    FindAllOf = function(s) finds = finds + 1 return real(s) end
+    radio("ReinforceSpecficPlayer")
+    FindAllOf = real
+    eq(finds, 0, "radio: no FindAllOf with the match's handle")
+    eq(count("^TOKENS used=1 "), 1, "radio: still re-checked")
+    local realClass = Actor.GetClass
+    Actor.GetClass = function(a) if a == T.me then error("class read failed") end return realClass(a) end
+    T.poll()
+    eq(T.H.st.isFP[T.me._path], nil, "class: a failed read isn't cached")
+    Actor.GetClass = realClass
+    T.H.st.sinceDiscovery = hits.REDISCOVER_EVERY - 1
+    T.me._f.Temperature = 0.1 T.poll()
+    T.me._f.Temperature = 0.14 T.poll()
+    ok(math.abs(T.me._f.Temperature - 0.11) < 1e-9, "class: read again at the next discovery and scaled", T.me._f.Temperature)
+end
 do -- tokens more: Classified Minium 0 (limit 2), N 4
     setup{ knobs = "revives=4", cm = 0 }
     eq(T.gs._f.TimesUsedReinforcements, -2, "tokens more: count written -2 at the match start")

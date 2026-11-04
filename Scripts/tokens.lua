@@ -46,8 +46,9 @@ end
 -- lobby disabled reinforcements, or an unreadable value: one line each). o.say(level, fmt, ...), o.warnOnce(key, ...).
 function M.start(gs, n, o)
     if n == nil then return nil end
+    local given = n
     n = int(n)
-    if not n or n < 0 then o.warnOnce("tokens:n", "TOKENS N=%s is not a whole number >= 0; tokens stay stock", tostring(n)) return nil end
+    if not n or n < 0 then o.warnOnce("tokens:n", "TOKENS N=%s is not a whole number >= 0; tokens stay stock", tostring(given)) return nil end
     if gameMode(gs) == M.IMPOSTER then o.say("info", "TOKENS imposter mode (GameMode 1): reinforcement tokens untouched") return nil end
     if read(gs, "Disable Reinforcement") == true then o.say("info", "TOKENS the lobby disabled reinforcements: untouched") return nil end
     local cm = read(gs, "Classified Minium")
@@ -96,6 +97,18 @@ function M.check(t, gs, how, o)
             o.say("info", "TOKENS disabled at used=%d N=%d via=%s", used, t.n, how)
         end
     end
+end
+
+-- release(t, gs, o): at a back-off, put the count back to stock (used) once, so the tokens are never left half
+-- applied (an offset count without Disable). Nothing more is done with tokens that match.
+function M.release(t, gs, o)
+    if not t or t.released then return end
+    t.released = true
+    local count = int(read(gs, "TimesUsedReinforcements"))
+    if not count then o.say("info", "TOKENS released at back-off used=? (the count is unreadable; left as it is)") return end
+    local used = M.used(count, t.limit, t.n)
+    write(gs, "TimesUsedReinforcements", used)
+    o.say("info", "TOKENS released at back-off used=%d count=%d -> %d", used, count, used)
 end
 
 return M

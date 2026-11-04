@@ -45,6 +45,14 @@ function M.isFrostbite(amount, s)
     return s.can == true and s.inside ~= true and s.infected ~= true and s.mimic ~= true
 end
 
+-- isFinisher(amount, hp, s, chosen) -> true for the game's frostbite finisher that Frostbite 0 must absorb: the
+-- knob is 0, a CallDamageEvent(100) with no enemy context, the victim frozen (isFrostbite's gates) at 0 < Health < 1
+-- (the game kills a frozen player left between 0 and 1 after a tick). Any other knob value leaves it to the game.
+function M.isFinisher(amount, hp, s, chosen)
+    if chosen ~= 0 or amount ~= 100 or type(hp) ~= "number" or hp <= 0 or hp >= 1 then return false end
+    return M.isFrostbite(1, s)
+end
+
 -- frostbite(hp, amount, chosen) -> plan { stock, scaled, rolled, applied, new, planned } (damage.hit's shape, so
 -- hits.lua's guard checks it like any hit): applied = amount x chosen, never rolled; Health compensated with
 -- damage.compensate (lowered never below 0.01).

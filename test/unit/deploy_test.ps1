@@ -163,6 +163,8 @@ try {
     Ok (-not (Test-Path (Join-Path $mods 'DifficultyDriver'))) 'deploy -Test -Knobs: no driver'
     $d = Deploy @('-Test', '-Knobs', '"enemyDamage=17`"; os.exit(1) --"')
     Ok ($d.Code -eq 1 -and $d.Out -match '-Knobs may hold only letters') 'deploy -Knobs: a quote or other code is refused' $d.Out
+    $d = Deploy @('-Test', '-Knobs', '"enemyDamage=17`n"')
+    Ok ($d.Code -eq 1 -and $d.Out -match '-Knobs may hold only letters') 'deploy -Knobs: a trailing newline is refused' $d.Out
     $d = Deploy @('-Test', '-Scenario', 'flip')
     Ok ($d.Code -eq 0 -and $d.Out -match 'with DifficultyDriver, scenario flip') 'deploy -Test -Scenario flip: installed' $d.Out
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw

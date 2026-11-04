@@ -112,7 +112,14 @@ $expect = @{
         "\[$C\] ERROR $K \d+\.\d+\.\d+ is not compatible; $C needs $NeedRx \(\^ rules\)\. Update $K\. $C will not run\.\s*$"
     )
 }
-foreach ($s3 in $story3.Keys) { $expect[$s3] = $running + @($menuWorld, $hostWorld) + $driverOk + $story3[$s3] }
+# The driver's END result=NOTSHOWN (and no driver FAIL): an enemy didn't attack in time, so the scenario's HIT, GRAB,
+# RESTORE and WARN expectations are skipped and the run ends as not shown (exit 2), never as failed or passed.
+$driverNotShown = ($Scenario -in $story3.Keys) -and @($lines | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
+    @($lines | Where-Object { $_ -match "\[$D\] FAIL " }).Count -eq 0
+foreach ($s3 in $story3.Keys) {
+    $own = if ($driverNotShown) { @($story3[$s3] | Where-Object { $_ -match 'MATCH start' }) } else { $story3[$s3] }
+    $expect[$s3] = $running + @($menuWorld, $hostWorld) + $driverOk + $own
+}
 
 $failed = 0
 $warned = 0
@@ -166,7 +173,7 @@ if ($Scenario -in $story3.Keys) {
     # The match lines come after the hosted world; in clash no HIT follows the WARN.
     $iw, $im = (IndexOf $hostWorld), (IndexOf "\[$C\] MATCH start ")
     if ($iw -ge 0 -and $im -gt $iw) { Pass 'MATCH start comes after WORLD host=true' } else { Fail "MATCH start comes after WORLD host=true (WORLD at line $iw, MATCH at line $im)" }
-    if ($Scenario -eq 'clash') {
+    if ($Scenario -eq 'clash' -and -not $driverNotShown) {
         $iWarn = IndexOf "\[$C\] WARN clash: "
         $late = @(for ($i = [Math]::Max($iWarn, 0); $i -lt $lines.Count; $i++) { if ($iWarn -ge 0 -and $lines[$i] -match "\[$C\] HIT ") { $i } })
         if ($iWarn -ge 0 -and $late.Count -eq 0) { Pass 'no HIT after the clash WARN (stock hits)' } else { Fail "no HIT after the clash WARN (WARN at line $iWarn, HIT after it: $($late.Count))" }

@@ -106,7 +106,9 @@ $iHost = 0; for ($i = 0; $i -lt $noMatch.Count; $i++) { if ($noMatch[$i] -match 
 $order3 = @($noMatch[0..($iHost - 1)]) + @(D 'MATCH start knobs=enemyDamage=17') + @($noMatch[$iHost..($noMatch.Count - 1)])
 Expect $order3 'scaled' 1 'scaled: MATCH before the hosted world -> fails' 'MATCH start comes after'
 $notShown = @($scaled | Where-Object { $_ -notmatch 'HIT enemy|OK scaled|END result' }) + @((DR "NOTSHOWN Meek #1: the Meek didn't hit in 120 s"), (DR 'END result=NOTSHOWN checks=2 failures=0 notshown=1 dead=false'))
-Expect $notShown 'scaled' 1 'scaled: not shown and no HIT -> fails (never passed)' 'HIT enemy'
+Expect $notShown 'scaled' 2 'scaled: END result=NOTSHOWN without a HIT -> exit 2 (not shown, not failed)' 'NOT SHOWN'
+Expect ($notShown + @(DR 'FAIL scaled Meek #1 hit took 50.00 HP (want 17.00)')) 'scaled' 1 'scaled: NOTSHOWN with a driver FAIL -> fails' 'FAIL'
+Expect (Without $notShown 'MATCH start') 'scaled' 1 'scaled: NOTSHOWN still needs the MATCH line' 'MATCH start'
 Expect ($scaled + @(DR 'NOTSHOWN Meek #2: no grab seen')) 'scaled' 2 'scaled: a NOTSHOWN line -> exit 2, not passed' 'NOT SHOWN'
 
 $flip = Story3 'flip' 'enemyDamage=25' @(
@@ -143,6 +145,8 @@ $clash = Story3 'clash' 'enemyDamage=17' @(
     (DR 'OK clash Meek #1 hit took 12.00 HP (want 12.00) via ApplyLockedDamage, hp now 88.00'),
     (DR 'OK clash Meek #2 hit took 45.00 HP (want 45.00) via ApplyLockedDamage, hp now 55.00'))
 Expect $clash 'clash' 0 'clash: passes as written' 'All checks passed'
+$clashNotShown = @($clash | Where-Object { $_ -notmatch 'HIT enemy|WARN clash|OK clash|END result' }) + @((DR "NOTSHOWN Meek #1: the Meek didn't hit in 120 s"), (DR 'END result=NOTSHOWN checks=2 failures=0 notshown=2 dead=false'))
+Expect $clashNotShown 'clash' 2 'clash: END result=NOTSHOWN without HIT or WARN -> exit 2' 'NOT SHOWN'
 Expect (Without $clash 'WARN clash') 'clash' 1 'clash: no WARN -> fails' 'WARN clash'
 Expect ($clash + @($clashWarn)) 'clash' 1 'clash: two WARNs -> fails' '#1'
 Expect ($clash + @(D 'HIT enemy=meek via=ApplyLockedDamage stock=50 scaled=17 rolled=17 applied=17 hp=100 kind=hit')) 'clash' 1 'clash: a HIT after the WARN -> fails' 'HIT'

@@ -21,7 +21,6 @@ local FPC = "/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPerson
 local GAMESTATE = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameState.BP_FirstPersonGameState_C"
 
 M.GRAB_WINDOW = 8     -- s: hits on a victim this long after its grab decision belong to that grab (Stalker 4.9 s)
-M.WEAK_WINDOW = 0.25  -- s: a Blueprint wrapper's context (Worm, Leech, ...) applies to the victim's next hit this soon
 M.BAT_RANGE = 300     -- cm: a phase-3 bat this close to the victim made the hit
 M.STALKER_RANGE = 1000 -- cm: the nearest Stalker this close is the grab's attacker when nothing names it
 M.TOLERANCE = 0.01    -- HP: the guards' tolerance
@@ -49,15 +48,8 @@ M.GRABS = {
     { short = "FastLearner_AI_C", class = "/Game/AI/FastLearner_AI.FastLearner_AI_C", fn = "AttackAll", victim = 2 },
     { short = "EyeMonster_AI_C", class = "/Game/AI/EyeMonster_AI.EyeMonster_AI_C", fn = "AttackMulti", victim = 2 },
 }
--- Blueprint wrappers that name a context for the victim's next hit (they can't bracket it: base ratio for the
--- Leech, Infected Player and Playable Monster; the Worm's row from ResponsibleActor). attacker/victim: param index
--- (0 = self).
-M.WRAPPERS = {
-    { key = "worm", class = FPC, fn = "ExplosionDamage", victim = 0, attacker = 1, via = "ExplosionDamage" },
-    { key = "infectedPlayer", class = FPC, fn = "AttackPInfectedAll", victim = 1, via = "AttackPInfectedAll" },
-    { key = "leech", class = "/Game/Horror_worm/Mesh/BabyWorm_AI.BabyWorm_AI_C", fn = "AttackAll", victim = 1, via = "AttackAll(Leech)" },
-    { key = "monster", class = "/Game/ThirdPerson/Blueprints/BP_ThirdPersonCharacter.BP_ThirdPersonCharacter_C", fn = "AttackAll", victim = 2, via = "AttackAll(Monster)" },
-}
+-- The Leech, Infected Player, Playable Monster and Worm hit through Blueprint wrappers whose UE4SS callback runs
+-- after the body (too late to name the hit): their hits stay stock in v1 (spec decision, 2026-11-03).
 
 -- ---------------------------------------------------------------- small helpers (every UObject access guarded)
 local function num(v) if type(v) == "number" then return v end return tonumber(tostring(v)) end
@@ -111,7 +103,7 @@ A.__index = A
 -- current world), opts.world() -> the current world's name, opts.knobs() -> the knob text (dev.lua), opts.alive(obj)
 -- (the KismetSystemLibrary:IsValid UFunction), opts.clock() (s), opts.rng() ([0, 1)), opts.seed(n).
 function M.new(opts)
-    local self = setmetatable({ o = opts, hooks = {}, bpHooks = {}, st = nil }, A)
+    local self = setmetatable({ o = opts, hooks = {}, bpHooks = {}, queued = {}, st = nil, installFailed = true }, A) -- until install() hooks the natives
     self.clock = opts.clock or os.clock
     self.rng = opts.rng or math.random
     self.seed = opts.seed or function(n) math.randomseed(n) end
@@ -126,7 +118,6 @@ function A:reset(world)
     self.st = {
         world = world, started = false, backedOff = false, values = {},
         grabs = {},     -- victim path -> { kind, attacker, row, at }
-        weak = {},      -- victim path -> { row, via, at } (Blueprint wrapper context)
         boss = {},      -- stack of { row, via } (CommitLethalDamage)
         apply = {},     -- stack of plans (or false) for ApplyLockedDamage / ApplyStalkerDamage
         cde = {},       -- stack of plans (or false) for CallDamageEvent
@@ -136,7 +127,7 @@ end
 
 function A:active()
     local st = self.st
-    return st.started and not st.backedOff and st.world ~= nil and st.world == self.o.world() and self.o.isHost() == true
+    return not self.installFailed and st.started and not st.backedOff and st.world ~= nil and st.world == self.o.world() and self.o.isHost() == true
 end
 
 -- backOff(level, fmt, ...): one line, then no damage or grab change until the next match.
@@ -248,11 +239,13 @@ function A:nativeAttacker(v, vpath)
 end
 
 -- The grab decision recorded for victim vpath, if this hit belongs to it (attacker matches when both are known).
-function A:grabKind(vpath, apath)
+-- Different attacker paths with the same row still count (the grab's Stalker may come from the nearest-Stalker
+-- fallback, the hit's from the presentation source).
+function A:grabKind(vpath, apath, row)
     local g = self.st.grabs[vpath]
     if not g then return "hit" end
     if self.clock() - g.at > M.GRAB_WINDOW then self.st.grabs[vpath] = nil return "hit" end
-    if g.attacker and apath and g.attacker ~= apath then return "hit" end
+    if g.attacker and apath and g.attacker ~= apath and not (row ~= nil and g.row == row) then return "hit" end
     return g.kind
 end
 
@@ -265,11 +258,13 @@ function A:plan(v, stock, row, via, apath, inGrab)
     local vpath = pathOf(v)
     local n = num(stock)
     if not vpath or not n or n <= 0 then return false end
+    -- A grab's temporary Health still in place: put it back before planning from it.
+    if self.st.pending[vpath] then self:restore(vpath, "hit") end
     local hp = hpOf(v)
     if not hp then return false end
     local d = self:difficulty(v)
     if not d then return false end
-    local kind = inGrab and self:grabKind(vpath, apath) or "hit"
+    local kind = inGrab and self:grabKind(vpath, apath, row) or "hit"
     local p = damage.hit(n, values, d, row, kind, hp, self.rng)
     if not p then return false end
     if not setHp(v, p.new) then error("could not write Health on " .. vpath) end
@@ -364,15 +359,8 @@ function A:onCde(selfp, amount)
     else
         -- Frostbite (1 or 2 with no enemy context) is story 4's; never touched here.
         if n == 1 or n == 2 then return end
-        local w = vpath and st.weak[vpath]
-        if w and self.clock() - w.at <= M.WEAK_WINDOW then
-            st.weak[vpath] = nil
-            row, via = w.row, w.via
-        else
-            if w then st.weak[vpath] = nil end
-            row, via = self:nativeAttacker(v, vpath)
-            if not row then return end -- environmental or unknown: never touched
-        end
+        row, via = self:nativeAttacker(v, vpath)
+        if not row then return end -- environmental, unknown or a Blueprint-wrapper enemy: never touched
     end
     local p = self:plan(v, n, row, via, apath, false)
     if p then p.delivered = true end
@@ -449,27 +437,12 @@ function A:later(vpath)
     if ok then handle = h else self.o.warnOnce("later", "no game-thread delay available (%s); the grab hook restores alone", tostring(h)) end
 end
 
-function A:onWrapper(w, ...)
-    if not self:active() then return end
-    local args = { ... }
-    local v = get(args[w.victim + 1])
-    if not self:alive(v) then return end
-    local vpath = pathOf(v)
-    if not vpath then return end
-    local row
-    if w.key == "worm" then
-        local a = get(args[w.attacker + 1])
-        if not (self:alive(a) and self:rowOf(a) == "worm") then return end
-        row = "worm"
-    end
-    -- Leech, Infected Player, Playable Monster: base ratio only (row nil).
-    self.st.weak[vpath] = { row = row, via = w.via, at = self.clock() }
-end
-
 -- UpdateFriendlyFire (host): the match starts. Knob values are parsed again for every match.
 function A:onStart()
     if not self.o.isHost() then return end
     local world = self.o.world()
+    -- Only the first call per world starts the match (it is a server RPC a client can call again).
+    if self.st.started and self.st.world == world then return end
     self:reset(world)
     local st = self.st
     local values, problems = knobs.parse(self.o.knobs())
@@ -478,6 +451,8 @@ function A:onStart()
     self.seed(math.floor((os.time() % 1000000) * 1000 + (self.clock() * 1000) % 1000))
     st.started = true
     self.o.say("info", "MATCH start knobs=%s", knobs.describe(values))
+    -- Grab classes loaded by now are hooked before their first grab.
+    for _, g in ipairs(M.GRABS) do self:installClass(g.class) end
 end
 
 -- ---------------------------------------------------------------- registration
@@ -493,6 +468,7 @@ end
 
 -- install(): the native hooks, once (at ready). Returns ok, problem.
 function A:install()
+    self.installFailed = true -- stays true if this throws
     local N = M.NATIVES
     local defs = {
         { N.locked, self:guard("ApplyLockedDamage hook", A.onLocked), self:guard("ApplyLockedDamage post-hook", A.onApplyPost) },
@@ -506,7 +482,11 @@ function A:install()
             if self:register(d[1], d[2], d[3]) then self.hooks[d[1]] = true else missing[#missing + 1] = d[1]:match("[^:]+$") end
         end
     end
-    if #missing > 0 then return false, "could not hook " .. table.concat(missing, ", ") end
+    if #missing > 0 then
+        self.installFailed = true -- no flips and no compensation without the damage hooks
+        return false, "could not hook " .. table.concat(missing, ", ")
+    end
+    self.installFailed = false
     return true
 end
 
@@ -524,18 +504,12 @@ function A:classDefs(classPath)
             defs[#defs + 1] = { g.class .. ":" .. g.fn, self:guard(g.fn .. " hook", function(s, ...) s:onGrabMulticast(g.victim, ...) end) }
         end
     end
-    for _, w in ipairs(M.WRAPPERS) do
-        if w.class == classPath then
-            defs[#defs + 1] = { w.class .. ":" .. w.fn, self:guard(w.via .. " hook", function(s, ...) s:onWrapper(w, ...) end) }
-        end
-    end
     return defs
 end
 
 function A:classes()
     local t = { GAMESTATE, FPC }
     for _, g in ipairs(M.GRABS) do t[#t + 1] = g.class end
-    for _, w in ipairs(M.WRAPPERS) do if w.class ~= FPC then t[#t + 1] = w.class end end
     return t
 end
 
@@ -553,9 +527,9 @@ end
 -- next tick (never from inside the multicast that is running).
 function A:needClassHooks(short)
     for _, g in ipairs(M.GRABS) do
-        if g.short == short and not self.bpHooks[g.class .. ":" .. g.fn] and not self.queued then
-            local fn = self:guard("class hooks", function(s) s.queued = false s:installClass(g.class) end)
-            if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, 100, fn) then self.queued = true end
+        if g.short == short and not self.bpHooks[g.class .. ":" .. g.fn] and not self.queued[g.class] then
+            local fn = self:guard("class hooks", function(s) s.queued[g.class] = nil s:installClass(g.class) end)
+            if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, 100, fn) then self.queued[g.class] = true end
             return
         end
     end
@@ -566,7 +540,7 @@ end
 function A:onWorld(name, host, fresh)
     if fresh or self.st.world ~= name then self:reset(name) end
     for path, ids in pairs(self.bpHooks) do pcall(UnregisterHook, path, ids.pre, ids.post) end
-    self.bpHooks, self.queued = {}, false
+    self.bpHooks, self.queued = {}, {}
     if host ~= true then return end
     for _, c in ipairs(self:classes()) do self:installClass(c) end
 end

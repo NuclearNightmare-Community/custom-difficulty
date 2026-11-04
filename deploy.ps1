@@ -62,7 +62,7 @@ if ($PreCore -and -not $Test) { Stop-Deploy '-PreCore is a dev mode and needs -T
 if ($PSBoundParameters.ContainsKey('Knobs') -and -not $Test) { Stop-Deploy '-Knobs is a dev mode and needs -Test.' }
 if ($Scenario -and -not $Test) { Stop-Deploy '-Scenario is a dev mode and needs -Test.' }
 if ($Scenario -and -not $PSBoundParameters.ContainsKey('Knobs')) { $Knobs = $ScenarioKnobs[$Scenario] }
-if ($Knobs -and ($Knobs.Length -gt 1024 -or $Knobs -notmatch '^[A-Za-z0-9.=; -]*$')) { Stop-Deploy "-Knobs may hold only letters, digits, '.', '=', ';', '-' and spaces, at most 1024 characters." }
+if ($Knobs -and ($Knobs.Length -gt 1024 -or $Knobs -notmatch '\A[A-Za-z0-9.=; -]*\z')) { Stop-Deploy "-Knobs may hold only letters, digits, '.', '=', ';', '-' and spaces, at most 1024 characters." }
 $inst     = (Resolve-Path $Instance).Path
 $win64    = Join-Path $inst 'NuclearNightmare\Binaries\Win64'
 $ue4ss    = Join-Path $win64 'ue4ss'

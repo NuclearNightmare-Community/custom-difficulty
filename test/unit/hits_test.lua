@@ -96,17 +96,18 @@ local function line(pat) for _, l in ipairs(T.lines) do if l:find(pat) then retu
 local function dump() return table.concat(T.lines, " | ") end
 
 -- The natives, as the game runs them.
-local function cde(victim, amount, inner)
+-- noSubtract: the native runs its hooks but applies nothing.
+local function cde(victim, amount, inner, noSubtract)
     W.fire(N.cde, W.p(victim), W.p(amount))
     if inner then inner() end
-    victim._hp = victim._hp - amount
+    if not noSubtract then victim._hp = victim._hp - amount end
     W.firePost(N.cde, W.p(victim), W.p(amount))
 end
 local function lockedHit(attacker, amount, opts)
     opts = opts or {}
     W.fire(N.locked, W.p(T.ctx), W.p(attacker), W.p(amount))
     local v = T.locked[attacker._path]
-    if not opts.noDelivery then cde(v, amount, opts.inner) end
+    if not opts.noDelivery then cde(v, amount, opts.inner, opts.noSubtract) end
     W.firePost(N.locked, W.p(T.ctx), W.p(attacker), W.p(amount))
 end
 local function stalkerHit(victim, amount)
@@ -114,9 +115,9 @@ local function stalkerHit(victim, amount)
     cde(victim, amount)
     W.firePost(N.stalker, W.p(T.ctx), W.p(victim), W.p(amount))
 end
-local function bossHit(boss, victim, amount)
+local function bossHit(boss, victim, amount, noSubtract)
     W.fire(N.boss, W.p(T.ctx), W.p(boss), W.p(victim))
-    cde(victim, amount)
+    cde(victim, amount, nil, noSubtract)
     W.firePost(N.boss, W.p(T.ctx), W.p(boss), W.p(victim))
 end
 local HASPERK = FPC .. ":HasPerk"
@@ -232,27 +233,18 @@ do
     eq(T.me._hp, 0, "dog attacking someone else: untouched")
 end
 
--- ---------------------------------------------------------------- Blueprint wrappers (weak contexts)
+-- ---------------------------------------------------------------- Blueprint-wrapper enemies stay stock (v1)
 do
     setup{ knobs = "enemyDamage=50;dmg.worm=50;dmg.leech=300", diff = 0 }
-    local worm = actor("Worm_AI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.Worm_AI_C_1")
-    W.fire(FPC .. ":ExplosionDamage", W.p(T.me), W.p(worm), W.p(100))
-    cde(T.me, 100)
-    eq(T.me._hp, 75, "Worm via ExplosionDamage: Nightmare, base 50, Worm 50% -> 25")
-    local leech = actor("BabyWorm_AI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.BabyWorm_AI_C_1")
-    T.me._hp = 100
-    W.fire("/Game/Horror_worm/Mesh/BabyWorm_AI.BabyWorm_AI_C:AttackAll", W.p(leech), W.p(T.me))
+    eq(W.count(FPC .. ":ExplosionDamage") + W.count("/Game/Horror_worm/Mesh/BabyWorm_AI.BabyWorm_AI_C:AttackAll")
+        + W.count(FPC .. ":AttackPInfectedAll"), 0, "no wrapper hooks registered")
+    local leech = actor("BabyWorm_AI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.BabyWorm_AI_C_1", { loc = { X = 50, Y = 0, Z = 0 } })
+    W.all.BabyWorm_AI_C = { leech }
     cde(T.me, 25)
-    eq(T.me._hp, 87.5, "Leech: base ratio only (its 300% row ignored)")
-    T.me._hp = 100
-    W.fire("/Game/Horror_worm/Mesh/BabyWorm_AI.BabyWorm_AI_C:AttackAll", W.p(leech), W.p(T.me))
-    T.now = T.now + 1
-    cde(T.me, 25)
-    eq(T.me._hp, 75, "a wrapper's context expires")
-    T.me._hp = 100
-    W.fire("/Game/Horror_worm/Mesh/BabyWorm_AI.BabyWorm_AI_C:AttackAll", W.p(leech), W.p(T.me))
-    cde(T.me, 1)
-    eq(T.me._hp, 99, "a wrapper's context never takes a frostbite tick")
+    eq(T.me._hp, 75, "Leech hit (no context): stock")
+    cde(T.me, 30)
+    eq(T.me._hp, 45, "a later fall: stock")
+    eq(T.me.writes, 0, "wrapper enemies: no Health write")
 end
 
 -- ---------------------------------------------------------------- before start, non-host, other world
@@ -382,7 +374,15 @@ do
     eq(T.me._hp, 55, "clash: then stock hits")
     eq(count("^HIT "), 1, "clash: no HIT after the WARN")
     eq(count("^WARN "), 1, "clash: one WARN only")
-    -- The next match: acts again.
+    -- A repeated UpdateFriendlyFire in the same world (a client can call the RPC): the back-off stays.
+    W.fire(GSC .. ":UpdateFriendlyFire", W.p(T.gs))
+    T.me._hp = 100
+    lockedHit(T.meek, 50)
+    eq(T.me._hp, 50, "repeated UpdateFriendlyFire: still backed off")
+    eq(count("^MATCH start"), 1, "repeated UpdateFriendlyFire: no second match start")
+    eq(T.seeded, 1, "repeated UpdateFriendlyFire: not reseeded")
+    -- The next match (a fresh world): acts again.
+    T.H:onWorld(MATCH, true, true)
     W.fire(GSC .. ":UpdateFriendlyFire", W.p(T.gs))
     T.me._hp = 100
     lockedHit(T.meek, 50)
@@ -395,6 +395,54 @@ do -- the native applied nothing: the compensation is undone, no clash
     lockedHit(T.meek, 50, { noDelivery = true })
     eq(T.me._hp, 100, "no CallDamageEvent inside: compensation undone")
     eq(count("^WARN "), 0, "no CallDamageEvent inside: no clash")
+    -- CallDamageEvent ran but subtracted nothing (Health still the compensated value).
+    lockedHit(T.meek, 50, { noSubtract = true })
+    eq(T.me._hp, 100, "Locked, native applied nothing: Health back to before")
+    bossHit(T.apex, T.me, 100, true)
+    eq(T.me._hp, 100, "boss, native applied nothing: Health back to before")
+    eq(count("^WARN clash"), 0, "native applied nothing: no clash")
+    eq(T.H.st.backedOff, false, "native applied nothing: not backed off")
+    lockedHit(T.meek, 50)
+    eq(T.me._hp, 83, "native applied nothing: the next hit still scaled")
+end
+do -- a hit while the victim still holds a grab's temporary Health: restored first, planned from the real Health
+    setup{ knobs = "enemyDamage=25", diff = 0 }
+    meekGrab(T.me, { noMulticast = true })
+    eq(T.me._hp, 101, "pending: temporary value")
+    lockedHit(T.meek, 100)
+    eq(T.me._hp, 75, "hit while pending: planned from 100")
+    eq(count("^RESTORE enemy=meek hp=101 %-> 100 via=hit$"), 1, "hit while pending: restored by the hit", dump())
+    W.runLater()
+    eq(count("^WARN"), 0, "hit while pending: no false clash")
+end
+do -- the natives couldn't be hooked: nothing acts, no flip
+    setup{ knobs = "enemyDamage=25", diff = 0 }
+    T.H.installFailed = true
+    meekGrab(T.me)
+    eq(T.me.writes, 0, "install failed: no flip")
+    T.locked[T.meek._path] = T.me
+    lockedHit(T.meek, 100)
+    eq(T.me._hp, 0, "install failed: stock hit")
+    eq(count("^GRAB ") + count("^HIT "), 0, "install failed: no GRAB or HIT")
+    -- install() failing for real sets it.
+    W = F.new() F.install(W)
+    W.missing[N.cde] = true
+    local h2 = hits.new{ say = function() end, warnOnce = function() end, isHost = function() return true end,
+        world = function() return MATCH end, knobs = function() return "" end, alive = function() return true end }
+    eq(h2:install(), false, "install: a missing native fails")
+    eq(h2.installFailed, true, "install: failure recorded")
+end
+do -- the grab's Stalker from the nearest-Stalker fallback, the hit's from the presentation source: same row, still the grab's
+    setup{ knobs = "enemyDamage=25;spread=50", diff = 0 }
+    T.locked = {}
+    T.me._hp = 30
+    W.fire(HASPERK, W.p(T.me), W.p(39)) -- nearest Stalker (T.stalker)
+    W.fire(FPC .. ":PlayDamageEvent", W.p(T.me), W.p(T.stalker), W.p(false))
+    T.presenting = actor("Stalker_AI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.Stalker_AI_C_2")
+    T.H.rng = (function() local i = 0 return function() i = i + 1 return i % 2 == 1 and 0.9999999 or 0 end end)()
+    stalkerHit(T.me, 100)
+    eq(T.me._hp, 1, "same row, another path: survivable cap applies")
+    eq(count("kind=survivable$"), 1, "same row, another path: kind=survivable")
 end
 
 -- ---------------------------------------------------------------- bad knobs, faults, Diffculty
@@ -460,6 +508,22 @@ do
     W.fire(HASPERK, W.p(T.me), W.p(39))
     W.runLater()
     eq(W.count(MEEK_ATTACK), 1, "an attacker of the class was seen: registered on the next tick")
+    -- Per class: two classes seen before the next tick are both queued.
+    local mimicFn = "/Game/AI/Mimic_AI.Mimic_AI_C:AttackMulti"
+    T.H:onWorld(MATCH, true, true)
+    T.H.bpHooks[MEEK_ATTACK], T.H.bpHooks[mimicFn] = nil, nil
+    W.hooks[MEEK_ATTACK], W.hooks[mimicFn] = {}, {}
+    T.H:needClassHooks("SCP_AI_C")
+    T.H:needClassHooks("Mimic_AI_C")
+    W.runLater()
+    ok(W.count(MEEK_ATTACK) >= 1 and W.count(mimicFn) >= 1, "two classes queued: both registered")
+    -- A class loaded after LoadMap but before the match start: hooked at UpdateFriendlyFire.
+    W.missing[MEEK_ATTACK] = true
+    T.H:onWorld(MATCH, true, true)
+    eq(W.count(MEEK_ATTACK), 0, "loaded later: not at LoadMap")
+    W.missing[MEEK_ATTACK] = nil
+    W.fire(GSC .. ":UpdateFriendlyFire", W.p(T.gs))
+    eq(W.count(MEEK_ATTACK), 1, "loaded by the match start: hooked at UpdateFriendlyFire")
 end
 
 -- ---------------------------------------------------------------- the source: rules from AGENTS.md

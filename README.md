@@ -43,8 +43,9 @@ runtime refuse core 0.3.0.
   0.1 HP), read against `GameState.Diffculty` live at each hit. An execution always kills; a hit inside a survivable
   grab leaves at least 1 HP. Falls, fire, water, frostbite and anything not from an enemy are never touched. The
   attacker comes from the hook (`ApplyLockedDamage`'s attacker, the Stalker's presentation source,
-  `CommitLethalDamage`'s boss, a phase-3 bat within 3 m, the attacking Infected Dog, the Worm's `ExplosionDamage`);
-  the Leech, Infected Player, Playable Monster and unknown attackers get Enemy Damage's ratio only.
+  `CommitLethalDamage`'s boss, a phase-3 bat within 3 m, the attacking Infected Dog); an attacker of an unknown class
+  in those contexts gets Enemy Damage's ratio only. The Leech, Infected Player, Playable Monster and Worm hit through
+  Blueprint wrappers whose hooks run after the hit, so their hits stay stock in v1.
 - **Survivable grabs** for the host's own player: at each grab's `HasPerk(0x27)` the expected hit decides
   (`Health - E > 0` is survivable). When that differs from the game's choice, `Health` is set to standard + 1 (or 0.01)
   for the grab's own test and put back in the grab's multicast hook (or on the next tick). Other victims keep the
@@ -110,7 +111,7 @@ cases (test only, logged).
 | `flip` | Nightmare, `enemyDamage=25` | a Meek grab at 100 HP: `GRAB ... game=e decision=s flip=101`, `RESTORE`, the survivable montage, 75 HP, moving again within 6 s |
 | `per-enemy` | Normal, `dmg.stalker=200` | a Stalker hit takes 50, a Meek hit the stock 25 (no `HIT` for it) |
 | `default` | Hard, no knobs | no `HIT`, `GRAB` or `RESTORE` line; the Meek takes the game's 50 |
-| `clash` | Hard, `enemyDamage=17`; the driver adds 5 HP before every hit | one `HIT`, one `WARN clash: after the hit ...`, then stock hits (12 then 45 HP) |
+| `clash` | Hard, `enemyDamage=17`; the driver adds 5 HP before every hit | the first hit is scaled (17, minus the driver's 5: takes 12), one `HIT`, one `WARN clash: after the hit ...`; the next hit is stock (50 minus 5: takes 45), with no `HIT` |
 
 ## Tests
 

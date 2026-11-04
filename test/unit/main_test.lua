@@ -39,7 +39,7 @@ local function boot(opts)
     W = F.new()
     F.install(W)
     S = { dev = opts.dev, connects = {} }
-    for _, m in ipairs({ "world", "hits", "damage", "knobs", "nucleus.client" }) do package.loaded[m] = nil end
+    for _, m in ipairs({ "world", "hits", "damage", "knobs", "env", "tokens", "nucleus.client" }) do package.loaded[m] = nil end
     package.preload["nucleus.client"] = nil
     if opts.client ~= false then
         package.preload["nucleus.client"] = function()
@@ -128,6 +128,9 @@ do
     ok(iw and ir and iw < ir, "WORLD for the current world comes before READY")
     eq(count("WARN"), 0, "normal mode: no WARN")
     eq(count("running on"), 0, "normal mode: no pre-core WARN")
+    local loops = 0
+    for _, e in ipairs(W.later) do if e.loop and e.ms == 250 then loops = loops + 1 end end
+    eq(loops, 1, "ready: the host poll started (one 250 ms game-thread loop)")
     -- The LoadMap hook for the same menu world (it can fire after ready): no second WORLD line.
     W.loadMapHooks[1](nil, W.param(W.menu))
     eq(count("WORLD host=false standalone=true map=NewMainMenu"), 1, "the same world again: still one WORLD line")
@@ -172,6 +175,13 @@ do -- RegisterLoadMapPostHook fails: one ERROR, no READY.
     ready(newCore())
     eq(count("^%[Difficulty%] ERROR could not register the LoadMap hook"), 1, "hook registration fails: one ERROR")
     eq(count("READY"), 0, "hook registration fails: no READY")
+end
+do -- The poll can't start: one ERROR, READY still.
+    boot()
+    LoopInGameThreadWithDelay = function() error("no loop") end
+    ready(newCore())
+    eq(count("^%[Difficulty%] ERROR the host poll could not start %(.*no loop%); cold stays stock$"), 1, "poll fails to start: one ERROR")
+    eq(count("READY"), 1, "poll fails to start: still READY")
 end
 do -- A failing core logger falls back to print.
     boot()

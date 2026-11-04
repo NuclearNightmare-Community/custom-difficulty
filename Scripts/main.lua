@@ -1,7 +1,8 @@
--- Difficulty 0.1.0 (spec-difficulty-v1, stories 1 and 3). Connects to Nucleus (core) through the dependent bootstrap
--- (core's api-contract.md) and caches isHost per world. Story 3: enemy damage on the host and survivable grabs for the
--- host's own player (hits.lua); until stories 6 and 7, the knob values come only from dev.lua (deploy.ps1 -Test
--- -Knobs), so a release (no dev.lua) leaves every knob Default and changes nothing.
+-- Difficulty 0.1.0 (spec-difficulty-v1, stories 1, 3 and 4). Connects to Nucleus (core) through the dependent
+-- bootstrap (core's api-contract.md) and caches isHost per world. Story 3: enemy damage on the host and survivable
+-- grabs for the host's own player (hits.lua). Story 4: cold, frostbite and reinforcement tokens on the host (env.lua,
+-- tokens.lua, wired in hits.lua; one host poll started here). Until stories 6 and 7, the knob values come only from
+-- dev.lua (deploy.ps1 -Test -Knobs), so a release (no dev.lua) leaves every knob Default and changes nothing.
 -- Holds no UObject between callbacks (AGENTS.md): world.lua keeps only world names and booleans. Every hook body and
 -- every call into core runs under pcall, with one log line per failure.
 local ME, CORE, NEED = "Difficulty", "Nucleus", "0.4.0"
@@ -67,11 +68,16 @@ local function start(core)
 
     local W = world.new()
     local currentName -- the full name of the world evaluated last (hits.lua asks W:isHost(currentName))
+    -- core's microsecond clock (the poll's cost), when this core has it; os.clock otherwise.
+    local micros
+    local okM, m = pcall(function() return core.clock and core.clock.micros end)
+    if okM and type(m) == "function" then micros = m end
     local H = hits.new{
         say = say, warnOnce = warnOnce, alive = world.alive,
         world = function() return currentName end,
         isHost = function() return W:isHost(currentName) end,
         knobs = function() return dev.knobs end,
+        micros = micros,
     }
     -- Evaluates one world: plain values from world.lua, cached by full name; one WORLD line per world.
     local function evaluate(w, how)
@@ -102,6 +108,10 @@ local function start(core)
     local okI, okN, errN = pcall(H.install, H)
     if not okI then say("error", "enemy damage hooks failed: %s; hits stay stock", tostring(okN))
     elseif not okN then say("error", "%s; hits stay stock", tostring(errN)) end
+    -- Cold and the token re-check: one game-thread poll for the session (idle unless a hosted match uses them).
+    local okP, okS, errS = pcall(H.startPoll, H)
+    if not okP then say("error", "the host poll failed to start: %s; cold stays stock", tostring(okS))
+    elseif not okS then say("error", "the host poll could not start (%s); cold stays stock", tostring(errS)) end
 
     -- The world already loaded when connect succeeded (its LoadMap ran before this hook existed).
     local current = world.currentWorld()

@@ -177,7 +177,7 @@ try {
     Ok ($dev -match '(?m)^return \{ debug = true \}$') 'deploy -Scenario default: no knobs' $dev
     # Story 4's scenarios and their knobs.
     foreach ($s4 in @(@('cold', 'cold=50'), @('cold-zero', 'cold=0'), @('frostbite', 'frostbite=3'), @('frostbite-zero', 'frostbite=0'),
-                      @('tokens-more', 'revives=4'), @('tokens-fewer', 'revives=2'))) {
+                      @('tokens-more', 'revives=4'), @('tokens-fewer', 'revives=2'), @('cold-whiteout', 'cold=50'))) {
         $d = Deploy @('-Test', '-Scenario', $s4[0])
         $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
         Ok ($d.Code -eq 0 -and $dev -match "(?m)^return \{ debug = true, knobs = `"$([regex]::Escape($s4[1]))`" \}$") "deploy -Scenario $($s4[0]): knobs $($s4[1])" "$($d.Out) $dev"

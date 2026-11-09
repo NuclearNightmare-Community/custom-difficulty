@@ -64,14 +64,15 @@ runtime refuse core 0.3.0.
   about 2 s. Each character whose `Temperature` rose since the last poll gets `last + rise x factor`, clamped to 0..1,
   with `factor = cold / (200 / divisor[Diffculty])`. The divisors are 1 / 1.5 / 2 / 4 for `EDiffculty` 0 Nightmare,
   1 Hard, 2 Normal, 3 Easy, and `Diffculty` is read live. A fall or a hold (warming, a reset) is left alone, so heated
-  interiors warm at the stock rate. 0 means the meter never rises outdoors. The per-path state is new each match.
-- **Frostbite Damage** (`frostbite`, HP per second while frozen): a `CallDamageEvent` of 1 or 2 with no enemy context
-  on a victim with `Temperature >= 1`, `CanTakeTemperature`, not `InsideEnoughToStopFreezing`, not `Infected` or
-  `IsMimic?` is a frostbite tick: `Health += amount x (1 - frostbite)` (lowered never below 0.01), checked by the
-  same guard as an enemy hit. Any other 1 or 2 HP call is left alone. With Frostbite 0, the game's frostbite finisher
-  (a `CallDamageEvent(100)` with no enemy context on a frozen player at 0 < Health < 1) is absorbed too, so a frozen
-  player never loses HP to the cold (`HIT enemy=frostbite via=frostbite-finisher ... applied=0`). Any other value
-  leaves the finisher to the game.
+  interiors warm at the stock rate. 0 means the meter never rises outdoors. The per-path state is new each match. The knob scales the whole rise, V8.2's White Out
+  cold included (0 = blizzards don't cool either); enclosed vehicles pause `Temperature`, so the poll sees no rise.
+- **Frostbite Damage** (`frostbite`, HP per second while frozen): V8.2 deals frostbite through the native
+  `CallFrostbiteDamageEvent`, so the function itself identifies it: an amount of 1 or 2 is a tick,
+  `Health += amount x (1 - frostbite)` (lowered never below 0.01), checked by the same guard as an enemy hit. With
+  Frostbite 0, the finisher (`CallFrostbiteDamageEvent(100)` at 0 < Health < 1) is absorbed too, so a frozen player
+  never loses HP to the cold (`HIT enemy=frostbite via=frostbite-finisher ... applied=0`). Any other amount or knob
+  value stays stock. `CallDamageEvent` no longer handles frostbite: a call nested inside the frostbite native does
+  nothing, so nothing is compensated twice.
 - **Reinforcement Tokens** (`revives`, N): the game counts reinforcements in the host's `TimesUsedReinforcements` and
   its computer shows `limit - count` (limit 2 / 4 / 6 / 8 for `Classified Minium` 0..3). At the match start the host
   writes `count = limit - N`, so the computer shows N; afterwards `used = count - (limit - N)`. Re-checked in the
@@ -156,11 +157,19 @@ cases (test only, logged).
 | `frostbite-zero` | Normal, `frostbite=0` | only `HIT enemy=frostbite ... applied=0`; no HP lost in 20 s |
 | `tokens-more` | Normal, Classified Minimum 0 (limit 2), `revives=4` | `TOKENS start limit=2 N=4 count=-2`; the computer's text 4; four reinforcements accepted, `Disable Reinforcement` only after the 4th |
 | `tokens-fewer` | Normal, Classified Minimum 3 (limit 8), `revives=2` | `TOKENS start limit=8 N=2 count=6`; Disable after the 2nd, the text 0 |
+| `cold-whiteout` (opt-in, never in a default list) | Nightmare, `cold=50`, White Outs on; the driver calls `NNBlizzardController:RequestBlizzard()` and samples 60 s outdoors in the storm phase | `WHITEOUT disabled=false`; `COLD` applied is 0.25 x raw (+-10%); the rise is above a quarter of Nightmare's stock range. No storm, or a rise inside that range: not shown |
 
-The token scenarios trigger reinforcements with a synthetic revive (the game state's `UpdateRespawnQue` and the
-radio's `ReinforceSpecficPlayer` on the living host, proven on V8.1.2 only; on V8.1.5 it was refused in every run,
-so the fallback did the reinforcing) and fall back to the radio's
-`SpawnReinforcmentSpectator()` (destroying the orphan character it spawns), logging which (`REVIVE #<i> via=`). The
+Every scenario sets `BP_GameInstance_C.DisableWhiteOuts` before the match and logs one
+`WHITEOUT disabled=<GameState value> director=<n> phase=<Phase>`; `check.ps1` requires `disabled=true` in every
+scenario but `cold-whiteout`.
+
+The token scenarios open V8.2's native terminal on the driver's own pawn (`RadioTerminal:OpenTerminal(radio, pawn)`,
+`TERMINAL open active= original=`), ask for each reinforcement through `RadioTerminal:OnReinforcement()` (`via=terminal`)
+and close it with `CloseTerminal()`; `check.ps1` requires every reinforcement through it. If the count doesn't move in
+15 s, the run is not shown, or a FAIL when it happens past the stock limit after the terminal has worked (the terminal
+refusing: the story is blocked). The fallbacks then still run, each logged (`REVIVE #<i> via=`): the synthetic revive
+(the game state's `UpdateRespawnQue` and the radio's `ReinforceSpecficPlayer` on the living host) and the radio's
+`SpawnReinforcmentSpectator()` (destroying the orphan character it spawns). The
 text is read from a `NukeComputer_UI_C` widget's `GetText_3`, made with `WidgetBlueprintLibrary:Create` and never
 shown.
 
@@ -168,7 +177,7 @@ shown.
 
 - `./test.ps1`: the unit tests, no game needed (Lua: `world.lua`'s cache and adapter, `main.lua`'s bootstrap paths,
   `mod.json`'s settings, `knobs.lua`'s parser, `damage.lua`'s math including the 200-hit distribution and the
-  survivable cap, `hits.lua` against fake hooks (story 4's cold poll, frostbite and tokens included), `env.lua`'s
+  survivable cap, `hits.lua` against fake hooks (the cold poll, the frostbite native and tokens included), `env.lua`'s
   cold and frostbite math and poll, `tokens.lua`'s math and adapter; PowerShell: `deploy.ps1` against a fake instance, `check.ps1`
   against synthetic logs).
   Lua is the first of `lua`, `lua5.4`, `lua54`, `lua5.3`, `texlua` on PATH.

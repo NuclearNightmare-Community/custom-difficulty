@@ -17,7 +17,7 @@
   (mods.txt: Nucleus, DifficultyDriver, Difficulty) with the scenario in its Scripts/scenario.txt, and, unless -Knobs
   is given, the scenario's knobs: scaled and clash "enemyDamage=17", flip "enemyDamage=25", per-enemy
   "dmg.stalker=200", default none; story 4: cold "cold=50", cold-zero "cold=0", frostbite "frostbite=3",
-  frostbite-zero "frostbite=0", tokens-more "revives=4", tokens-fewer "revives=2". A deploy without -Scenario removes
+  frostbite-zero "frostbite=0", tokens-more "revives=4", tokens-fewer "revives=2"; cold-whiteout "cold=50" (opt-in). A deploy without -Scenario removes
   the driver. Neither the driver nor dev.lua is ever shipped: a deploy without -Test installs no knob source at all.
   -PreCore (only with -Test) is the dev core mode: it also accepts an installed core ^0.3.0 (before core 0.4.0, which
   brings the UI) and writes dev.lua with preCore = true, so main.lua connects with need 0.3.0 and logs one WARN. On a
@@ -40,7 +40,7 @@ param(
     [switch] $PreCore,
     [string] $Knobs,
     [ValidateSet('', 'scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite', 'frostbite-zero',
-                 'tokens-more', 'tokens-fewer')] [string] $Scenario = '',
+                 'tokens-more', 'tokens-fewer', 'cold-whiteout')] [string] $Scenario = '',
     [switch] $Force,
     [switch] $Remove
 )
@@ -58,7 +58,7 @@ $driver   = "${name}Driver"
 # The knobs each driver scenario needs (test/DifficultyDriver); -Knobs overrides them.
 $ScenarioKnobs = @{ 'scaled' = 'enemyDamage=17'; 'flip' = 'enemyDamage=25'; 'per-enemy' = 'dmg.stalker=200'; 'default' = ''; 'clash' = 'enemyDamage=17'
                    'cold' = 'cold=50'; 'cold-zero' = 'cold=0'; 'frostbite' = 'frostbite=3'; 'frostbite-zero' = 'frostbite=0'
-                   'tokens-more' = 'revives=4'; 'tokens-fewer' = 'revives=2' }
+                   'tokens-more' = 'revives=4'; 'tokens-fewer' = 'revives=2'; 'cold-whiteout' = 'cold=50' }
 
 function Stop-Deploy([string] $why) { Write-Host "$name not deployed: $why"; exit 1 }
 

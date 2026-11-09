@@ -24,7 +24,7 @@
 param(
     [Parameter(Mandatory)] [string] $Instance,
     [Parameter(Mandatory)] [ValidateSet('scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite',
-                 'frostbite-zero', 'tokens-more', 'tokens-fewer')] [string] $Scenario,
+                 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout')] [string] $Scenario,
     [int] $TimeoutSec = 900
 )
 $ErrorActionPreference = 'Stop'

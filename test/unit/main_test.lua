@@ -317,7 +317,7 @@ do
     boot()
     RegisterHook = function() error("no UFunction") end
     ready(newCore())
-    eq(count("^%[Difficulty%] ERROR could not hook ApplyLockedDamage, ApplyStalkerDamage, CommitLethalDamage, CallDamageEvent; hits stay stock$"), 1, "natives can't be hooked: one ERROR")
+    eq(count("^%[Difficulty%] ERROR could not hook ApplyLockedDamage, ApplyStalkerDamage, CommitLethalDamage, CallDamageEvent, CallFrostbiteDamageEvent; hits stay stock$"), 1, "natives can't be hooked: one ERROR")
     eq(count("READY"), 1, "natives can't be hooked: still READY (isHost works)")
 end
 

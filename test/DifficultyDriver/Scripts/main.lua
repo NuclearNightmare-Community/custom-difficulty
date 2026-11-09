@@ -22,13 +22,23 @@
 --   frostbite       Frostbite 3, cold Default: Temperature held at 1.5 (raising it is fine: cold is Default); Health
 --                   loss over 20 s = 60 +-10%.
 --   frostbite-zero  Frostbite 0: no Health loss over 20 s while frozen.
+--   cold-whiteout   (opt-in, never in a default list) Nightmare, Cold Exposure 50, White Outs on: the driver calls
+--                   NNBlizzardController:RequestBlizzard() and samples 60 s outdoors while the storm phase runs. The
+--                   rise must be above a quarter of Nightmare's stock range (the knob scales the storm's cold too);
+--                   the storm never reached, or a rise inside that range, is NOTSHOWN.
 --   tokens-more     Classified Minium 0 (limit 2), N 4: the computer's text shows 4; four reinforcements accepted,
 --                   then Disable Reinforcement set (and not before).
 --   tokens-fewer    Classified Minium 3 (limit 8), N 2: after two, Disable set and the text shows 0.
---   A reinforcement is the synthetic revive (the game state's UpdateRespawnQue + the radio's ReinforceSpecficPlayer
---   on the living host, as test/MarkersDriver did on V8.1.2); if the count doesn't move in 15 s, the radio's
---   SpawnReinforcmentSpectator() (which has no gate), destroying the orphan character it spawns. The token text is
---   read from a NukeComputer_UI_C widget made with WidgetBlueprintLibrary:Create and never added to the viewport.
+--   A reinforcement goes through V8.2's native terminal first (RadioTerminal:OpenTerminal(radio, pawn), then
+--   OnReinforcement(), closed with CloseTerminal()). If the count doesn't move in 15 s: past the stock limit, after
+--   the terminal worked earlier, that is the terminal refusing (FAIL, the story is blocked); otherwise NOTSHOWN. Then
+--   the fallbacks, each logged: the synthetic revive (the game state's UpdateRespawnQue + the radio's
+--   ReinforceSpecficPlayer on the living host, as test/MarkersDriver did on V8.1.2) and, if the count doesn't move in
+--   15 s, the radio's SpawnReinforcmentSpectator() (which has no gate), destroying the orphan character it spawns.
+--   The token text is read from a NukeComputer_UI_C widget made with WidgetBlueprintLibrary:Create and never added
+--   to the viewport.
+-- White Outs: every scenario sets the game instance's DisableWhiteOuts before the match (cold-whiteout clears it) and
+-- logs one WHITEOUT line after the start; check.ps1 requires disabled=true, or disabled=false for cold-whiteout.
 -- Lines: OK / FAIL <check>; NOTSHOWN <case> (the driver couldn't make the case happen: not a pass);
 -- END result=PASS|FAIL|NOTSHOWN.
 -- Keys it can't press itself (Enter for touchdown) go to run.ps1 through request.txt / done.txt next to this file.
@@ -55,6 +65,7 @@ local SCENARIOS = {
     -- Story 4: one special phase each (cases stay empty).
     ["cold"] = { diff = 0, special = "cold", factor = 0.25, cases = {} },
     ["cold-zero"] = { diff = 0, special = "cold", factor = 0, cases = {} },
+    ["cold-whiteout"] = { diff = 0, special = "cold", factor = 0.25, whiteouts = true, cases = {} }, -- opt-in
     ["frostbite"] = { diff = 2, special = "frost", want = 60, tol = 6, cases = {} },
     ["frostbite-zero"] = { diff = 2, special = "frost", want = 0, tol = 0.05, cases = {} },
     ["tokens-more"] = { diff = 2, special = "tokens", cm = 0, limit = 2, n = 4, cases = {} },
@@ -128,6 +139,12 @@ local function gameState()
     for _, g in ipairs(FindAllOf("BP_FirstPersonGameState_C") or {}) do if notDefault(g) then return g end end
     return nil
 end
+-- The match's severe-blizzard director (native; nil where the map has none).
+local function director()
+    for _, b in ipairs(FindAllOf("NNBlizzardController") or {}) do if notDefault(b) and alive(b) then return b end end
+    return nil
+end
+local function phaseOf(b) local ok, p = pcall(function() return num(b.Phase) end) return ok and p or nil end
 local lostAt
 local function gone()
     if me() then lostAt = nil return false end
@@ -189,11 +206,14 @@ local function installHooks()
         S.nested = S.nested - 1
         if S.stalkerMine then S.stalkerMine = false onHit("ApplyStalkerDamage", nil) end
     end)
-    -- clash: this driver's own pre-hook changes Health on every enemy hit (as another mod might). frostbite: counts
-    -- the 1-2 HP calls on the local player while the frostbite window is open.
-    hook("/Script/NuclearNightmare.NuclearNightmareCharacter:CallDamageEvent", function(selfp, amount)
+    -- frostbite: counts V8.2's frostbite ticks on the local player while the frostbite window is open.
+    hook("/Script/NuclearNightmare.NuclearNightmareCharacter:CallFrostbiteDamageEvent", function(selfp, amount)
         local v, n = get(selfp), num(get(amount))
         if S.frostOn and (n == 1 or n == 2) and isMe(v) then S.frostCalls = (S.frostCalls or 0) + 1 end
+    end)
+    -- clash: this driver's own pre-hook changes Health on every enemy hit (as another mod might).
+    hook("/Script/NuclearNightmare.NuclearNightmareCharacter:CallDamageEvent", function(selfp, amount)
+        local v, n = get(selfp), num(get(amount))
         if SC.clash and isMe(v) and n and n > 2 and S.case then
             local hp = hpOf(v)
             pcall(function() v.Health = hp + SC.clash end)
@@ -294,6 +314,9 @@ step("difficulty in the game instance", function()
             local ok = pcall(function() gi.Diffculty = SC.diff end)
             local okL = pcall(function() gi.LobbyMins = 0 end)
             say("GI Diffculty=%d set=%s LobbyMins=0 set=%s", SC.diff, tostring(ok), tostring(okL))
+            local disable = SC.whiteouts ~= true
+            local okW = pcall(function() gi.DisableWhiteOuts = disable end)
+            say("GI DisableWhiteOuts=%s set=%s", tostring(disable), tostring(okW))
             if SC.cm then
                 local okC = pcall(function() gi["Minium Classified"] = SC.cm end)
                 say("GI Minium Classified=%d set=%s", SC.cm, tostring(okC))
@@ -335,6 +358,13 @@ step("set-up", function()
         if notDefault(sky) then pcall(function() sky["Animate Time of Day"] = false end) end
     end
     installHooks()
+    local gs = gameState()
+    local disabled, n, phase = "?", 0, "?"
+    pcall(function() disabled = tostring(gs.DisableWhiteOuts) end)
+    for _, b in ipairs(FindAllOf("NNBlizzardController") or {}) do
+        if notDefault(b) and alive(b) then n = n + 1 phase = tostring(phaseOf(b)) end
+    end
+    say("WHITEOUT disabled=%s director=%d phase=%s", disabled, n, phase)
     return after(3), 5
 end)
 
@@ -397,6 +427,7 @@ end
 -- ---------------------------------------------------------------- story 4 phases
 local COLD_SECONDS, FROST_LEAD, FROST_SECONDS = 60, 3, 20
 local STOCK_COOL_SLOW, STOCK_COOL_FAST = 600, 310 -- s per full meter on Nightmare (knob-mechanics.md "Cooling")
+local STORM_PHASE, STORM_WAIT = 2, 180 -- ENNBlizzardPhase::Blizzard; s to wait for it after RequestBlizzard
 local NUKE_UI = "/Game/Graphics/Computer/NukeComputer_UI.NukeComputer_UI_C"
 local function readBool(o, k) local ok, v = pcall(function() return o[k] end) if ok then return v end return nil end
 local function temperatureOf(ch) local ok, t = pcall(function() return num(ch.Temperature) end) return ok and t or nil end
@@ -405,7 +436,34 @@ local function keepClear(st) if os.clock() - (st.clearAt or 0) >= 2 then st.clea
 
 if SC.special == "cold" then
     local P = { }
+    if SC.whiteouts then
+        step("storm", function()
+            local b = director()
+            if not b then
+                P.noStorm = true
+                S.notShown = S.notShown + 1
+                say("NOTSHOWN cold-whiteout: no NNBlizzardController in this match")
+                return
+            end
+            local ok, err = pcall(function() b:RequestBlizzard() end)
+            local function f(k) local okF, v = pcall(function() return b[k] end) return okF and tostring(v) or "?" end
+            say("STORM RequestBlizzard ok=%s %s enabled=%s phase=%s approach=%s storm=%s..%s", tostring(ok), ok and "" or tostring(err),
+                f("bEnabled"), tostring(phaseOf(b)), f("ApproachSeconds"), f("MinimumStormSeconds"), f("MaximumStormSeconds"))
+            local t0 = os.clock()
+            return function()
+                keepClear(P)
+                local d = director()
+                if d and phaseOf(d) == STORM_PHASE then say("STORM phase=%d after %.0f s", STORM_PHASE, os.clock() - t0) return true end
+                if os.clock() - t0 < STORM_WAIT then return false end
+                P.noStorm = true
+                S.notShown = S.notShown + 1
+                say("NOTSHOWN cold-whiteout: the storm phase never came in %d s (phase %s)", STORM_WAIT, d and tostring(phaseOf(d)) or "no director")
+                return true
+            end, STORM_WAIT + 10, "storm phase"
+        end)
+    end
     step("cold", function()
+        if P.noStorm then return end
         local m = me()
         if not m then if gone() then S.dead = true end return end
         pcall(function() m.Temperature = 0 end) -- a lowering only (test only): the poll leaves falls alone
@@ -424,6 +482,10 @@ if SC.special == "cold" then
             if readBool(p, "IsInInside") == true or readBool(p, "InsideEnoughToStopFreezing") == true or readBool(p, "CanTakeTemperature") ~= true then
                 P.outside = P.outside + 1
             end
+            if SC.whiteouts then
+                local b = director()
+                if not b or phaseOf(b) ~= STORM_PHASE then P.stormOff = (P.stormOff or 0) + 1 end
+            end
             return os.clock() - P.t0 >= COLD_SECONDS
         end, COLD_SECONDS + 15, "cold phase"
     end)
@@ -438,6 +500,11 @@ if SC.special == "cold" then
             say("NOTSHOWN cold: the player was not outdoors on foot throughout (%d of %d samples; pawn changed %s)", P.outside, P.samples, tostring(P.changed == true))
             return
         end
+        if SC.whiteouts and (P.stormOff or 0) > 0 then
+            S.notShown = S.notShown + 1
+            say("NOTSHOWN cold-whiteout: the storm phase didn't last the %d s (%d of %d samples outside it)", COLD_SECONDS, P.stormOff, P.samples)
+            return
+        end
         if SC.factor == 0 then
             check(P.max <= 0.005, "%s Temperature stayed at its start outdoors for %.0f s (max %.4f, want <= 0.005)", SCENARIO, secs, P.max)
             return
@@ -449,6 +516,15 @@ if SC.special == "cold" then
         end
         -- A quarter of Nightmare's stock range for this time, +-10% (the weather sets where in the range).
         local lo, hi = secs * SC.factor / STOCK_COOL_SLOW * 0.9, secs * SC.factor / STOCK_COOL_FAST * 1.1
+        if SC.whiteouts then
+            if rise > hi then
+                check(true, "%s rise %.4f in %.0f s above a quarter of Nightmare's stock range (up to %.4f): the storm cooled, scaled by the knob", SCENARIO, rise, secs, hi)
+            else
+                S.notShown = S.notShown + 1
+                say("NOTSHOWN cold-whiteout: rise %.4f in %.0f s isn't above a quarter of Nightmare's stock range (%.4f); the storm's cold wasn't seen", rise, secs, hi)
+            end
+            return
+        end
         check(rise >= lo and rise <= hi, "%s rise %.4f in %.0f s within a quarter of Nightmare's stock (%.4f..%.4f)", SCENARIO, rise, secs, lo, hi)
     end)
 elseif SC.special == "frost" then
@@ -502,6 +578,25 @@ elseif SC.special == "tokens" then
         for _, r in ipairs(FindAllOf("BP_Radio_C") or {}) do if notDefault(r) and alive(r) then return r end end
         return nil
     end
+    -- The native terminal on the local pawn (V8.2's route). Nothing is kept between steps.
+    local function terminal(pawn)
+        local t
+        if pawn then pcall(function() t = pawn.RadioTerminal end) end
+        return valid(t) and t or nil
+    end
+    local function terminalActive(t)
+        local ok, a = pcall(function() return t:IsTerminalActive() end)
+        return ok and a == true
+    end
+    local function openTerminal(tag)
+        local p, r = me(), radioActor()
+        local t = terminal(p)
+        if not (p and r and t) then say("TERMINAL %s: no pawn, radio or RadioTerminal", tag) return end
+        if terminalActive(t) then return end
+        local ok, err = pcall(function() t:OpenTerminal(r, p) end)
+        say("TERMINAL %s OpenTerminal ok=%s %s", tag, tostring(ok), ok and "" or tostring(err))
+        return after(2), 4
+    end
     local function fpPaths()
         local t = {}
         for _, ch in ipairs(FindAllOf(FP) or {}) do if notDefault(ch) and alive(ch) then t[pathOf(ch)] = true end end
@@ -546,23 +641,54 @@ elseif SC.special == "tokens" then
         textCheck(SC.n, "at the start")
         return after(1), 3
     end)
+    step("terminal open", function() return openTerminal("start") end)
+    step("terminal state", function()
+        local t = terminal(me())
+        local active = t ~= nil and terminalActive(t)
+        local orig = "none"
+        if t then
+            local okW, w = pcall(function() return t.OriginalWidget end)
+            if okW and valid(w) then orig = classOf(w) end
+        end
+        say("TERMINAL open active=%s original=%s", tostring(active), orig)
+        if not active then
+            P.noTerminal = true
+            S.notShown = S.notShown + 1
+            say("NOTSHOWN terminal: OpenTerminal didn't activate the native terminal on the local pawn; the fallbacks run")
+        end
+    end)
     for i = 1, SC.n do
+        step("terminal ready #" .. i, function() -- a reinforcement can replace the pawn, and with it the terminal
+            if P.abort or S.dead or P.noTerminal then return end
+            return openTerminal("#" .. i)
+        end)
         step("reinforce #" .. i, function()
             if P.abort then return end
             local p, c, g, r = me(), pc(), gameState(), radioActor()
             if not (p and c and g and r) then S.notShown = S.notShown + 1 P.abort = true say("NOTSHOWN reinforce #%d: no pawn, controller, game state or radio", i) return end
             local before = reinf()
             local t0, others = os.clock(), fpPaths()
+            local via = P.via
             local function spectator()
                 -- The count right before this call: a late synthetic revive already counted is judged from here.
-                P.via, t0, others, before = "spectator", os.clock(), fpPaths(), reinf()
+                P.via, via, t0, others, before = "spectator", "spectator", os.clock(), fpPaths(), reinf()
                 local okS, eS = pcall(function() radioActor():SpawnReinforcmentSpectator() end)
                 say("REVIVE #%d SpawnReinforcmentSpectator ok=%s %s", i, tostring(okS), okS and "" or tostring(eS))
             end
-            if P.via == "synthetic" then
-                local okQ, eQ = pcall(function() g:UpdateRespawnQue(c, p) end)
-                local okR, eR = pcall(function() r:ReinforceSpecficPlayer(p) end)
+            local function synthetic()
+                via, t0, others, before = "synthetic", os.clock(), fpPaths(), reinf()
+                local g2, c2, p2, r2 = gameState(), pc(), me(), radioActor()
+                local okQ, eQ = pcall(function() g2:UpdateRespawnQue(c2, p2) end)
+                local okR, eR = pcall(function() r2:ReinforceSpecficPlayer(p2) end)
                 say("REVIVE #%d synthetic UpdateRespawnQue ok=%s %s; ReinforceSpecficPlayer ok=%s %s", i, tostring(okQ), okQ and "" or tostring(eQ), tostring(okR), okR and "" or tostring(eR))
+            end
+            local t = terminal(p)
+            if not P.noTerminal and t and terminalActive(t) then
+                via = "terminal"
+                local okT, eT = pcall(function() t:OnReinforcement() end)
+                say("REVIVE #%d terminal OnReinforcement ok=%s %s", i, tostring(okT), okT and "" or tostring(eT))
+            elseif P.via == "synthetic" then
+                synthetic()
             else
                 spectator()
             end
@@ -571,7 +697,7 @@ elseif SC.special == "tokens" then
                 keepClear(P)
                 local now = reinf()
                 if now and before and now == before + 1 then
-                    if P.via == "spectator" then
+                    if via ~= "synthetic" then -- a spectator reinforcement (the terminal may be one) leaves an orphan
                         local mine = me() and pathOf(me()) or ""
                         for path in pairs(fpPaths()) do
                             if not others[path] and path ~= mine then
@@ -580,30 +706,43 @@ elseif SC.special == "tokens" then
                             end
                         end
                     end
-                    say("REVIVE #%d via=%s count %d -> %d", i, P.via, before, now)
-                    check(true, "%s reinforcement #%d accepted (via %s)", SCENARIO, i, P.via)
+                    say("REVIVE #%d via=%s count %d -> %d", i, via, before, now)
+                    if via == "terminal" then P.terminalMoved = true say("TERMINAL reinforce #%d moved=true", i) end
+                    check(true, "%s reinforcement #%d accepted (via %s)", SCENARIO, i, via)
                     return true
                 end
                 if now and before and now > before + 1 then
                     -- Both paths landed (a late synthetic revive and the fallback): the case can't be judged one by one.
                     S.notShown = S.notShown + 1
                     P.abort = true
-                    say("NOTSHOWN reinforce #%d: the count jumped %d -> %d (a late synthetic revive and the %s path both counted)", i, before, now, P.via)
+                    say("NOTSHOWN reinforce #%d: the count jumped %d -> %d (a late synthetic revive and the %s path both counted)", i, before, now, via)
                     return true
                 end
-                if P.via == "synthetic" and os.clock() - t0 > 15 then
+                if via == "terminal" and os.clock() - t0 > 15 then
+                    local past = i > SC.limit and P.terminalMoved == true
+                    say("TERMINAL reinforce #%d moved=false count=%s past_stock_limit=%s", i, tostring(now), tostring(past))
+                    if past then
+                        check(false, "%s the native terminal refused reinforcement #%d past the stock limit %d (moved=false): blocked", SCENARIO, i, SC.limit)
+                    else
+                        S.notShown = S.notShown + 1
+                        say("NOTSHOWN reinforce #%d: OnReinforcement didn't move the count in 15 s (%s); falling back", i, tostring(now))
+                    end
+                    if P.via == "synthetic" then synthetic() else spectator() end
+                    return false
+                end
+                if via == "synthetic" and os.clock() - t0 > 15 then
                     say("REVIVE #%d the synthetic revive wasn't accepted in 15 s (count %s); falling back to SpawnReinforcmentSpectator()", i, tostring(now))
                     spectator()
                     return false
                 end
-                if P.via == "spectator" and os.clock() - t0 > 10 then
+                if via == "spectator" and os.clock() - t0 > 10 then
                     S.notShown = S.notShown + 1
                     P.abort = true
                     say("NOTSHOWN reinforce #%d: neither path moved the count (%s)", i, tostring(now))
                     return true
                 end
                 return false
-            end, 40, "reinforcement #" .. i
+            end, 60, "reinforcement #" .. i
         end)
         -- The new pawn settles, Difficulty's callback or poll re-checks; then Disable is false before N and true at N.
         step("after reinforce #" .. i, function()
@@ -627,6 +766,14 @@ elseif SC.special == "tokens" then
             end, 10, "after reinforcement #" .. i
         end)
     end
+    step("terminal close", function()
+        if P.noTerminal then return end
+        local t = terminal(me())
+        local ok, err = false, "no RadioTerminal"
+        if t then ok, err = pcall(function() t:CloseTerminal() end) end
+        say("TERMINAL close CloseTerminal ok=%s %s", tostring(ok), ok and "" or tostring(err))
+        return after(2), 4
+    end)
     step("tokens end", function()
         if P.abort or S.dead then return end
         local cnt, dis = reinf()

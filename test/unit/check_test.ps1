@@ -86,7 +86,7 @@ Expect ($noCore -replace 'not installed', 'missing') 'no-core' 1 'no-core: anoth
 # ---------------------------------------------------------------- story 3 scenarios (driver + Difficulty's lines)
 function DR([string] $msg) { L 'DifficultyDriver' $msg }
 function Story3([string] $scenario, [string] $knobs, [string[]] $mid, [string[]] $driver) {
-    $hostLog + @((D "MATCH start knobs=$knobs"), (DR "SCENARIO $scenario")) + $mid + $driver + @(DR 'END result=PASS checks=3 failures=0 notshown=0 dead=false')
+    $hostLog + @((D "MATCH start knobs=$knobs"), (DR "SCENARIO $scenario"), (DR 'WHITEOUT disabled=true director=1 phase=0')) + $mid + $driver + @(DR 'END result=PASS checks=3 failures=0 notshown=0 dead=false')
 }
 $scaled = Story3 'scaled' 'enemyDamage=17' @(
     (D 'GRAB enemy=meek hp=100 E=17 game=s decision=s flip=none'),
@@ -110,6 +110,10 @@ Expect $notShown 'scaled' 2 'scaled: END result=NOTSHOWN without a HIT -> exit 2
 Expect ($notShown + @(DR 'FAIL scaled Meek #1 hit took 50.00 HP (want 17.00)')) 'scaled' 1 'scaled: NOTSHOWN with a driver FAIL -> fails' 'FAIL'
 Expect (Without $notShown 'MATCH start') 'scaled' 1 'scaled: NOTSHOWN still needs the MATCH line' 'MATCH start'
 Expect ($scaled + @(DR 'NOTSHOWN Meek #2: no grab seen')) 'scaled' 2 'scaled: a NOTSHOWN line -> exit 2, not passed' 'NOT SHOWN'
+Expect (Without $scaled 'WHITEOUT') 'scaled' 1 'scaled: no WHITEOUT line -> fails' 'WHITEOUT'
+Expect ($scaled -replace 'WHITEOUT disabled=true', 'WHITEOUT disabled=false') 'scaled' 1 'scaled: disabled=false -> fails' 'WHITEOUT'
+Expect ($scaled + @(DR 'WHITEOUT disabled=true director=1 phase=0')) 'scaled' 1 'scaled: two WHITEOUT lines -> fails' 'WHITEOUT'
+Expect (Without $notShown 'WHITEOUT') 'scaled' 1 'scaled: NOTSHOWN still needs the WHITEOUT line' 'WHITEOUT'
 
 $flip = Story3 'flip' 'enemyDamage=25' @(
     (D 'GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101'),
@@ -173,6 +177,19 @@ Expect ($cold -replace 'MATCH start knobs=cold=50', 'MATCH start knobs=cold=0') 
 $coldNs = @($cold | Where-Object { $_ -notmatch 'OK cold|END result' }) + @((DR 'NOTSHOWN cold: the player was not outdoors on foot throughout (12 of 240 samples; pawn changed false)'), (DR 'END result=NOTSHOWN checks=1 failures=0 notshown=1 dead=false'))
 Expect $coldNs 'cold' 2 'cold: driver NOTSHOWN (indoors) -> exit 2' 'NOT SHOWN'
 
+# cold-whiteout: opt-in, White Outs on.
+$whiteout = (Story3 'cold-whiteout' 'cold=50' @((Cold '0.8000' '0.2000')) @(
+    (DR 'STORM phase=2 after 34 s'),
+    (DR 'COLDRUN end seconds=60.0 start=0.0000 end=0.2000 max=0.2000 rise=0.2000 samples=240 indoors_or_vehicle=0 pawn_changed=false'),
+    (DR 'OK cold-whiteout rise 0.2000 in 60 s above a quarter of Nightmare''s stock range (up to 0.0532): the storm cooled, scaled by the knob'))) -replace 'WHITEOUT disabled=true', 'WHITEOUT disabled=false'
+Expect $whiteout 'cold-whiteout' 0 'cold-whiteout: passes as written' 'All checks passed'
+Expect ($whiteout -replace 'WHITEOUT disabled=false', 'WHITEOUT disabled=true') 'cold-whiteout' 1 'cold-whiteout: White Outs off -> fails' 'WHITEOUT'
+Expect ($whiteout -replace 'raw=0\.8000 applied=0\.2000', 'raw=0.8000 applied=0.8000') 'cold-whiteout' 1 'cold-whiteout: the storm''s cold not scaled -> fails' 'applied/raw'
+$whiteoutNs = @($whiteout | Where-Object { $_ -notmatch 'OK cold-whiteout|END result' }) + @((DR 'NOTSHOWN cold-whiteout: the storm phase never came in 180 s (phase 1)'), (DR 'END result=NOTSHOWN checks=1 failures=0 notshown=1 dead=false'))
+Expect $whiteoutNs 'cold-whiteout' 2 'cold-whiteout: no storm -> not shown, never passed' 'NOT SHOWN'
+$whiteoutLow = @($whiteout | Where-Object { $_ -notmatch 'OK cold-whiteout|END result' }) + @((DR 'NOTSHOWN cold-whiteout: rise 0.0400 in 60 s isn''t above a quarter of Nightmare''s stock range (0.0532); the storm''s cold wasn''t seen'), (DR 'END result=NOTSHOWN checks=1 failures=0 notshown=1 dead=false'))
+Expect $whiteoutLow 'cold-whiteout' 2 'cold-whiteout: rise in the stock range -> not shown' 'NOT SHOWN'
+
 $coldZero = Story3 'cold-zero' 'cold=0' @((Cold '0.1500' '0.0000' '0')) @((DR 'OK cold-zero Temperature stayed at its start outdoors for 60 s (max 0.0008, want <= 0.005)'))
 Expect $coldZero 'cold-zero' 0 'cold-zero: passes as written' 'All checks passed'
 Expect ($coldZero -replace 'applied=0\.0000', 'applied=0.0300') 'cold-zero' 1 'cold-zero: a rise -> fails' 'applied'
@@ -200,7 +217,9 @@ $more = Story3 'tokens-more' 'revives=4' @((& $tok 'start limit=2 N=4 count=-2')
     (& $tok 'used=2 left=2 count=0 via=ReinforceSpecficPlayer'), (& $tok 'used=3 left=1 count=1 via=poll'),
     (& $tok 'used=4 left=0 count=2 via=SpawnReinforcmentSpectator'), (& $tok 'disabled at used=4 N=4 via=SpawnReinforcmentSpectator')) @(
     (DR 'TEXT at the start Reinforcement Tokens 4'), (DR 'OK tokens-more the computer''s text at the start is ''Reinforcement Tokens 4'' (got Reinforcement Tokens 4)'),
-    (DR 'REVIVE #1 via=synthetic count -2 -> -1'), (DR 'OK tokens-more Disable Reinforcement set after reinforcement #4 = N (got true)'))
+    (DR 'TERMINAL open active=true original=NukeComputer_UI_C'),
+    (DR 'REVIVE #1 via=terminal count -2 -> -1'), (DR 'REVIVE #2 via=terminal count -1 -> 0'), (DR 'REVIVE #3 via=terminal count 0 -> 1'), (DR 'REVIVE #4 via=terminal count 1 -> 2'),
+    (DR 'OK tokens-more Disable Reinforcement set after reinforcement #4 = N (got true)'))
 Expect $more 'tokens-more' 0 'tokens-more: passes as written' 'All checks passed'
 Expect (Without $more 'TOKENS disabled') 'tokens-more' 1 'tokens-more: no Disable -> fails' 'disabled'
 Expect ($more -replace 'disabled at used=4', 'disabled at used=3') 'tokens-more' 1 'tokens-more: Disable too early -> fails' 'disabled'
@@ -209,8 +228,16 @@ Expect ($more + @(& $tok 'start limit=2 N=4 count=-2')) 'tokens-more' 1 'tokens-
 Expect ($more + @(DR 'FAIL tokens-more Disable Reinforcement still false after reinforcement #3 of 4 (got true)')) 'tokens-more' 1 'tokens-more: a driver FAIL -> fails' 'FAIL'
 $moreNs = @($more | Where-Object { $_ -notmatch 'TOKENS (used|disabled)|OK tokens|END result' }) + @((DR 'NOTSHOWN reinforce #1: neither path moved the count (-2)'), (DR 'END result=NOTSHOWN checks=3 failures=0 notshown=1 dead=false'))
 Expect $moreNs 'tokens-more' 2 'tokens-more: no reinforcement possible -> not shown' 'NOT SHOWN'
+Expect (Without $more 'TERMINAL open') 'tokens-more' 1 'tokens-more: terminal never opened -> fails' 'TERMINAL open'
+Expect ($more -replace 'TERMINAL open active=true', 'TERMINAL open active=false') 'tokens-more' 1 'tokens-more: terminal not active -> fails' 'TERMINAL open'
+Expect ($more -replace 'REVIVE #4 via=terminal', 'REVIVE #4 via=synthetic') 'tokens-more' 1 'tokens-more: a reinforcement not through the terminal -> fails' 'via=terminal'
+$moreBlocked = $more + @((DR 'TERMINAL reinforce #3 moved=false count=0 past_stock_limit=true'), (DR 'FAIL tokens-more the native terminal refused reinforcement #3 past the stock limit 2 (moved=false): blocked'))
+Expect $moreBlocked 'tokens-more' 1 'tokens-more: the terminal refuses past the stock limit -> fails (blocked)' 'refused'
+$moreNoTerm = @($more | Where-Object { $_ -notmatch 'TOKENS (used|disabled)|OK tokens|END result' }) + @((DR 'NOTSHOWN reinforce #1: OnReinforcement didn''t move the count in 15 s (-2); falling back'), (DR 'END result=NOTSHOWN checks=3 failures=0 notshown=1 dead=false'))
+Expect $moreNoTerm 'tokens-more' 2 'tokens-more: terminal miss within the limit -> not shown' 'NOT SHOWN'
 $fewer = Story3 'tokens-fewer' 'revives=2' @((& $tok 'start limit=8 N=2 count=6'), (& $tok 'used=1 left=1 count=7 via=ReinforceSpecficPlayer'),
     (& $tok 'used=2 left=0 count=8 via=ReinforceSpecficPlayer'), (& $tok 'disabled at used=2 N=2 via=ReinforceSpecficPlayer')) @(
+    (DR 'TERMINAL open active=true original=NukeComputer_UI_C'), (DR 'REVIVE #1 via=terminal count 6 -> 7'), (DR 'REVIVE #2 via=terminal count 7 -> 8'),
     (DR 'OK tokens-fewer the computer''s text after N reinforcements is ''Reinforcement Tokens 0'' (got Reinforcement Tokens 0)'))
 Expect $fewer 'tokens-fewer' 0 'tokens-fewer: passes as written' 'All checks passed'
 Expect ($fewer -replace 'limit=8 N=2 count=6', 'limit=8 N=2 count=0') 'tokens-fewer' 1 'tokens-fewer: wrong start count -> fails' 'TOKENS start'

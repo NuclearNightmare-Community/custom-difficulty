@@ -48,31 +48,21 @@ do
 end
 
 -- ---------------------------------------------------------------- the frostbite rule
-local frozen = { temp = 1, can = true, inside = false, infected = false, mimic = false }
-local function with(k, v) local s = {} for a, b in pairs(frozen) do s[a] = b end s[k] = v return s end
-ok(env.isFrostbite(1, frozen), "frostbite: amount 1, frozen outdoors")
-ok(env.isFrostbite(2, frozen), "frostbite: amount 2 (perk tick)")
-ok(env.isFrostbite(1, with("temp", 1.5)), "frostbite: Temperature above 1 (driver's hold)")
-ok(not env.isFrostbite(3, frozen), "not frostbite: amount 3")
-ok(not env.isFrostbite(1.5, frozen), "not frostbite: amount 1.5")
-ok(not env.isFrostbite(1, with("temp", 0.99)), "not frostbite: Temperature < 1")
-ok(not env.isFrostbite(1, with("temp", nil)), "not frostbite: Temperature unreadable")
-ok(not env.isFrostbite(1, with("can", false)), "not frostbite: CanTakeTemperature false (vehicle)")
-ok(not env.isFrostbite(1, with("can", nil)), "not frostbite: CanTakeTemperature unreadable")
-ok(not env.isFrostbite(1, with("inside", true)), "not frostbite: inside")
-ok(not env.isFrostbite(1, with("infected", true)), "not frostbite: infected")
-ok(not env.isFrostbite(1, with("mimic", true)), "not frostbite: the imposter")
-ok(not env.isFrostbite(1, nil), "not frostbite: no state")
+ok(env.isFrostbite(1), "frostbite: amount 1")
+ok(env.isFrostbite(2), "frostbite: amount 2 (perk tick)")
+ok(not env.isFrostbite(3), "not frostbite: amount 3")
+ok(not env.isFrostbite(1.5), "not frostbite: amount 1.5")
+ok(not env.isFrostbite(100), "not a tick: amount 100")
+ok(not env.isFrostbite(nil), "not frostbite: no amount")
 
 -- ---------------------------------------------------------------- the finisher rule (Frostbite 0 only)
-ok(env.isFinisher(100, 0.5, frozen, 0), "finisher: Frostbite 0, 100 on a frozen player at 0.5 HP")
-ok(not env.isFinisher(100, 0.5, frozen, 3), "finisher: any other knob value -> the game's")
-ok(not env.isFinisher(100, 0.5, frozen, nil), "finisher: Default -> the game's")
-ok(not env.isFinisher(100, 1, frozen, 0), "finisher: Health 1 -> not the finisher")
-ok(not env.isFinisher(100, 0, frozen, 0), "finisher: Health 0 -> not the finisher")
-ok(not env.isFinisher(50, 0.5, frozen, 0), "finisher: another amount")
-ok(not env.isFinisher(100, 0.5, with("temp", 0.5), 0), "finisher: not frozen")
-ok(not env.isFinisher(100, 0.5, with("inside", true), 0), "finisher: inside")
+ok(env.isFinisher(100, 0.5, 0), "finisher: Frostbite 0, 100 at 0.5 HP")
+ok(not env.isFinisher(100, 0.5, 3), "finisher: any other knob value -> the game's")
+ok(not env.isFinisher(100, 0.5, nil), "finisher: Default -> the game's")
+ok(not env.isFinisher(100, 1, 0), "finisher: Health 1 -> not the finisher")
+ok(not env.isFinisher(100, 0, 0), "finisher: Health 0 -> not the finisher")
+ok(not env.isFinisher(100, nil, 0), "finisher: Health unreadable")
+ok(not env.isFinisher(50, 0.5, 0), "finisher: another amount")
 
 -- ---------------------------------------------------------------- frostbite compensation
 do

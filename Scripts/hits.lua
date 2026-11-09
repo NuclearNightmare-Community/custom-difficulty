@@ -1,8 +1,8 @@
 -- Difficulty: the host's match state and every gameplay hook (spec-difficulty-v1 stories 3 and 4; knob-mechanics.md).
 -- Story 3: enemy damage on the host and survivable grabs for the host's own player (attribution, Health
 -- compensation, the grab flip and its restore, the guards against other mods; the math is damage.lua's). Story 4:
--- frostbite in the CallDamageEvent pre-hook, cold in the host poll (env.lua), reinforcement tokens at the match start,
--- in the radio's server-event callbacks and in the poll (tokens.lua).
+-- frostbite in the CallFrostbiteDamageEvent pre-hook (V8.2's native), cold in the host poll (env.lua), reinforcement
+-- tokens at the match start, in the radio's server-event callbacks and in the poll (tokens.lua).
 --
 -- Rules every hook body follows (spec "Always"):
 --   * it runs under pcall; a failure logs one ERROR and turns every knob off for the match (a pending temporary
@@ -42,6 +42,7 @@ M.NATIVES = {
     stalker = "/Script/NuclearNightmare.NNEnemyAttackContext:ApplyStalkerDamage",
     boss = "/Script/NuclearNightmare.NNBossAttackRecovery:CommitLethalDamage",
     cde = "/Script/NuclearNightmare.NuclearNightmareCharacter:CallDamageEvent",
+    frost = "/Script/NuclearNightmare.NuclearNightmareCharacter:CallFrostbiteDamageEvent",
 }
 
 -- Attacker class (short name) -> row (knobs.ROWS).
@@ -138,6 +139,7 @@ function A:reset(world)
         boss = {},      -- stack of { row, via } (CommitLethalDamage)
         apply = {},     -- stack of plans (or false) for ApplyLockedDamage / ApplyStalkerDamage
         cde = {},       -- stack of plans (or false) for CallDamageEvent
+        frost = {},     -- stack of plans (or false) for CallFrostbiteDamageEvent; its length is the nesting depth
         pending = old and old.pending or {}, -- victim path -> { saved, temp, label }
         cold = env.newPoll{ say = self.o.say, clock = function() return self.clock() end, -- per-path state, per match
                             micros = function() if self.micros then return self.micros() end return nil end },
@@ -389,6 +391,8 @@ function A:onCde(selfp, amount)
     local st = self.st
     local slot = #st.cde + 1
     st.cde[slot] = false
+    -- Inside CallFrostbiteDamageEvent (if the native forwards through the reflected function): that hook planned it.
+    if #st.frost > 0 then return end
     -- Inside ApplyLockedDamage / ApplyStalkerDamage: that hook planned the hit already (depth counter).
     if #st.apply > 0 then
         local outer = st.apply[#st.apply]
@@ -405,71 +409,53 @@ function A:onCde(selfp, amount)
     if b then
         row, via, apath = b.row, "CommitLethalDamage", b.path
     else
-        -- 1 or 2 with no enemy context: frostbite when the victim is frozen (env.lua's rule), else left alone.
-        if n == 1 or n == 2 then
-            local p = self:frost(v, vpath, n)
-            if p then p.delivered = true end
-            st.cde[slot] = p
-            return
-        end
         row, via = self:nativeAttacker(v, vpath)
-        if not row then
-            -- Frostbite 0: the game's finisher (100 on a frozen player at 0 < Health < 1) is absorbed too.
-            local p = self:finisher(v, vpath, n)
-            if p then p.delivered = true end
-            st.cde[slot] = p
-            return -- environmental, unknown or a Blueprint-wrapper enemy: never touched
-        end
+        if not row then return end -- environmental, unknown or a Blueprint-wrapper enemy: never touched
     end
     local p = self:plan(v, n, row, via, apath, false)
     if p then p.delivered = true end
     st.cde[slot] = p
 end
-local function frostState(v)
-    local s = {}
-    pcall(function() s.temp = num(v.Temperature) end)
-    pcall(function() s.can = v.CanTakeTemperature end)
-    pcall(function() s.inside = v.InsideEnoughToStopFreezing end)
-    pcall(function() s.infected = v.Infected end)
-    pcall(function() s.mimic = v["IsMimic?"] end)
-    return s
+function A:onCdePost()
+    local p = table.remove(self.st.cde)
+    if p then self:check(p) end
 end
 
--- finisher(v, vpath, n) -> with Frostbite 0, a plan absorbing the game's frostbite finisher (Health unchanged after
--- the native, checked by onCdePost's guard), or false.
-function A:finisher(v, vpath, n)
-    local chosen = self.st.values.frostbite
-    if chosen ~= 0 or n ~= 100 or not vpath then return false end
-    local hp = hpOf(v)
-    if not env.isFinisher(n, hp, frostState(v), chosen) then return false end
-    local p = env.frostbite(hp, n, 0)
-    if not setHp(v, p.new) then error("could not write Health on " .. vpath) end
-    p.path, p.before, p.kind, p.row, p.via = vpath, hp, "hit", "frostbite", "frostbite-finisher"
-    self.o.say("info", "HIT enemy=frostbite via=frostbite-finisher stock=%s scaled=%s rolled=%s applied=%s hp=%s kind=hit",
-        F(p.stock), F(p.scaled), F(p.rolled), F(p.applied), F(hp))
-    return p
-end
-
--- frost(v, vpath, n) -> a plan (Health compensated; onCdePost's guard checks it like any hit) or false.
+-- frost(v, vpath, n) -> a plan for CallFrostbiteDamageEvent(n) (Health compensated; onFrostPost's guard checks it like
+-- any hit) or false. The function itself says it is frostbite: amount 1 or 2 is a tick; 100 at Frostbite 0 and
+-- 0 < Health < 1 is the finisher, absorbed; anything else stays stock.
 function A:frost(v, vpath, n)
     local chosen = self.st.values.frostbite
     if chosen == nil or not vpath then return false end
-    local s = frostState(v)
-    if not env.isFrostbite(n, s) then return false end
+    local tick = env.isFrostbite(n)
+    if not tick and not (n == env.FINISHER and chosen == 0) then return false end
+    -- A grab's temporary Health still in place: put it back before planning from it.
     if self.st.pending[vpath] then self:restore(vpath, "hit") end
     local hp = hpOf(v)
     if not hp then return false end
+    if not tick and not env.isFinisher(n, hp, chosen) then return false end
     local p = env.frostbite(hp, n, chosen)
     if not p then return false end
     if not setHp(v, p.new) then error("could not write Health on " .. vpath) end
-    p.path, p.before, p.kind, p.row, p.via = vpath, hp, "hit", "frostbite", "frostbite"
-    self.o.say("info", "HIT enemy=frostbite via=frostbite stock=%s scaled=%s rolled=%s applied=%s hp=%s kind=hit",
+    local via = tick and "frostbite" or "frostbite-finisher"
+    p.path, p.before, p.kind, p.row, p.via = vpath, hp, "hit", "frostbite", via
+    self.o.say("info", "HIT enemy=frostbite via=%s stock=%s scaled=%s rolled=%s applied=%s hp=%s kind=hit", via,
         F(p.stock), F(p.scaled), F(p.rolled), F(p.applied), F(hp))
     return p
 end
 
-function A:onCdePost()
-    local p = table.remove(self.st.cde)
+function A:onFrost(selfp, amount)
+    local st = self.st
+    local slot = #st.frost + 1
+    st.frost[slot] = false -- the depth rises even when this call does nothing, so a nested CallDamageEvent is skipped
+    if not self:active() then return end
+    local v = get(selfp)
+    local n = num(get(amount))
+    if not n or n <= 0 or not self:alive(v) then return end
+    st.frost[slot] = self:frost(v, pathOf(v), n)
+end
+function A:onFrostPost()
+    local p = table.remove(self.st.frost)
     if p then self:check(p) end
 end
 
@@ -735,6 +721,7 @@ function A:install()
         { N.stalker, self:guard("ApplyStalkerDamage hook", A.onStalker), self:guard("ApplyStalkerDamage post-hook", A.onApplyPost) },
         { N.boss, self:guard("CommitLethalDamage hook", A.onBoss), self:guard("CommitLethalDamage post-hook", A.onBossPost) },
         { N.cde, self:guard("CallDamageEvent hook", A.onCde), self:guard("CallDamageEvent post-hook", A.onCdePost) },
+        { N.frost, self:guard("CallFrostbiteDamageEvent hook", A.onFrost), self:guard("CallFrostbiteDamageEvent post-hook", A.onFrostPost) },
     }
     local missing = {}
     for _, d in ipairs(defs) do

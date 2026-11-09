@@ -747,15 +747,18 @@ local function buildClientRevive()
         local r = radio()
         local t = myTerminal()
         local ok, err = false, "no RadioTerminal"
+        -- Read before the request: a fast revive replaces the host's pawn before the call returns.
+        S.hostBefore = other() and pathOf(other()) or ""
         if t then ok, err = pcall(function() t:OnReinforcement() end) end
         say("REQUEST terminal OnReinforcement past the limit active=%s ok=%s %s", tostring(terminalActive()), tostring(ok), ok and "" or tostring(err))
-        S.hostBefore = other() and pathOf(other()) or ""
         return after(20), 25
     end)
     step("s3 fallback", function()
         local now = other() and pathOf(other()) or ""
         say("REQUEST terminal result host before=%s now=%s moved=%s", S.hostBefore, now, tostring(now ~= S.hostBefore))
         if now ~= S.hostBefore then return end
+        -- The story's blocking condition: the verdict counts this FAIL line.
+        check(false, "dp-revive the native terminal refused past the limit (moved=false)")
         local r = radio()
         local ok, err = pcall(function() r:SpawnReinforcementMethod2(0) end)
         say("REQUEST fallback radio:SpawnReinforcementMethod2(0) from the client ok=%s %s", tostring(ok), ok and "" or tostring(err))

@@ -30,9 +30,12 @@
 --                   then Disable Reinforcement set (and not before).
 --   tokens-fewer    Classified Minium 3 (limit 8), N 2: after two, Disable set and the text shows 0.
 --   A reinforcement goes through V8.2's native terminal first (RadioTerminal:OpenTerminal(radio, pawn), then
---   OnReinforcement(), closed with CloseTerminal()). If the count doesn't move in 15 s: past the stock limit, after
---   the terminal worked earlier, that is the terminal refusing (FAIL, the story is blocked); otherwise NOTSHOWN. Then
---   the fallbacks, each logged: the synthetic revive (the game state's UpdateRespawnQue + the radio's
+--   OnReinforcement(), closed with CloseTerminal() whenever it is open at the end). check.ps1 requires only that the
+--   terminal opened (TERMINAL open active=true). A living solo host has nobody queued, so OnReinforcement() moves
+--   nothing: after 15 s the driver logs "TERMINAL reinforce #i moved=false" and "TERMINAL OnReinforcement needs a
+--   queued player", and that and every later reinforcement use the fallbacks. (A count that doesn't move past the
+--   stock limit after the terminal had worked is a FAIL; solo never gets there.) The terminal route past the stock
+--   limit is proven by the pair run's dp-revive s3. The fallbacks, each logged: the synthetic revive (the game state's UpdateRespawnQue + the radio's
 --   ReinforceSpecficPlayer on the living host, as test/MarkersDriver did on V8.1.2) and, if the count doesn't move in
 --   15 s, the radio's SpawnReinforcmentSpectator() (which has no gate), destroying the orphan character it spawns.
 --   The token text is read from a NukeComputer_UI_C widget made with WidgetBlueprintLibrary:Create and never added
@@ -777,10 +780,9 @@ elseif SC.special == "tokens" then
         end)
     end
     step("terminal close", function()
-        if P.noTerminal then return end
         local t = terminal(me())
-        local ok, err = false, "no RadioTerminal"
-        if t then ok, err = pcall(function() t:CloseTerminal() end) end
+        if not (t and terminalActive(t)) then return end -- closed whenever it's open, also after the solo fallbacks
+        local ok, err = pcall(function() t:CloseTerminal() end)
         say("TERMINAL close CloseTerminal ok=%s %s", tostring(ok), ok and "" or tostring(err))
         return after(2), 4
     end)

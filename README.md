@@ -65,7 +65,8 @@ runtime refuse core 0.3.0.
   with `factor = cold / (200 / divisor[Diffculty])`. The divisors are 1 / 1.5 / 2 / 4 for `EDiffculty` 0 Nightmare,
   1 Hard, 2 Normal, 3 Easy, and `Diffculty` is read live. A fall or a hold (warming, a reset) is left alone, so heated
   interiors warm at the stock rate. 0 means the meter never rises outdoors. The per-path state is new each match. The knob scales the whole rise, V8.2's White Out
-  cold included (0 = blizzards don't cool either); enclosed vehicles pause `Temperature`, so the poll sees no rise.
+  cold included (0 = blizzards don't cool either), by construction of the poll; not yet seen in game (`cold-whiteout`
+  is NOTSHOWN on V8.2); enclosed vehicles pause `Temperature`, so the poll sees no rise.
 - **Frostbite Damage** (`frostbite`, HP per second while frozen): V8.2 deals frostbite through the native
   `CallFrostbiteDamageEvent`, so the function itself identifies it: an amount of 1 or 2 is a tick,
   `Health += amount x (1 - frostbite)` (lowered never below 0.01), checked by the same guard as an enemy hit. With
@@ -165,9 +166,12 @@ scenario but `cold-whiteout`.
 
 The token scenarios open V8.2's native terminal on the driver's own pawn (`RadioTerminal:OpenTerminal(radio, pawn)`,
 `TERMINAL open active= original=`), ask for each reinforcement through `RadioTerminal:OnReinforcement()` (`via=terminal`)
-and close it with `CloseTerminal()`; `check.ps1` requires every reinforcement through it. If the count doesn't move in
-15 s, the run is not shown, or a FAIL when it happens past the stock limit after the terminal has worked (the terminal
-refusing: the story is blocked). The fallbacks then still run, each logged (`REVIVE #<i> via=`): the synthetic revive
+and close it with `CloseTerminal()` whenever it is open at the end; `check.ps1` requires only that it opened
+(`TERMINAL open active=true`). Solo, a living host has nobody queued, so `OnReinforcement()` moves nothing: after
+15 s the driver logs `TERMINAL reinforce #1 moved=false ...` and `TERMINAL OnReinforcement needs a queued player ...`,
+and the reinforcements use the fallbacks. (A count that doesn't move past the stock limit after the terminal has
+worked is a FAIL; solo never gets there.) The terminal route past the stock limit is proven by the pair run's
+`dp-revive` s3. The fallbacks are each logged (`REVIVE #<i> via=`): the synthetic revive
 (the game state's `UpdateRespawnQue` and the radio's `ReinforceSpecficPlayer` on the living host) and the radio's
 `SpawnReinforcmentSpectator()` (destroying the orphan character it spawns). The
 text is read from a `NukeComputer_UI_C` widget's `GetText_3`, made with `WidgetBlueprintLibrary:Create` and never

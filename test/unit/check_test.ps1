@@ -232,8 +232,12 @@ Expect (Without $more 'TERMINAL open') 'tokens-more' 1 'tokens-more: terminal ne
 Expect ($more -replace 'TERMINAL open active=true', 'TERMINAL open active=false') 'tokens-more' 1 'tokens-more: terminal not active -> fails' 'TERMINAL open'
 $moreBlocked = $more + @((DR 'TERMINAL reinforce #3 moved=false count=0 past_stock_limit=true'), (DR 'FAIL tokens-more the native terminal refused reinforcement #3 past the stock limit 2 (moved=false): blocked'))
 Expect $moreBlocked 'tokens-more' 1 'tokens-more: the terminal refuses past the stock limit -> fails (blocked)' 'refused'
-$moreNoTerm = @($more | Where-Object { $_ -notmatch 'TOKENS (used|disabled)|OK tokens|END result' }) + @((DR 'NOTSHOWN reinforce #1: OnReinforcement didn''t move the count in 15 s (-2); falling back'), (DR 'END result=NOTSHOWN checks=3 failures=0 notshown=1 dead=false'))
-Expect $moreNoTerm 'tokens-more' 2 'tokens-more: a NOTSHOWN line from the driver -> not shown' 'NOT SHOWN'
+# Solo as the driver runs it: the terminal opens, a living solo host has nobody queued, so #1 doesn't move through it
+# and every reinforcement uses a fallback (the terminal route past the limit is the pair run's dp-revive s3).
+$moreNoTerm = @($more -replace 'REVIVE #1 via=terminal', 'REVIVE #1 via=synthetic' -replace 'REVIVE #2 via=terminal', 'REVIVE #2 via=synthetic' -replace 'REVIVE #3 via=terminal', 'REVIVE #3 via=spectator' -replace 'REVIVE #4 via=terminal', 'REVIVE #4 via=spectator') + @(
+    (DR 'TERMINAL reinforce #1 moved=false count=-2 past_stock_limit=false'),
+    (DR 'TERMINAL OnReinforcement needs a queued player (solo: count -2); the rest use the fallbacks'))
+Expect $moreNoTerm 'tokens-more' 0 'tokens-more: solo, nobody queued, the fallbacks reinforce -> passes' 'All checks passed'
 $fewer = Story3 'tokens-fewer' 'revives=2' @((& $tok 'start limit=8 N=2 count=6'), (& $tok 'used=1 left=1 count=7 via=ReinforceSpecficPlayer'),
     (& $tok 'used=2 left=0 count=8 via=ReinforceSpecficPlayer'), (& $tok 'disabled at used=2 N=2 via=ReinforceSpecficPlayer')) @(
     (DR 'TERMINAL open active=true original=NukeComputer_UI_C'), (DR 'REVIVE #1 via=terminal count 6 -> 7'), (DR 'REVIVE #2 via=terminal count 7 -> 8'),

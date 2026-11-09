@@ -615,6 +615,17 @@ local function buildHostRevive()
     step("s1 set", function() setCount(0, false) end)
     hostKill("s1", "me")
     wait("s1 settle", 10)
+    step("s1 computer", function()
+        -- The terminal opens only on a powered computer the player stands at (test only).
+        local r, o = radio(), other()
+        local okP = pcall(function() r:ToggleEquipment(true) end)
+        local okM = pcall(function()
+            local at = r:K2_GetActorLocation()
+            o:K2_TeleportTo({ X = at.X - 120, Y = at.Y, Z = at.Z + 100 }, o:K2_GetActorRotation())
+        end)
+        say("COMPUTER powered=%s poweredOn=%s B moved=%s", tostring(okP), tostring(r["PoweredOn?"]), tostring(okM))
+        return after(2), 4
+    end)
     step("s1 signal", function() reinfState("s1 host dead") signal("s1") end)
     waitFile("b-s1", 120)
     -- S2: the host's Lua write to Disable Reinforcement; B's panel should stay hidden.
@@ -693,7 +704,8 @@ local function openComputer(tag)
     step(tag .. ": open computer", function()
         local m, r, t = me(), radio(), myTerminal()
         if not (m and r and t) then say("COMPUTER %s me=%s radio=%s terminal=%s", tag, tostring(m ~= nil), tostring(r ~= nil), tostring(t ~= nil)) return end
-        local ok, err = pcall(function() t:OpenTerminal(r, m) end)
+        local cdo = StaticFindObject("/Script/NuclearNightmare.Default__NNRadioTerminalComponent")
+        local ok, err = pcall(function() cdo:OpenTerminal(r, m) end)
         say("COMPUTER %s OpenTerminal ok=%s %s", tag, tostring(ok), ok and "" or tostring(err))
         return after(3), 5
     end)
@@ -733,8 +745,20 @@ local function buildClientRevive()
     openComputer("s3")
     step("s3 request", function()
         local r = radio()
+        local t = myTerminal()
+        local ok, err = false, "no RadioTerminal"
+        if t then ok, err = pcall(function() t:OnReinforcement() end) end
+        say("REQUEST terminal OnReinforcement past the limit active=%s ok=%s %s", tostring(terminalActive()), tostring(ok), ok and "" or tostring(err))
+        S.hostBefore = other() and pathOf(other()) or ""
+        return after(20), 25
+    end)
+    step("s3 fallback", function()
+        local now = other() and pathOf(other()) or ""
+        say("REQUEST terminal result host before=%s now=%s moved=%s", S.hostBefore, now, tostring(now ~= S.hostBefore))
+        if now ~= S.hostBefore then return end
+        local r = radio()
         local ok, err = pcall(function() r:SpawnReinforcementMethod2(0) end)
-        say("REQUEST radio:SpawnReinforcementMethod2(0) from the client ok=%s %s", tostring(ok), ok and "" or tostring(err))
+        say("REQUEST fallback radio:SpawnReinforcementMethod2(0) from the client ok=%s %s", tostring(ok), ok and "" or tostring(err))
         return after(2), 4
     end)
     closeComputer("s3")

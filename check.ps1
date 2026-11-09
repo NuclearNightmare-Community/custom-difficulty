@@ -40,7 +40,7 @@
                     "TOKENS disabled at used=4"; the driver saw the text 4, four accepted reinforcements, then Disable.
     tokens-fewer    Classified Minium 3 (limit 8), N 2: TOKENS start limit=8 N=2 count=6, one "disabled at used=2";
                     the driver saw Disable after two and the text 0.
-    Both tokens scenarios also need the native terminal: TERMINAL open active=true and every reinforcement via=terminal.
+    Both tokens scenarios also need the native terminal to open (TERMINAL open active=true); a reinforcement through it needs a queued player, so dp-revive proves that route.
     The terminal refusing past the stock limit is a driver FAIL (the story is blocked); any other terminal miss is
     not shown.
   Story 9 (V8.2): every driver scenario needs exactly one WHITEOUT disabled=true, except the opt-in one:
@@ -137,11 +137,11 @@ $story4 = @{
     'tokens-more'    = @("\[$C\] MATCH start knobs=revives=4\s*$", "#1|\[$C\] TOKENS start limit=2 N=4 count=-2\s*$",
                          "\[$C\] TOKENS used=4 left=0 count=2 via=\S+\s*$", "#1|\[$C\] TOKENS disabled at used=4 N=4 via=\S+\s*$",
                          "!\[$C\] TOKENS disabled at used=(?!4 )", "!\[$C\] TOKENS minimum changed ", "!\[$C\] COLD ",
-                         "\[$D\] TERMINAL open active=true original=\S+\s*$", "#4|\[$D\] REVIVE #\d+ via=terminal count ")
+                         "\[$D\] TERMINAL open active=true original=\S+\s*$")
     'tokens-fewer'   = @("\[$C\] MATCH start knobs=revives=2\s*$", "#1|\[$C\] TOKENS start limit=8 N=2 count=6\s*$",
                          "\[$C\] TOKENS used=2 left=0 count=8 via=\S+\s*$", "#1|\[$C\] TOKENS disabled at used=2 N=2 via=\S+\s*$",
                          "!\[$C\] TOKENS disabled at used=(?!2 )", "!\[$C\] TOKENS minimum changed ", "!\[$C\] COLD ",
-                         "\[$D\] TERMINAL open active=true original=\S+\s*$", "#2|\[$D\] REVIVE #\d+ via=terminal count ")
+                         "\[$D\] TERMINAL open active=true original=\S+\s*$")
 }
 foreach ($s4Key in $story4.Keys) { $story3[$s4Key] = $story4[$s4Key] }
 $expect = @{

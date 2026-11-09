@@ -593,7 +593,15 @@ elseif SC.special == "tokens" then
         local t = terminal(p)
         if not (p and r and t) then say("TERMINAL %s: no pawn, radio or RadioTerminal", tag) return end
         if terminalActive(t) then return end
-        local ok, err = pcall(function() t:OpenTerminal(r, p) end)
+        -- The terminal opens only on a powered computer the player stands at (BP_Radio_C's PoweredOn? gate, test only).
+        local okP = pcall(function() r:ToggleEquipment(true) end)
+        local okL = pcall(function()
+            local at = r:K2_GetActorLocation()
+            p:K2_TeleportTo({ X = at.X - 120, Y = at.Y, Z = at.Z + 100 }, p:K2_GetActorRotation())
+        end)
+        say("TERMINAL %s power=%s poweredOn=%s moved=%s", tag, tostring(okP), tostring(r["PoweredOn?"]), tostring(okL))
+        local cdo = StaticFindObject("/Script/NuclearNightmare.Default__NNRadioTerminalComponent")
+        local ok, err = pcall(function() cdo:OpenTerminal(r, p) end)
         say("TERMINAL %s OpenTerminal ok=%s %s", tag, tostring(ok), ok and "" or tostring(err))
         return after(2), 4
     end
@@ -724,8 +732,9 @@ elseif SC.special == "tokens" then
                     if past then
                         check(false, "%s the native terminal refused reinforcement #%d past the stock limit %d (moved=false): blocked", SCENARIO, i, SC.limit)
                     else
-                        S.notShown = S.notShown + 1
-                        say("NOTSHOWN reinforce #%d: OnReinforcement didn't move the count in 15 s (%s); falling back", i, tostring(now))
+                        -- A living solo host has nobody queued to reinforce: the pair run's dp-revive proves this route.
+                        P.noTerminal = true
+                        say("TERMINAL OnReinforcement needs a queued player (solo: count %s); the rest use the fallbacks", tostring(now))
                     end
                     if P.via == "synthetic" then synthetic() else spectator() end
                     return false

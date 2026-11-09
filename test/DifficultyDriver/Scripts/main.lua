@@ -457,6 +457,7 @@ if SC.special == "cold" then
                 if os.clock() - t0 < STORM_WAIT then return false end
                 P.noStorm = true
                 S.notShown = S.notShown + 1
+                say("STORM at the timeout scheduled=%s start=%s grace=%s lead=%s", d and tostring(d.bBlizzardScheduled) or "?", d and tostring(d.ScheduledStartServerSeconds) or "?", d and tostring(d.InitialGraceSeconds) or "?", d and tostring(d.PlanningLeadSeconds) or "?")
                 say("NOTSHOWN cold-whiteout: the storm phase never came in %d s (phase %s)", STORM_WAIT, d and tostring(phaseOf(d)) or "no director")
                 return true
             end, STORM_WAIT + 10, "storm phase"
@@ -796,7 +797,7 @@ end
 local idx, waiting, busy, finished = 0, nil, false, false
 local function finish()
     finished = true
-    local result = (S.failures > 0 or S.checks == 0 or S.dead) and "FAIL" or (S.notShown > 0 and "NOTSHOWN" or "PASS")
+    local result = (S.failures > 0 or S.dead) and "FAIL" or (S.notShown > 0 and "NOTSHOWN") or (S.checks == 0 and "FAIL" or "PASS")
     say("END result=%s checks=%d failures=%d notshown=%d dead=%s", result, S.checks, S.failures, S.notShown, tostring(S.dead))
 end
 local function tick()

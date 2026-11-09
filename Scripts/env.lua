@@ -5,8 +5,8 @@
 --     EDiffculty 0..3), so factor = cold / (200 / divisor[Diffculty]). Each poll, a character whose Temperature rose
 --     since the last poll gets last + (cur - last) x factor, clamped to 0..1; a fall or a hold (warming, a reset) is
 --     left alone.
---   * frostbite: a CallDamageEvent of 1 or 2 with no enemy context on a frozen, outdoor, non-infected player is a
---     frostbite tick; the knob is HP per second (stock 1), compensated as Health += amount x (1 - frostbite).
+--   * frostbite: V8.2's CallFrostbiteDamageEvent names the damage, so amount 1 or 2 is a tick; the knob is HP per
+--     second (stock 1), compensated as Health += amount x (1 - frostbite).
 -- The poll keeps only paths and numbers between polls, never a character.
 local damage = require("damage")
 local M = {}
@@ -36,21 +36,15 @@ function M.rise(last, cur, factor)
     return new, cur - last, new - last
 end
 
--- isFrostbite(amount, s) -> true when a CallDamageEvent(amount) with no enemy context is a frostbite tick. s holds the
--- victim's temp (Temperature), can (CanTakeTemperature), inside (InsideEnoughToStopFreezing), infected (Infected) and
--- mimic (IsMimic?). Anything unreadable counts against it (the game's own gates, knob-mechanics.md).
-function M.isFrostbite(amount, s)
-    if amount ~= 1 and amount ~= 2 then return false end
-    if type(s) ~= "table" or type(s.temp) ~= "number" or s.temp < 1 then return false end
-    return s.can == true and s.inside ~= true and s.infected ~= true and s.mimic ~= true
-end
+M.FINISHER = 100 -- the amount of the game's frostbite finisher
 
--- isFinisher(amount, hp, s, chosen) -> true for the game's frostbite finisher that Frostbite 0 must absorb: the
--- knob is 0, a CallDamageEvent(100) with no enemy context, the victim frozen (isFrostbite's gates) at 0 < Health < 1
--- (the game kills a frozen player left between 0 and 1 after a tick). Any other knob value leaves it to the game.
-function M.isFinisher(amount, hp, s, chosen)
-    if chosen ~= 0 or amount ~= 100 or type(hp) ~= "number" or hp <= 0 or hp >= 1 then return false end
-    return M.isFrostbite(1, s)
+-- isFrostbite(amount) -> true for a CallFrostbiteDamageEvent tick: 1, or 2 with the perk. Any other amount stays stock.
+function M.isFrostbite(amount) return amount == 1 or amount == 2 end
+
+-- isFinisher(amount, hp, chosen) -> true for the game's frostbite finisher that Frostbite 0 must absorb: the knob is 0,
+-- CallFrostbiteDamageEvent(100), the victim at 0 < Health < 1. Any other knob value or Health leaves it to the game.
+function M.isFinisher(amount, hp, chosen)
+    return chosen == 0 and amount == M.FINISHER and type(hp) == "number" and hp > 0 and hp < 1
 end
 
 -- frostbite(hp, amount, chosen) -> plan { stock, scaled, rolled, applied, new, planned } (damage.hit's shape, so

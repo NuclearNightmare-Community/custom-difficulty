@@ -136,6 +136,13 @@ local function cde(victim, amount, inner, noSubtract)
     if not noSubtract then victim._hp = victim._hp - amount end
     W.firePost(N.cde, W.p(victim), W.p(amount))
 end
+-- CallFrostbiteDamageEvent, the same way. inner runs inside the native (a nested CallDamageEvent, another mod).
+local function frostHit(victim, amount, inner, noSubtract)
+    W.fire(N.frost, W.p(victim), W.p(amount))
+    if inner then inner() end
+    if not noSubtract then victim._hp = victim._hp - amount end
+    W.firePost(N.frost, W.p(victim), W.p(amount))
+end
 local function lockedHit(attacker, amount, opts)
     opts = opts or {}
     W.fire(N.locked, W.p(T.ctx), W.p(attacker), W.p(amount))
@@ -754,105 +761,147 @@ do -- a fault in the poll: one ERROR, every knob off
     eq(T.me._hp, 0, "poll fault: enemy damage backed off too")
 end
 
--- ---------------------------------------------------------------- frostbite
+-- ---------------------------------------------------------------- frostbite (V8.2: CallFrostbiteDamageEvent)
 do
     setup{ knobs = "frostbite=3" }
-    frozen(T.me)
-    cde(T.me, 1)
-    eq(T.me._hp, 97, "frostbite: amount 1 at frostbite 3 -> 3")
-    eq(count("^HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3 applied=3 hp=100 kind=hit$"), 1, "frostbite: HIT line", dump())
-    cde(T.me, 2)
+    eq(W.count(N.frost), 1, "frostbite: the native is hooked")
+    frostHit(T.me, 1)
+    eq(T.me._hp, 97, "tick: amount 1 at frostbite 3 -> 3 (no temperature gate)")
+    eq(count("^HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3 applied=3 hp=100 kind=hit$"), 1, "tick: one HIT line", dump())
+    frostHit(T.me, 2)
     eq(T.me._hp, 91, "perk tick: amount 2 -> 6")
-    eq(count("WARN"), 0, "frostbite: the guard is satisfied")
-    eq(#T.H.st.cde, 0, "frostbite: the stack is empty")
-    -- Not frostbite: each gate.
-    local function untouched(what, prep)
-        T.me._hp, T.me.writes = 100, 0
-        T.me._f.Temperature, T.me._f.CanTakeTemperature, T.me._f.InsideEnoughToStopFreezing, T.me._f.Infected, T.me._f["IsMimic?"] = 1, true, false, false, false
-        prep()
-        cde(T.me, 1)
-        ok(T.me._hp == 99 and T.me.writes == 0, "not frostbite: " .. what, T.me._hp)
-    end
-    untouched("Temperature < 1", function() T.me._f.Temperature = 0.99 end)
-    untouched("inside", function() T.me._f.InsideEnoughToStopFreezing = true end)
-    untouched("in a vehicle (CanTakeTemperature false)", function() T.me._f.CanTakeTemperature = false end)
-    untouched("infected", function() T.me._f.Infected = true end)
-    untouched("the imposter", function() T.me._f["IsMimic?"] = true end)
-    -- An enemy context: never frostbite (here the enemy knobs are Default, so the hit is stock).
+    eq(count("WARN"), 0, "tick: the guard is satisfied")
+    eq(#T.H.st.frost, 0, "tick: the stack is empty")
+    -- Other amounts stay stock.
     T.me._hp, T.me.writes = 100, 0
-    frozen(T.me)
-    T.locked[T.meek._path] = T.me
-    lockedHit(T.meek, 1)
-    ok(T.me._hp == 99 and T.me.writes == 0, "not frostbite: inside ApplyLockedDamage", T.me._hp)
-    bossHit(T.apex, T.me, 1)
-    ok(T.me._hp == 98 and T.me.writes == 0, "not frostbite: inside CommitLethalDamage", T.me._hp)
-    eq(count("^HIT enemy=frostbite"), 2, "not frostbite: no other HIT line")
+    frostHit(T.me, 7)
+    ok(T.me._hp == 93 and T.me.writes == 0, "other amount: 7 at frostbite 3 untouched", T.me._hp)
+    frostHit(T.me, 100)
+    ok(T.me._hp == -7 and T.me.writes == 0, "finisher other: 100 at frostbite 3 untouched", T.me._hp)
+    eq(count("^HIT "), 2, "other amounts: no HIT line")
 end
-do -- frostbite zero: Health unchanged while frozen
-    setup{ knobs = "frostbite=0" }
-    frozen(T.me)
-    for _ = 1, 5 do cde(T.me, 1) end
-    eq(T.me._hp, 100, "frostbite zero: Health unchanged")
-    eq(count("^HIT enemy=frostbite via=frostbite stock=1 scaled=0 rolled=0 applied=0 hp=100 kind=hit$"), 5, "frostbite zero: applied 0", dump())
-end
-do -- frostbite Default, before start, client, backed off: untouched
-    setup{ knobs = "enemyDamage=17" }
-    frozen(T.me) cde(T.me, 1)
-    ok(T.me._hp == 99 and T.me.writes == 0, "frostbite Default: stock 1, no write")
-    setup{ knobs = "frostbite=3", start = false }
-    frozen(T.me) cde(T.me, 1)
-    eq(T.me._hp, 99, "frostbite before start: stock")
-    setup{ knobs = "frostbite=3", host = false }
-    frozen(T.me) cde(T.me, 1)
-    eq(T.me._hp, 99, "frostbite on a client: stock")
-end
-do -- frostbite through the guard: a clash backs off; a lowering floors at 0.01
+do -- the old route: CallDamageEvent on a frozen player is no longer frostbite
     setup{ knobs = "frostbite=3" }
     frozen(T.me)
-    cde(T.me, 1, function() T.me._hp = T.me._hp + 5 end)
-    eq(count("^WARN clash: after the hit enemy=frostbite via=frostbite Health is 102, planned 97 %(another mod changed it%); every knob off until the next match$"), 1, "frostbite clash: one WARN", dump())
+    cde(T.me, 1)
+    cde(T.me, 2)
+    ok(T.me._hp == 97 and T.me.writes == 0, "old route: 1 and 2 HP on a frozen player untouched", T.me._hp)
+    eq(count("^HIT "), 0, "old route: no frostbite line")
+    setup{ knobs = "frostbite=0" }
+    frozen(T.me) T.me._hp = 0.5
+    T.me.writes = 0
+    cde(T.me, 100)
+    ok(T.me._hp < 0 and T.me.writes == 0 and count("finisher") == 0, "old route: no finisher through CallDamageEvent", T.me._hp)
+end
+do -- a CallDamageEvent nested in the native: no second plan, no bat attribution, depth restored
+    setup{ knobs = "frostbite=3;enemyDamage=50", diff = 0 }
+    local bat = actor("BP_BatEnemy_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.BP_BatEnemy_C_1", { loc = { X = 140, Y = 0, Z = 0 } })
+    rawset(bat, "_phase", 3)
+    W.all.BP_BatEnemy_C = { bat }
+    frostHit(T.me, 1, function() W.fire(N.cde, W.p(T.me), W.p(1)) W.firePost(N.cde, W.p(T.me), W.p(1)) end)
+    eq(T.me._hp, 97, "nested: compensated once")
+    eq(count("^HIT "), 1, "nested: one plan only")
+    eq(count("^HIT enemy=bat"), 0, "nested: no bat attribution")
+    eq(#T.H.st.frost + #T.H.st.cde, 0, "nested: the stacks are balanced")
     T.me._hp = 100
-    cde(T.me, 1)
-    eq(T.me._hp, 99, "frostbite clash: then stock")
+    cde(T.me, 100)
+    eq(T.me._hp, 50, "nested: the depth is restored, the next bat hit is scaled")
+    -- Also while Frostbite is Default: the depth still rises.
+    setup{ knobs = "enemyDamage=50", diff = 0 }
+    bat = actor("BP_BatEnemy_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.BP_BatEnemy_C_1", { loc = { X = 140, Y = 0, Z = 0 } })
+    rawset(bat, "_phase", 3)
+    W.all.BP_BatEnemy_C = { bat }
+    frostHit(T.me, 100, function() W.fire(N.cde, W.p(T.me), W.p(100)) W.firePost(N.cde, W.p(T.me), W.p(100)) end)
+    eq(count("^HIT enemy=bat"), 0, "nested, frostbite Default: no bat attribution")
+end
+do -- frostbite zero: Health unchanged
+    setup{ knobs = "frostbite=0" }
+    for _ = 1, 5 do frostHit(T.me, 1) end
+    eq(T.me._hp, 100, "zero: Health unchanged")
+    eq(count("^HIT enemy=frostbite via=frostbite stock=1 scaled=0 rolled=0 applied=0 hp=100 kind=hit$"), 5, "zero: applied 0", dump())
+end
+do -- frostbite Default, before start, client, another world, backed off: nothing acts
+    setup{ knobs = "enemyDamage=17" }
+    frostHit(T.me, 1)
+    ok(T.me._hp == 99 and T.me.writes == 0, "Default: stock 1, no write")
+    eq(count("^HIT "), 0, "Default: no HIT line")
+    setup{ knobs = "frostbite=3", start = false }
+    frostHit(T.me, 1)
+    ok(T.me._hp == 99 and T.me.writes == 0, "before start: stock")
+    setup{ knobs = "frostbite=3", host = false }
+    frostHit(T.me, 1)
+    ok(T.me._hp == 99 and T.me.writes == 0, "client: stock")
+    setup{ knobs = "frostbite=3" }
+    T.world = "World /Game/Maps/NewMainMenu.NewMainMenu"
+    frostHit(T.me, 1)
+    ok(T.me._hp == 99 and T.me.writes == 0, "another world: stock")
+    setup{ knobs = "frostbite=3" }
+    frostHit(T.me, 1, function() T.me._hp = T.me._hp + 5 end) -- a clash
+    T.me._hp, T.me.writes = 100, 0
+    frostHit(T.me, 1)
+    ok(T.me._hp == 99 and T.me.writes == 0, "backed off: stock")
+end
+do -- the guard: a clash backs off once; the native applied nothing; a lowering floors at 0.01
+    setup{ knobs = "frostbite=3" }
+    frostHit(T.me, 1, function() T.me._hp = T.me._hp + 5 end)
+    eq(count("^WARN clash: after the hit enemy=frostbite via=frostbite Health is 102, planned 97 %(another mod changed it%); every knob off until the next match$"), 1, "clash: one WARN", dump())
+    T.H:onWorld(MATCH, true, true)
+    W.fire(GSC .. ":UpdateFriendlyFire", W.p(T.gs))
+    T.me._hp = 100
+    frostHit(T.me, 1)
+    eq(T.me._hp, 97, "clash: resets next match")
+    setup{ knobs = "frostbite=3" }
+    frostHit(T.me, 1, nil, true)
+    eq(T.me._hp, 100, "native applied nothing: compensation undone")
+    eq(count("WARN"), 0, "native applied nothing: no clash")
+    eq(T.H.st.backedOff, false, "native applied nothing: not backed off")
     setup{ knobs = "frostbite=20" }
-    frozen(T.me)
     T.me._hp = 5
-    cde(T.me, 1)
+    frostHit(T.me, 1)
     ok(math.abs(T.me._hp + 0.99) < 1e-9, "frostbite 20 at 5 HP: Health 0.01 before the native's 1 (the tick kills)", T.me._hp)
-    eq(count("WARN"), 0, "frostbite floor: the guard is satisfied")
+    eq(count("WARN"), 0, "floor: the guard is satisfied")
 end
 do -- a grab's temporary Health in place: restored before the frostbite plan
     setup{ knobs = "frostbite=3;enemyDamage=25", diff = 0 }
     meekGrab(T.me, { noMulticast = true })
     eq(T.me._hp, 101, "pending: temporary value")
-    frozen(T.me)
-    cde(T.me, 1)
-    eq(T.me._hp, 97, "frostbite while pending: planned from 100")
-    eq(count("WARN"), 0, "frostbite while pending: no false clash")
+    frostHit(T.me, 1)
+    eq(T.me._hp, 97, "tick while pending: planned from 100")
+    eq(count("WARN"), 0, "tick while pending: no false clash")
 end
-
-do -- Frostbite 0 absorbs the game's finisher; any other value leaves it alone
+do -- the finisher: absorbed only at Frostbite 0 and 0 < Health < 1
     setup{ knobs = "frostbite=0" }
-    frozen(T.me)
     T.me._hp = 0.5
-    cde(T.me, 100)
-    eq(T.me._hp, 0.5, "finisher, Frostbite 0: Health unchanged")
+    frostHit(T.me, 100)
+    eq(T.me._hp, 0.5, "finisher zero: Health unchanged")
     eq(count("^HIT enemy=frostbite via=frostbite%-finisher stock=100 scaled=0 rolled=0 applied=0 hp=0%.5 kind=hit$"), 1, "finisher: HIT line", dump())
     eq(count("WARN"), 0, "finisher: the guard is satisfied")
     T.me._hp = 0.5
-    cde(T.me, 100, function() T.me._hp = T.me._hp + 5 end)
+    frostHit(T.me, 100, function() T.me._hp = T.me._hp + 5 end)
     eq(count("^WARN clash: after the hit enemy=frostbite via=frostbite%-finisher "), 1, "finisher: checked by the guard", dump())
     setup{ knobs = "frostbite=0" }
-    T.me._hp = 0.5
-    cde(T.me, 100)
-    ok(T.me._hp < 0 and T.me.writes == 0, "finisher: not frozen -> the game's", T.me._hp)
-    frozen(T.me) T.me._hp, T.me.writes = 5, 0
-    cde(T.me, 100)
-    ok(T.me._hp < 0 and T.me.writes == 0, "finisher: Health >= 1 -> the game's", T.me._hp)
-    setup{ knobs = "frostbite=3" }
-    frozen(T.me) T.me._hp = 0.5
-    cde(T.me, 100)
-    ok(T.me._hp < 0 and T.me.writes == 0, "finisher: Frostbite 3 -> the game's", T.me._hp)
+    T.me._hp, T.me.writes = 50, 0
+    frostHit(T.me, 100)
+    ok(T.me._hp == -50 and T.me.writes == 0, "finisher other: Health 50 -> the game's", T.me._hp)
+    eq(count("finisher"), 0, "finisher other: no finisher line")
+    -- A grab's temporary 0.01 is not a Health between 0 and 1: it is restored first.
+    setup{ knobs = "frostbite=0;enemyDamage=100", diff = 1 }
+    T.me._hp = 60
+    meekGrab(T.me, { noMulticast = true })
+    eq(T.me._hp, 0.01, "finisher, pending: the execution's temporary value")
+    frostHit(T.me, 100)
+    eq(T.me._hp, -40, "finisher, pending: restored, then the game's 100")
+    eq(count("via=frostbite%-finisher"), 0, "finisher, pending: not absorbed")
+end
+do -- the native couldn't be hooked: install reports it, nothing acts
+    W = F.new() F.install(W)
+    W.missing[N.frost] = true
+    local h2 = hits.new{ say = function() end, warnOnce = function() end, isHost = function() return true end,
+        world = function() return MATCH end, knobs = function() return "frostbite=3" end, alive = function() return true end }
+    local okI, why = h2:install()
+    eq(okI, false, "hook missing: install fails")
+    eq(h2.installFailed, true, "hook missing: no grab flips or compensation")
+    ok(why and why:find("CallFrostbiteDamageEvent", 1, true), "hook missing: named in the problem", why)
 end
 
 -- ---------------------------------------------------------------- tokens

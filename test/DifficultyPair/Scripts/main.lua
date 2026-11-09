@@ -615,6 +615,17 @@ local function buildHostRevive()
     step("s1 set", function() setCount(0, false) end)
     hostKill("s1", "me")
     wait("s1 settle", 10)
+    step("s1 computer", function()
+        -- The terminal opens only on a powered computer the player stands at (test only).
+        local r, o = radio(), other()
+        local okP = pcall(function() r:ToggleEquipment(true) end)
+        local okM = pcall(function()
+            local at = r:K2_GetActorLocation()
+            o:K2_TeleportTo({ X = at.X - 120, Y = at.Y, Z = at.Z + 100 }, o:K2_GetActorRotation())
+        end)
+        say("COMPUTER powered=%s poweredOn=%s B moved=%s", tostring(okP), tostring(r["PoweredOn?"]), tostring(okM))
+        return after(2), 4
+    end)
     step("s1 signal", function() reinfState("s1 host dead") signal("s1") end)
     waitFile("b-s1", 120)
     -- S2: the host's Lua write to Disable Reinforcement; B's panel should stay hidden.
@@ -658,34 +669,62 @@ local function buildHostRevive()
     waitFile("b-s4done", 120)
 end
 
--- Client: open the military computer as a player would (its own ServerInteract on the radio), log the panel, close.
+-- Client: open the native terminal (V8.2) on its own pawn, log the panel, close it. The panel is the opener's
+-- RadioTerminal.OriginalWidget, else any NukeComputer_UI_C: it lives on the computer's screen, not in the viewport.
+local function myTerminal()
+    local m = me()
+    local t
+    if m then pcall(function() t = m.RadioTerminal end) end
+    return valid(t) and t or nil
+end
+local function terminalActive()
+    local t = myTerminal()
+    if not t then return false end
+    local ok, a = pcall(function() return t:IsTerminalActive() end)
+    return ok and a == true
+end
 local function panelState(tag)
+    local t = myTerminal()
+    local w
+    if t then pcall(function() w = t.OriginalWidget end) end
+    local via = "OriginalWidget"
+    local list = { w }
+    if not valid(w) then via, list = "FindAllOf", FindAllOf("NukeComputer_UI_C") or {} end
     local any = false
-    for _, w in ipairs(FindAllOf("NukeComputer_UI_C") or {}) do
-        local okV, inVp = pcall(function() return w:IsInViewport() end)
-        if valid(w) and okV and inVp then
+    for _, x in ipairs(list) do
+        if valid(x) and not pathOf(x):find("Default__", 1, true) then
             any = true
-            local okB, vis = pcall(function() return w.ReinforcementBorder:GetVisibility() end)
-            say("PANEL %s computer open, ReinforcementBorder visibility=%s (0 visible, 1 collapsed)", tag, okB and tostring(vis) or "?")
+            local okB, vis = pcall(function() return x.ReinforcementBorder:GetVisibility() end)
+            say("PANEL %s computer open (%s, terminal active=%s), ReinforcementBorder visibility=%s (0 visible, 1 collapsed)", tag, via, tostring(terminalActive()), okB and tostring(vis) or "?")
         end
     end
-    if not any then say("PANEL %s no computer UI in the viewport", tag) end
+    if not any then say("PANEL %s no computer UI (terminal active=%s)", tag, tostring(terminalActive())) end
 end
 local function openComputer(tag)
     step(tag .. ": open computer", function()
+        local m, r, t = me(), radio(), myTerminal()
+        if not (m and r and t) then say("COMPUTER %s me=%s radio=%s terminal=%s", tag, tostring(m ~= nil), tostring(r ~= nil), tostring(t ~= nil)) return end
+        local cdo = StaticFindObject("/Script/NuclearNightmare.Default__NNRadioTerminalComponent")
+        local ok, err = pcall(function() cdo:OpenTerminal(r, m) end)
+        say("COMPUTER %s OpenTerminal ok=%s %s", tag, tostring(ok), ok and "" or tostring(err))
+        return after(3), 5
+    end)
+    step(tag .. ": open fallback", function()
+        if terminalActive() then return end
         local m, r = me(), radio()
-        if not (m and r) then say("COMPUTER %s me=%s radio=%s", tag, tostring(m ~= nil), tostring(r ~= nil)) return end
+        if not (m and r) then return end
         local ok, err = pcall(function() m:ServerInteract(r, m) end)
-        say("COMPUTER %s ServerInteract(radio) ok=%s %s", tag, tostring(ok), ok and "" or tostring(err))
-        return after(4), 6
+        say("COMPUTER %s terminal not active after OpenTerminal; ServerInteract(radio) ok=%s %s", tag, tostring(ok), ok and "" or tostring(err))
+        return after(3), 5
     end)
     step(tag .. ": panel", function() reinfState(tag .. " client") panelState(tag) end)
 end
 local function closeComputer(tag)
     step(tag .. ": close computer", function()
-        local r = radio()
-        local ok = r and pcall(function() r:eXITcOMPUTERsERVER() end)
-        say("COMPUTER %s eXITcOMPUTERsERVER ok=%s", tag, tostring(ok))
+        local t = myTerminal()
+        local ok, err = false, "no RadioTerminal"
+        if t then ok, err = pcall(function() t:CloseTerminal() end) end
+        say("COMPUTER %s CloseTerminal ok=%s %s", tag, tostring(ok), ok and "" or tostring(err))
         return after(3), 5
     end)
     step(tag .. ": closed", function() panelState(tag .. " after close") end)
@@ -706,8 +745,23 @@ local function buildClientRevive()
     openComputer("s3")
     step("s3 request", function()
         local r = radio()
+        local t = myTerminal()
+        local ok, err = false, "no RadioTerminal"
+        -- Read before the request: a fast revive replaces the host's pawn before the call returns.
+        S.hostBefore = other() and pathOf(other()) or ""
+        if t then ok, err = pcall(function() t:OnReinforcement() end) end
+        say("REQUEST terminal OnReinforcement past the limit active=%s ok=%s %s", tostring(terminalActive()), tostring(ok), ok and "" or tostring(err))
+        return after(20), 25
+    end)
+    step("s3 fallback", function()
+        local now = other() and pathOf(other()) or ""
+        say("REQUEST terminal result host before=%s now=%s moved=%s", S.hostBefore, now, tostring(now ~= S.hostBefore))
+        if now ~= S.hostBefore then return end
+        -- The story's blocking condition: the verdict counts this FAIL line.
+        check(false, "dp-revive the native terminal refused past the limit (moved=false)")
+        local r = radio()
         local ok, err = pcall(function() r:SpawnReinforcementMethod2(0) end)
-        say("REQUEST radio:SpawnReinforcementMethod2(0) from the client ok=%s %s", tostring(ok), ok and "" or tostring(err))
+        say("REQUEST fallback radio:SpawnReinforcementMethod2(0) from the client ok=%s %s", tostring(ok), ok and "" or tostring(err))
         return after(2), 4
     end)
     closeComputer("s3")

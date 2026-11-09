@@ -40,18 +40,25 @@
                     "TOKENS disabled at used=4"; the driver saw the text 4, four accepted reinforcements, then Disable.
     tokens-fewer    Classified Minium 3 (limit 8), N 2: TOKENS start limit=8 N=2 count=6, one "disabled at used=2";
                     the driver saw Disable after two and the text 0.
+    Both tokens scenarios also need the native terminal to open (TERMINAL open active=true); a reinforcement through it needs a queued player, so dp-revive proves that route.
+    The terminal refusing past the stock limit is a driver FAIL (the story is blocked); any other terminal miss is
+    not shown.
+  Story 9 (V8.2): every driver scenario needs exactly one WHITEOUT disabled=true, except the opt-in one:
+    cold-whiteout   Nightmare, Cold Exposure 50, White Outs on: WHITEOUT disabled=false, the last COLD summary's applied
+                    is 0.25 x raw (+-10%), and the driver saw a rise above a quarter of Nightmare's stock range during
+                    the storm phase. The storm never reached, or a rise inside that range, is not shown.
   When the driver reports NOTSHOWN (it couldn't make the case happen: an enemy didn't attack in time, the player
   wasn't outdoors, no frostbite tick came), or a cold run's game never cooled (raw=0), the run is not shown: exit 2,
   never "passed".
 .EXAMPLE
-  ./check.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Scenario ready
-  ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.1.5-build26357084\difficulty\old-core.log -Scenario old-core
+  ./check.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario ready
+  ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.2-build26512322\difficulty\old-core.log -Scenario old-core
 #>
 param(
     [string] $Instance,
     [string] $Log,
     [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit', 'scaled', 'flip', 'per-enemy', 'default', 'clash',
-                 'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer')]
+                 'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout')]
     [string] $Scenario = 'ready'
 )
 if ($Scenario -eq 'unit') { & pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'test.ps1'); exit $LASTEXITCODE }
@@ -73,7 +80,7 @@ $lines = @(Get-Content $Log)
 Write-Host "--- $name lines ($Scenario) ---"
 $lines | Where-Object {
     ($_ -match "\[$C\]" -and $_ -notmatch "\[$C\] (DEBUG )?hud ") -or
-    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF) ") -or
+    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM) ") -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -99,7 +106,9 @@ $menuWorld = "\[$C\] WORLD host=false standalone=true map=\S+\s*$"
 $hostWorld = "\[$C\] WORLD host=true standalone=false map=\S+\s*$"
 # Story 3: the driver's verdict, and Difficulty's lines per scenario.
 $D = [regex]::Escape("${name}Driver")
-$driverOk = @("\[$D\] SCENARIO $Scenario\s*$", "\[$D\] END result=(PASS|NOTSHOWN) ", "!\[$D\] FAIL ", "!\[$D\] HOOKERR ", "!\[$D\] DEATH ")
+$whiteoutDisabled = if ($Scenario -eq 'cold-whiteout') { 'false' } else { 'true' }
+$driverOk = @("\[$D\] SCENARIO $Scenario\s*$", "\[$D\] END result=(PASS|NOTSHOWN) ", "!\[$D\] FAIL ", "!\[$D\] HOOKERR ", "!\[$D\] DEATH ",
+              "#1|\[$D\] WHITEOUT disabled=$whiteoutDisabled director=\d+ phase=\S+\s*$")
 $n = '\d+(\.\d+)?'
 $hit = { param($enemy, $via, $stock, $scaled, $applied, $hp, $kind) "\[$C\] HIT enemy=$enemy via=$via stock=$stock scaled=$scaled rolled=$scaled applied=$applied hp=$hp kind=$kind\s*$" }
 $story3 = @{
@@ -119,6 +128,7 @@ $story3 = @{
 $frost = { param($scaled) "\[$C\] HIT enemy=frostbite via=frostbite stock=1 scaled=$scaled rolled=$scaled applied=$scaled hp=$n kind=hit\s*$" }
 $story4 = @{
     'cold'           = @("\[$C\] MATCH start knobs=cold=50\s*$", "\[$C\] COLD raw=.* clock=core\s*$", "!\[$C\] COLD raw=.* clock=(?!core\s*$)", "!\[$C\] HIT ", "!\[$C\] TOKENS ")
+    'cold-whiteout'  = @("\[$C\] MATCH start knobs=cold=50\s*$", "\[$C\] COLD raw=.* clock=core\s*$", "!\[$C\] COLD raw=.* clock=(?!core\s*$)", "!\[$C\] HIT ", "!\[$C\] TOKENS ")
     'cold-zero'      = @("\[$C\] MATCH start knobs=cold=0\s*$", "\[$C\] COLD raw=.* clock=core\s*$", "!\[$C\] COLD raw=.* clock=(?!core\s*$)", "!\[$C\] HIT ", "!\[$C\] TOKENS ")
     'frostbite'      = @("\[$C\] MATCH start knobs=frostbite=3\s*$", (& $frost '3'), "!\[$C\] HIT enemy=frostbite via=frostbite stock=1 scaled=(?!3 )",
                          "!\[$C\] HIT enemy=(?!frostbite )", "!\[$C\] COLD ")
@@ -126,10 +136,12 @@ $story4 = @{
                          "!\[$C\] HIT enemy=(?!frostbite )", "!\[$C\] COLD ")
     'tokens-more'    = @("\[$C\] MATCH start knobs=revives=4\s*$", "#1|\[$C\] TOKENS start limit=2 N=4 count=-2\s*$",
                          "\[$C\] TOKENS used=4 left=0 count=2 via=\S+\s*$", "#1|\[$C\] TOKENS disabled at used=4 N=4 via=\S+\s*$",
-                         "!\[$C\] TOKENS disabled at used=(?!4 )", "!\[$C\] TOKENS minimum changed ", "!\[$C\] COLD ")
+                         "!\[$C\] TOKENS disabled at used=(?!4 )", "!\[$C\] TOKENS minimum changed ", "!\[$C\] COLD ",
+                         "\[$D\] TERMINAL open active=true original=\S+\s*$")
     'tokens-fewer'   = @("\[$C\] MATCH start knobs=revives=2\s*$", "#1|\[$C\] TOKENS start limit=8 N=2 count=6\s*$",
                          "\[$C\] TOKENS used=2 left=0 count=8 via=\S+\s*$", "#1|\[$C\] TOKENS disabled at used=2 N=2 via=\S+\s*$",
-                         "!\[$C\] TOKENS disabled at used=(?!2 )", "!\[$C\] TOKENS minimum changed ", "!\[$C\] COLD ")
+                         "!\[$C\] TOKENS disabled at used=(?!2 )", "!\[$C\] TOKENS minimum changed ", "!\[$C\] COLD ",
+                         "\[$D\] TERMINAL open active=true original=\S+\s*$")
 }
 foreach ($s4Key in $story4.Keys) { $story3[$s4Key] = $story4[$s4Key] }
 $expect = @{
@@ -216,13 +228,13 @@ if ($Scenario -in $story3.Keys) {
 # Story 4, cold: the last COLD summary (sums since the match start). raw = 0 means the game never cooled the player
 # (indoors, a vehicle): not shown.
 $coldNotShown = $null
-if ($Scenario -in 'cold', 'cold-zero' -and -not $driverNotShown) {
+if ($Scenario -in 'cold', 'cold-zero', 'cold-whiteout' -and -not $driverNotShown) {
     $coldRx = "\[$C\] COLD raw=(\d+(?:\.\d+)?) applied=(-?\d+(?:\.\d+)?) factor=(\S+) .*avg_ms=(\S+) "
     $last = @($lines | Where-Object { $_ -match $coldRx })[-1]
     if ($last -and $last -match $coldRx) {
         $raw, $applied, $factor, $avg = [double]$Matches[1], [double]$Matches[2], $Matches[3], $Matches[4]
         if ($raw -le 0) { $coldNotShown = "the game never cooled the player (COLD raw=0)" }
-        elseif ($Scenario -eq 'cold') {
+        elseif ($Scenario -in 'cold', 'cold-whiteout') {
             $ratio = $applied / $raw
             if ($factor -eq '0.25') { Pass 'COLD factor=0.25 (Nightmare, cold 50)' } else { Fail "COLD factor=$factor, want 0.25" }
             if ([Math]::Abs($ratio - 0.25) -le 0.025) { Pass ("COLD applied/raw = {0:N4} (0.25 +- 10%; raw {1}, applied {2})" -f $ratio, $raw, $applied) }

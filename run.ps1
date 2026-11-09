@@ -19,7 +19,7 @@
   Core must already be installed (Nucleus's own deploy.ps1). Steam must be running. Don't type into the game while
   it runs. No game runs on the host without asking the user first.
 .EXAMPLE
-  ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Scenario flip
+  ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario flip
 #>
 param(
     [Parameter(Mandatory)] [string] $Instance,

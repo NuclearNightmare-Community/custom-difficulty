@@ -27,12 +27,12 @@
   keeps its bytes when it had neither line).
   Pass the main checkout's instance path when running from a worktree.
 .EXAMPLE
-  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084
-  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Test -PreCore
-  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Test -PreCore -Scenario flip
-  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Test -Knobs "enemyDamage=17;spread=20"
-  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Force
-  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Remove
+  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322
+  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Test -PreCore
+  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Test -PreCore -Scenario flip
+  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Test -Knobs "enemyDamage=17;spread=20"
+  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Force
+  ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Remove
 #>
 param(
     [Parameter(Mandatory)] [string] $Instance,

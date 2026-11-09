@@ -51,8 +51,8 @@
   wasn't outdoors, no frostbite tick came), or a cold run's game never cooled (raw=0), the run is not shown: exit 2,
   never "passed".
 .EXAMPLE
-  ./check.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.5-build26357084 -Scenario ready
-  ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.1.5-build26357084\difficulty\old-core.log -Scenario old-core
+  ./check.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario ready
+  ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.2-build26512322\difficulty\old-core.log -Scenario old-core
 #>
 param(
     [string] $Instance,

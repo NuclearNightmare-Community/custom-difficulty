@@ -48,7 +48,7 @@ Eq (Get-ModsTxtState -Lines $stock -Name 'Nucleus') 'absent' 'state: absent'
 $m = Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json
 Ok ($m.id -eq 'difficulty' -and $m.name -eq 'Difficulty' -and $m.version -eq '0.1.0' -and $m.scope -eq 'all') 'mod.json: id, name, version, scope'
 Ok ($m.dependsOn[0].id -eq 'nucleus' -and $m.dependsOn[0].version -eq '^0.4.0') 'mod.json: dependsOn nucleus ^0.4.0'
-Ok ($m.ue4ss -eq 'v3.0.1-1181-g83330635' -and $m.game.version -eq 'V8.1.5' -and $m.game.build -eq '26357084') 'mod.json: ue4ss and game build'
+Ok ($m.ue4ss -eq 'v3.0.1-1181-g83330635' -and $m.game.version -eq 'V8.2' -and $m.game.build -eq '26512322') 'mod.json: ue4ss and game build'
 $mainLua = Get-Content (Join-Path $repo 'Scripts\main.lua') -Raw
 Ok ($mainLua -match 'local ME, CORE, NEED = "Difficulty", "Nucleus", "0\.4\.0"') 'main.lua: NEED = dependsOn minimum (0.4.0)'
 Ok ($mainLua -match 'local VERSION = "0\.1\.0"') 'main.lua: VERSION = mod.json version'

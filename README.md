@@ -6,13 +6,13 @@ Version 0.1.0: the skeleton (story 1) connects to Nucleus (core) and works out p
 Story 3 adds enemy damage on the host and survivable grabs for the host's own player; story 4 adds cold, frostbite and
 reinforcement tokens on the host (below). The knob values have
 no player-facing source yet: until the rows and presets (stories 6 and 7) they come only from a dev file, so a
-normal install leaves every knob Default and changes nothing. Targets V8.1.5 (build 26357084) with the pinned UE4SS
+normal install leaves every knob Default and changes nothing. Targets V8.2 (build 26512322) with the pinned UE4SS
 `v3.0.1-1181-g83330635`, and needs Nucleus `^0.4.0`.
 
 ## Install
 
 ```powershell
-./deploy.ps1 -Instance <workspace>\game-instances\v8.1.5-build26357084
+./deploy.ps1 -Instance <workspace>\game-instances\v8.2-build26512322
 ```
 
 `deploy.ps1` refuses (exit 1, one line naming the cause) when Nucleus is missing, disabled in `mods.txt`, isn't
@@ -187,7 +187,8 @@ shown.
 - `test/run-probe.ps1 -Instance <copy>`: the solo probe (`test/DifficultyProbe`) on the host or in the VM.
 - `test/run-pair.ps1 -Workspace <workspace>`: the pair scenarios (`test/pair/difficulty-scenarios.ps1`, driver
   `test/DifficultyPair`) through the workspace's `tools/vm/pair.ps1`, under `dumps\vm.lock`, with NNB's memory set
-  for the run and restored afterwards.
+  for the run and restored afterwards. On V8.2 (story 9, 2026-11-09) all three passed (Verdict REVIEW). The first
+  scenario after each VM boot failed to join (the VM's Steam wasn't ready yet); run that one again, or list it twice.
 
 ## Settings
 

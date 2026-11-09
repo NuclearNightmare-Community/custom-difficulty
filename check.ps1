@@ -40,9 +40,10 @@
                     "TOKENS disabled at used=4"; the driver saw the text 4, four accepted reinforcements, then Disable.
     tokens-fewer    Classified Minium 3 (limit 8), N 2: TOKENS start limit=8 N=2 count=6, one "disabled at used=2";
                     the driver saw Disable after two and the text 0.
-    Both tokens scenarios also need the native terminal to open (TERMINAL open active=true); a reinforcement through it needs a queued player, so dp-revive proves that route.
-    The terminal refusing past the stock limit is a driver FAIL (the story is blocked); any other terminal miss is
-    not shown.
+    Both tokens scenarios also need the native terminal to open (TERMINAL open active=true): a terminal that
+    doesn't open fails here, though the driver ends NOTSHOWN. A reinforcement through it needs a queued player, so
+    solo falls back (synthetic, then spectator) and dp-revive proves that route. The terminal refusing past the
+    stock limit is a driver FAIL (the story is blocked).
   Story 9 (V8.2): every driver scenario needs exactly one WHITEOUT disabled=true, except the opt-in one:
     cold-whiteout   Nightmare, Cold Exposure 50, White Outs on: WHITEOUT disabled=false, the last COLD summary's applied
                     is 0.25 x raw (+-10%), and the driver saw a rise above a quarter of Nightmare's stock range during

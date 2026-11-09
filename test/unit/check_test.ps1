@@ -245,6 +245,8 @@ $fewer = Story3 'tokens-fewer' 'revives=2' @((& $tok 'start limit=8 N=2 count=6'
 Expect $fewer 'tokens-fewer' 0 'tokens-fewer: passes as written' 'All checks passed'
 Expect ($fewer -replace 'limit=8 N=2 count=6', 'limit=8 N=2 count=0') 'tokens-fewer' 1 'tokens-fewer: wrong start count -> fails' 'TOKENS start'
 Expect ($fewer + @(& $tok 'minimum changed limit=8 -> 6 used=1 count=5')) 'tokens-fewer' 1 'tokens-fewer: an unexpected minimum change -> fails' 'minimum'
+Expect (Without $fewer 'TERMINAL open') 'tokens-fewer' 1 'tokens-fewer: terminal never opened -> fails' 'TERMINAL open'
+Expect ($fewer -replace 'TERMINAL open active=true', 'TERMINAL open active=false') 'tokens-fewer' 1 'tokens-fewer: terminal not active -> fails' 'TERMINAL open'
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)

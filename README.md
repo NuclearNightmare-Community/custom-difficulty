@@ -64,9 +64,10 @@ runtime refuse core 0.3.0.
   about 2 s. Each character whose `Temperature` rose since the last poll gets `last + rise x factor`, clamped to 0..1,
   with `factor = cold / (200 / divisor[Diffculty])`. The divisors are 1 / 1.5 / 2 / 4 for `EDiffculty` 0 Nightmare,
   1 Hard, 2 Normal, 3 Easy, and `Diffculty` is read live. A fall or a hold (warming, a reset) is left alone, so heated
-  interiors warm at the stock rate. 0 means the meter never rises outdoors. The per-path state is new each match. The knob scales the whole rise, V8.2's White Out
-  cold included (0 = blizzards don't cool either), by construction of the poll; not yet seen in game (`cold-whiteout`
-  is NOTSHOWN on V8.2); enclosed vehicles pause `Temperature`, so the poll sees no rise.
+  interiors warm at the stock rate. 0 means the meter never rises outdoors. The per-path state is new each match.
+  The knob scales the whole rise, V8.2's White Out cold included (0 = blizzards don't cool either), by construction
+  of the poll; not yet seen in game (`cold-whiteout` is NOTSHOWN on V8.2); enclosed vehicles pause `Temperature`, so
+  the poll sees no rise.
 - **Frostbite Damage** (`frostbite`, HP per second while frozen): V8.2 deals frostbite through the native
   `CallFrostbiteDamageEvent`, so the function itself identifies it: an amount of 1 or 2 is a tick,
   `Health += amount x (1 - frostbite)` (lowered never below 0.01), checked by the same guard as an enemy hit. With
@@ -191,8 +192,10 @@ shown.
 - `test/run-probe.ps1 -Instance <copy>`: the solo probe (`test/DifficultyProbe`) on the host or in the VM.
 - `test/run-pair.ps1 -Workspace <workspace>`: the pair scenarios (`test/pair/difficulty-scenarios.ps1`, driver
   `test/DifficultyPair`) through the workspace's `tools/vm/pair.ps1`, under `dumps\vm.lock`, with NNB's memory set
-  for the run and restored afterwards. On V8.2 (story 9, 2026-11-09) all three passed (Verdict REVIEW). The first
-  scenario after each VM boot failed to join (the VM's Steam wasn't ready yet); run that one again, or list it twice.
+  for the run and restored afterwards. On V8.2 (story 9, 2026-11-09) all three ended Outcome PASS,
+  Verdict REVIEW: no FAIL line, and the panel and counts were read by hand (`knob-mechanics.md`, Reinforcement
+  tokens). The first scenario after each VM boot failed to join (the VM's Steam wasn't ready yet); run that one
+  again, or list it twice.
 
 ## Settings
 

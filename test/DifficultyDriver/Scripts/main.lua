@@ -460,7 +460,9 @@ if SC.special == "cold" then
                 if os.clock() - t0 < STORM_WAIT then return false end
                 P.noStorm = true
                 S.notShown = S.notShown + 1
-                say("STORM at the timeout scheduled=%s start=%s grace=%s lead=%s", d and tostring(d.bBlizzardScheduled) or "?", d and tostring(d.ScheduledStartServerSeconds) or "?", d and tostring(d.InitialGraceSeconds) or "?", d and tostring(d.PlanningLeadSeconds) or "?")
+                say("STORM at the timeout scheduled=%s start=%s grace=%s lead=%s",
+                    d and tostring(d.bBlizzardScheduled) or "?", d and tostring(d.ScheduledStartServerSeconds) or "?",
+                    d and tostring(d.InitialGraceSeconds) or "?", d and tostring(d.PlanningLeadSeconds) or "?")
                 say("NOTSHOWN cold-whiteout: the storm phase never came in %d s (phase %s)", STORM_WAIT, d and tostring(phaseOf(d)) or "no director")
                 return true
             end, STORM_WAIT + 10, "storm phase"
@@ -724,10 +726,10 @@ elseif SC.special == "tokens" then
                     return true
                 end
                 if now and before and now > before + 1 then
-                    -- Both paths landed (a late synthetic revive and the fallback): the case can't be judged one by one.
+                    -- Both paths landed (a late terminal or synthetic revive and the fallback): the case can't be judged one by one.
                     S.notShown = S.notShown + 1
                     P.abort = true
-                    say("NOTSHOWN reinforce #%d: the count jumped %d -> %d (a late synthetic revive and the %s path both counted)", i, before, now, via)
+                    say("NOTSHOWN reinforce #%d: the count jumped %d -> %d (a late terminal or synthetic revive and the %s path both counted)", i, before, now, via)
                     return true
                 end
                 if via == "terminal" and os.clock() - t0 > 15 then

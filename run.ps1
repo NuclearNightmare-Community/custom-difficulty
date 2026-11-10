@@ -16,6 +16,8 @@
   the log as <workspace>/dumps/<copy>/difficulty/<scenario>.log (ignored by git) and runs check.ps1 on it. Exit code:
   check.ps1's (0 passed, 1 failed, 2 not shown: the driver couldn't make the case happen, e.g. an enemy didn't attack
   in time, the player wasn't outdoors, no frostbite tick came).
+  Refuses to start while another runner's test or driver mod is enabled in the copy (the workspace's tools/run-guard:
+  the refusal names each and the command that clears it); -AllowOtherDrivers runs anyway.
   Core must already be installed (Nucleus's own deploy.ps1). Steam must be running. Don't type into the game while
   it runs. No game runs on the host without asking the user first.
 .EXAMPLE
@@ -25,7 +27,8 @@ param(
     [Parameter(Mandatory)] [string] $Instance,
     [Parameter(Mandatory)] [ValidateSet('scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite',
                  'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout')] [string] $Scenario,
-    [int] $TimeoutSec = 900
+    [int] $TimeoutSec = 900,
+    [switch] $AllowOtherDrivers # run even when another runner's test mod is enabled in the copy (tools/run-guard)
 )
 $ErrorActionPreference = 'Stop'
 $here    = $PSScriptRoot
@@ -33,6 +36,7 @@ $name    = (Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json).na
 $driver  = "${name}Driver"
 $inst    = (Resolve-Path $Instance).Path
 $root    = Split-Path (Split-Path $inst)
+. (Join-Path $root 'tools\run-guard\run-guard.ps1')
 $outDir  = Join-Path $root "dumps\$(Split-Path $inst -Leaf)\$($name.ToLowerInvariant())"
 $ue4ss   = Join-Path $inst 'NuclearNightmare\Binaries\Win64\ue4ss'
 $log     = Join-Path $ue4ss 'UE4SS.log'
@@ -68,6 +72,9 @@ function Invoke-Deploy([string[]] $a) {
     if ($LASTEXITCODE -ne 0) { throw "deploy.ps1 $($a -join ' ') failed (exit $LASTEXITCODE)" }
 }
 
+# A test mod another runner left enabled (or test/run-probe.ps1's probe) would fail this run in confusing ways.
+$refusal = Get-RunGuardRefusal -Workspace $root -Instance $inst -Owner 'difficulty' -Bypass:$AllowOtherDrivers
+if ($refusal) { Write-Host $refusal; exit 1 }
 if (Get-Process -Name 'NuclearNightmare*' -ErrorAction SilentlyContinue) { throw 'Nuclear Nightmare is already running (a dev copy or the real game); not launching.' }
 
 $sw = [Diagnostics.Stopwatch]::StartNew()

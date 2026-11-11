@@ -185,6 +185,8 @@ $inst = 'C:\...\nuclear-nightmare\game-instances\v8.2-build26512322'   # the hos
 - `run.ps1` doesn't take `dumps\vm.lock`. Take it around the run yourself (`tools/vm/README.md`, "The VM lock"), and
   shut NNB down afterwards with `tools/vm/vm-shutdown.ps1`.
 - `test/run-pair.ps1` (pair scenarios) is separate and unchanged.
+- Verified 2026-11-11 on V8.2.1 (VM copy `v8.2-build26512322`, Nucleus 0.6.0 from `build/package`): `default` ran in
+  93 s, driver `END result=PASS checks=3`, and `check.ps1 -Target vm` passed all checks. The VM copy was put back as it was.
 
 Every scenario sets `BP_GameInstance_C.DisableWhiteOuts` before the match and logs one
 `WHITEOUT disabled=<GameState value> director=<n> phase=<Phase>`; `check.ps1` requires `disabled=true` in every

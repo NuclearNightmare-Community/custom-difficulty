@@ -17,11 +17,12 @@ function Throws([scriptblock] $b, [string] $text, [string] $name) {
     try { & $b; Ok $false $name 'did not throw' } catch { Ok ($_.Exception.Message -like "*$text*") $name $_.Exception.Message }
 }
 
-# ---------------------------------------------------------------- caret ranges (same rule as core's semver.lua)
+# ---------------------------------------------------------------- caret ranges (same rule as core's semver.lua: a minimum)
 $cases = @(
-    @('0.4.0', '^0.4.0', $true), @('0.4.3', '^0.4.0', $true), @('0.3.0', '^0.4.0', $false), @('0.5.0', '^0.4.0', $false),
-    @('1.4.0', '^0.4.0', $false), @('0.3.0', '^0.3.0', $true), @('0.3.2', '^0.3.0', $true), @('0.2.9', '^0.3.0', $false),
-    @('1.0.0', '^1.0.0', $true), @('1.4.0', '^1.2.3', $true), @('1.2.2', '^1.2.3', $false), @('2.0.0', '^1.2.0', $false),
+    @('0.4.0', '^0.4.0', $true), @('0.4.3', '^0.4.0', $true), @('0.3.0', '^0.4.0', $false), @('0.5.0', '^0.4.0', $true),
+    @('0.6.0', '^0.4.0', $true), @('1.4.0', '^0.4.0', $true), @('0.3.0', '^0.3.0', $true), @('0.3.2', '^0.3.0', $true),
+    @('0.2.9', '^0.3.0', $false), @('0.3.99', '^0.4.0', $false), @('1.0.0', '^1.0.0', $true), @('1.4.0', '^1.2.3', $true),
+    @('1.2.2', '^1.2.3', $false), @('2.0.0', '^1.2.0', $true), @('0.9.9', '^1.0.0', $false),
     @('0.4', '^0.4.0', $false), @('0.4.0-beta', '^0.4.0', $false), @('v0.4.0', '^0.4.0', $false), @('', '^0.4.0', $false),
     @($null, '^0.4.0', $false), @(4, '^0.4.0', $false)
 )
@@ -98,7 +99,7 @@ try {
     Ok (-not (Test-Path $dest)) 'deploy: refused -> nothing installed'
     Eq (Txt) $stockTxt 'deploy: refused -> mods.txt untouched'
 
-    # Core 0.3.0 (too old for a normal deploy), 0.5.0 (too new), a wrong id, an unreadable manifest.
+    # Core 0.3.0 (too old for a normal deploy), 0.2.0 (too old even for -PreCore), a wrong id, an unreadable manifest.
     New-Item -ItemType Directory -Force (Join-Path $mods 'Nucleus\Scripts') | Out-Null
     [IO.File]::WriteAllText($modsTxt, $coreTxt)
     Set-Core '0.3.0'
@@ -110,9 +111,9 @@ try {
     $d = Deploy @('-PreCore')
     Ok ($d.Code -eq 1 -and $d.Out -match '-PreCore is a dev mode and needs -Test') 'deploy -PreCore without -Test: refused' $d.Out
     Ok (-not (Test-Path $dest)) 'deploy -PreCore without -Test: nothing installed'
-    Set-Core '0.5.0'
+    Set-Core '0.2.9'
     $d = Deploy @('-Test', '-PreCore')
-    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.5\.0 is installed, but Difficulty needs \^0\.4\.0 \(or \^0\.3\.0 with -PreCore\)') 'deploy -Test -PreCore: core 0.5.0 refused' $d.Out
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.2\.9 is installed, but Difficulty needs \^0\.4\.0 \(or \^0\.3\.0 with -PreCore\)') 'deploy -Test -PreCore: core 0.2.9 refused, naming both ranges' $d.Out
     Set-Core '0.2.0'
     $d = Deploy @('-Test', '-PreCore')
     Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.2\.0 is installed') 'deploy -Test -PreCore: core 0.2.0 refused' $d.Out
@@ -205,6 +206,25 @@ try {
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($dev -match '(?m)^return \{ debug = true \}$' -and $dev -cnotmatch 'preCore =') 'deploy -Test -PreCore on core 0.4.0: dev.lua without preCore (need stays 0.4.0)' $dev
     Ok ($d.Out -match '-PreCore not needed: Nucleus 0\.4\.0 satisfies \^0\.4\.0' -and $d.Out -notmatch 'dev core mode') 'deploy -Test -PreCore on core 0.4.0: says -PreCore is not needed' $d.Out
+    # Core 0.6.0 (newer than dependsOn's minimum; core's rule since its story 18): accepted, no dev core mode.
+    Set-Core '0.6.0'
+    $d = Deploy @('-Test', '-PreCore', '-Scenario', 'flip')
+    Ok ($d.Code -eq 0 -and $d.Out -match '-PreCore not needed: Nucleus 0\.6\.0 satisfies \^0\.4\.0') 'deploy -Test -PreCore -Scenario: core 0.6.0 accepted' $d.Out
+    $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+    Ok ($dev -cnotmatch 'preCore =') 'deploy on core 0.6.0: dev.lua without preCore' $dev
+
+    # -Staged (a VM run's host-side stage): deploys while a game runs on the host; without it, refused.
+    function DeployRunning([string[]] $a) {
+        $cmd = "function Get-Process { [pscustomobject]@{ Name = 'NuclearNightmare-Win64-Shipping' } }; & '$(Join-Path $repo 'deploy.ps1')' -Instance '$inst' $($a -join ' '); exit `$LASTEXITCODE"
+        $out = & pwsh -NoProfile -NonInteractive -Command $cmd 2>&1 | Out-String
+        return @{ Code = $LASTEXITCODE; Out = $out }
+    }
+    $d = DeployRunning @('-Test', '-PreCore', '-Scenario', 'default')
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Difficulty not deployed: Nuclear Nightmare is running; close it first\.') 'deploy: a running game -> refused' $d.Out
+    $d = DeployRunning @('-Test', '-PreCore', '-Scenario', 'default', '-Staged')
+    Ok ($d.Code -eq 0 -and (Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw) -eq 'default') 'deploy -Staged: a running game on the host does not matter' $d.Out
+    Eq (Txt) ("Nucleus : 1`r`nDifficultyDriver : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy -Staged: the same mods.txt as a host deploy'
+    Set-Core '0.4.0'
 
     # -Force: old-core scenario (0.3.0, normal deploy): warns and installs, no dev.lua.
     Set-Core '0.3.0'

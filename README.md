@@ -7,7 +7,7 @@ Story 3 adds enemy damage on the host and survivable grabs for the host's own pl
 reinforcement tokens on the host (below). The knob values have
 no player-facing source yet: until the rows and presets (stories 6 and 7) they come only from a dev file, so a
 normal install leaves every knob Default and changes nothing. Targets V8.2 (build 26512322) with the pinned UE4SS
-`v3.0.1-1181-g83330635`, and needs Nucleus `^0.4.0`.
+`v3.0.1-1181-g83330635`, and needs Nucleus `^0.4.0`: 0.4.0 or newer (core's rule since its story 18; 0.6.0 is fine).
 
 ## Install
 
@@ -160,6 +160,33 @@ cases (test only, logged).
 | `tokens-more` | Normal, Classified Minimum 0 (limit 2), `revives=4` | `TOKENS start limit=2 N=4 count=-2`; the computer's text 4; four reinforcements accepted, `Disable Reinforcement` only after the 4th |
 | `tokens-fewer` | Normal, Classified Minimum 3 (limit 8), `revives=2` | `TOKENS start limit=8 N=2 count=6`; Disable after the 2nd, the text 0 |
 | `cold-whiteout` (opt-in, never in a default list) | Nightmare, `cold=50`, White Outs on; the driver calls `NNBlizzardController:RequestBlizzard()` and samples 60 s outdoors in the storm phase | `WHITEOUT disabled=false`; `COLD` applied is 0.25 x raw (+-10%); the rise is above a quarter of Nightmare's stock range. No storm, or a rise inside that range: not shown |
+
+#### In the VM (`-Target vm`)
+
+Every scenario also runs in the Hyper-V VM NNB, so it can run while someone plays on the host
+(the workspace's `tools/vm/README.md`, "Single-player tests in the VM"):
+
+```powershell
+$inst = 'C:\...\nuclear-nightmare\game-instances\v8.2-build26512322'   # the host's copy: names the build, finds tools/
+./run.ps1 -Instance $inst -Scenario default -Target vm
+```
+
+- It runs in the VM's copy with the host copy's folder name (`C:\nn\v8.2-build26512322`, the test copy with the pinned
+  UE4SS; never the testers' clean copy). That copy must be the same game build as the host's.
+- Nucleus comes from the host's `mods/Nucleus/build/package` (Nucleus's own `deploy.ps1 -Staged`); Difficulty and the
+  driver from this repo (`deploy.ps1 -Test -PreCore -Scenario <s> -Staged`). `-Staged` only skips the "game is running"
+  check, because the stage is never launched. Nothing is built, and the host's game copy is never touched.
+- The run guard checks the VM copy's `mods.txt` before anything is installed there. After the run the VM copy is put
+  back as it was, so there is no redeploy without the driver.
+- The log is kept as `dumps/<copy>/difficulty/<s>.vm.log` and judged by `check.ps1 -Target vm`. The VM's game shares
+  the CPU with the host, so the cold poll's `avg_ms` under 0.1 (`cold`, `cold-whiteout`) is only a soft check there.
+  Exit codes are the same as on the host.
+- The time limit is the host's 900 s times 1.5 unless you pass `-TimeoutSec`.
+- `run.ps1` doesn't take `dumps\vm.lock`. Take it around the run yourself (`tools/vm/README.md`, "The VM lock"), and
+  shut NNB down afterwards with `tools/vm/vm-shutdown.ps1`.
+- `test/run-pair.ps1` (pair scenarios) is separate and unchanged.
+- Verified 2026-11-11 on V8.2.1 (VM copy `v8.2-build26512322`, Nucleus 0.6.0 from `build/package`): `default` ran in
+  93 s, driver `END result=PASS checks=3`, and `check.ps1 -Target vm` passed all checks. The VM copy was put back as it was.
 
 Every scenario sets `BP_GameInstance_C.DisableWhiteOuts` before the match and logs one
 `WHITEOUT disabled=<GameState value> director=<n> phase=<Phase>`; `check.ps1` requires `disabled=true` in every

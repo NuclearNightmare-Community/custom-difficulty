@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
   Pure helpers for deploy.ps1 (dot-source it), testable on their own (test/unit/deploy_test.ps1).
-  Caret ranges use the same rule as core's nucleus.semver (api-contract.md, "mod.json"): for 0.x, the same major
-  and minor and at least the patch; from 1.0.0, the same major and at least the minor and patch. Versions are plain MAJOR.MINOR.PATCH; anything else is not a version.
+  Caret ranges use the same rule as core's nucleus.semver since core story 18 (api-contract.md, "Versioning"):
+  "^X.Y.Z" is a minimum, "this version or newer" (core 0.5.0 and later; clock's and Waypoints' deploy-lib use the same
+  rule). Versions are plain MAJOR.MINOR.PATCH; anything else is not a version.
 .EXAMPLE
-  . ./deploy-lib.ps1; Test-CaretRange -Version '0.2.1' -Range '^0.2.0'   # True
+  . ./deploy-lib.ps1; Test-CaretRange -Version '0.6.0' -Range '^0.4.0'   # True
 #>
 
 # ConvertTo-Semver '0.2.0' -> @{ Major = 0; Minor = 2; Patch = 0 }, or $null when the text isn't plain semver.
@@ -28,10 +29,8 @@ function Test-CaretRange {
     if (-not $n) { throw "unsupported version range '$Range' (only ^MAJOR.MINOR.PATCH)" }
     $h = ConvertTo-Semver $Version
     if (-not $h) { return $false }
-    if ($h.Major -ne $n.Major) { return $false }
-    if ($n.Major -eq 0) { return ($h.Minor -eq $n.Minor) -and ($h.Patch -ge $n.Patch) }
-    if ($h.Minor -ne $n.Minor) { return $h.Minor -gt $n.Minor }
-    return $h.Patch -ge $n.Patch
+    foreach ($k in 'Major', 'Minor', 'Patch') { if ($h[$k] -ne $n[$k]) { return $h[$k] -gt $n[$k] } }
+    return $true
 }
 
 # Edit-ModsTxt -Lines <mods.txt lines> -Remove <names> -Add <names in order> -After <name> -> new lines.

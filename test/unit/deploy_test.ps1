@@ -17,11 +17,12 @@ function Throws([scriptblock] $b, [string] $text, [string] $name) {
     try { & $b; Ok $false $name 'did not throw' } catch { Ok ($_.Exception.Message -like "*$text*") $name $_.Exception.Message }
 }
 
-# ---------------------------------------------------------------- caret ranges (same rule as core's semver.lua)
+# ---------------------------------------------------------------- caret ranges (same rule as core's semver.lua: a minimum)
 $cases = @(
-    @('0.4.0', '^0.4.0', $true), @('0.4.3', '^0.4.0', $true), @('0.3.0', '^0.4.0', $false), @('0.5.0', '^0.4.0', $false),
-    @('1.4.0', '^0.4.0', $false), @('0.3.0', '^0.3.0', $true), @('0.3.2', '^0.3.0', $true), @('0.2.9', '^0.3.0', $false),
-    @('1.0.0', '^1.0.0', $true), @('1.4.0', '^1.2.3', $true), @('1.2.2', '^1.2.3', $false), @('2.0.0', '^1.2.0', $false),
+    @('0.4.0', '^0.4.0', $true), @('0.4.3', '^0.4.0', $true), @('0.3.0', '^0.4.0', $false), @('0.5.0', '^0.4.0', $true),
+    @('0.6.0', '^0.4.0', $true), @('1.4.0', '^0.4.0', $true), @('0.3.0', '^0.3.0', $true), @('0.3.2', '^0.3.0', $true),
+    @('0.2.9', '^0.3.0', $false), @('0.3.99', '^0.4.0', $false), @('1.0.0', '^1.0.0', $true), @('1.4.0', '^1.2.3', $true),
+    @('1.2.2', '^1.2.3', $false), @('2.0.0', '^1.2.0', $true), @('0.9.9', '^1.0.0', $false),
     @('0.4', '^0.4.0', $false), @('0.4.0-beta', '^0.4.0', $false), @('v0.4.0', '^0.4.0', $false), @('', '^0.4.0', $false),
     @($null, '^0.4.0', $false), @(4, '^0.4.0', $false)
 )
@@ -98,7 +99,7 @@ try {
     Ok (-not (Test-Path $dest)) 'deploy: refused -> nothing installed'
     Eq (Txt) $stockTxt 'deploy: refused -> mods.txt untouched'
 
-    # Core 0.3.0 (too old for a normal deploy), 0.5.0 (too new), a wrong id, an unreadable manifest.
+    # Core 0.3.0 (too old for a normal deploy), 0.2.0 (too old even for -PreCore), a wrong id, an unreadable manifest.
     New-Item -ItemType Directory -Force (Join-Path $mods 'Nucleus\Scripts') | Out-Null
     [IO.File]::WriteAllText($modsTxt, $coreTxt)
     Set-Core '0.3.0'
@@ -110,9 +111,9 @@ try {
     $d = Deploy @('-PreCore')
     Ok ($d.Code -eq 1 -and $d.Out -match '-PreCore is a dev mode and needs -Test') 'deploy -PreCore without -Test: refused' $d.Out
     Ok (-not (Test-Path $dest)) 'deploy -PreCore without -Test: nothing installed'
-    Set-Core '0.5.0'
+    Set-Core '0.2.9'
     $d = Deploy @('-Test', '-PreCore')
-    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.5\.0 is installed, but Difficulty needs \^0\.4\.0 \(or \^0\.3\.0 with -PreCore\)') 'deploy -Test -PreCore: core 0.5.0 refused' $d.Out
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.2\.9 is installed, but Difficulty needs \^0\.4\.0 \(or \^0\.3\.0 with -PreCore\)') 'deploy -Test -PreCore: core 0.2.9 refused, naming both ranges' $d.Out
     Set-Core '0.2.0'
     $d = Deploy @('-Test', '-PreCore')
     Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.2\.0 is installed') 'deploy -Test -PreCore: core 0.2.0 refused' $d.Out

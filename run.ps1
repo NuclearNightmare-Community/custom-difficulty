@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Runs one Difficulty story 3 or 4 scenario end to end on the host: deploy (with the test driver), launch, serve key
-  requests, wait, close, check.
+  Runs one Difficulty story 3 or 4 scenario end to end, on the host or (-Target vm) in VM NNB: deploy (with the test
+  driver), launch, serve key requests, wait, close, check.
 .DESCRIPTION
   Deploys with deploy.ps1 -Test -PreCore -Scenario <s> (the dev core mode: on a core that already satisfies
   dependsOn, -PreCore changes nothing), so Difficulty gets the scenario's knobs in dev.lua and the driver
@@ -20,17 +20,32 @@
   the refusal names each and the command that clears it); -AllowOtherDrivers runs anyway.
   Core must already be installed (Nucleus's own deploy.ps1). Steam must be running. Don't type into the game while
   it runs. No game runs on the host without asking the user first.
+  -Target vm runs the scenario in the Hyper-V VM NNB instead (the workspace's tools/vm/vm-sp.ps1, tools/vm/README.md
+  "Single-player tests in the VM"): Nucleus from the host's mods/Nucleus/build/package (its own deploy.ps1 -Staged),
+  then Difficulty and the driver (deploy.ps1 -Test -PreCore -Scenario <s> -Staged) go into the VM's copy of the same
+  build (C:\nn\<the instance's folder name>), the VM's game is launched, Enter is pressed there with
+  tools/vm/vm-key.ps1, and the VM copy is put back as it was afterwards (so no redeploy without the driver is needed).
+  It never builds and never touches the host's game copy or a host game, so it can run while someone plays on the
+  host. The log is kept as <scenario>.vm.log and judged with check.ps1 -Target vm (the cold poll's timing is soft
+  there). Every scenario runs in the VM too. The time limit defaults to the host's 900 s times 1.5. It doesn't take
+  the workspace's dumps\vm.lock: whoever starts it takes the lock around it (tools/vm/README.md, "The VM lock").
+  test/run-pair.ps1 (the pair scenarios) is separate and unchanged.
 .EXAMPLE
   ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario flip
+  ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario default -Target vm
 #>
 param(
     [Parameter(Mandatory)] [string] $Instance,
     [Parameter(Mandatory)] [ValidateSet('scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite',
                  'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout')] [string] $Scenario,
-    [int] $TimeoutSec = 900,
+    [int] $TimeoutSec = 0, # 0: 900 on the host, x1.5 in the VM
+    [ValidateSet('host', 'vm')] [string] $Target = 'host',
     [switch] $AllowOtherDrivers # run even when another runner's test mod is enabled in the copy (tools/run-guard)
 )
 $ErrorActionPreference = 'Stop'
+$hostTimeout = 900
+if ($TimeoutSec -le 0 -and $Target -eq 'host') { $TimeoutSec = $hostTimeout }
+$CoreName = 'Nucleus'
 $here    = $PSScriptRoot
 $name    = (Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json).name
 $driver  = "${name}Driver"
@@ -65,11 +80,40 @@ function Invoke-Request([string] $cmd) {
     [void][DifficultyRun.Win]::PostMessage($h, 0x0101, [IntPtr]0x0D, [IntPtr]([int64]0xC01C0001))   # WM_KEYUP
     Write-Host '  posted ENTER to the game window'
 }
-# deploy.ps1 ends with exit 1 when it refuses, so it always runs in its own pwsh.
+# deploy.ps1 ends with exit 1 when it refuses, so it always runs in its own pwsh. It deploys into $script:deployInst:
+# the instance, or with -Target vm the host-side staging folder (with -Staged).
+$script:deployInst = $inst
 function Invoke-Deploy([string[]] $a) {
-    $out = & pwsh -NoProfile -NonInteractive -File (Join-Path $here 'deploy.ps1') -Instance $inst @a 2>&1 | Out-String
+    if ($Target -eq 'vm') { $a += '-Staged' }
+    $out = & pwsh -NoProfile -NonInteractive -File (Join-Path $here 'deploy.ps1') -Instance $script:deployInst @a 2>&1 | Out-String
     Write-Host $out.Trim()
     if ($LASTEXITCODE -ne 0) { throw "deploy.ps1 $($a -join ' ') failed (exit $LASTEXITCODE)" }
+}
+
+if ($Target -eq 'vm') {
+    . (Join-Path $root 'tools\vm\vm-sp.ps1')
+    # Core comes from the host's own build/package, installed by core's own deploy.ps1 (never built here).
+    $coreDeploy = Join-Path $root "mods\$CoreName\deploy.ps1"
+    if (-not (Test-Path $coreDeploy)) { throw "$CoreName's deploy.ps1 not found at $coreDeploy (the VM run installs core from its build/package)." }
+    $kept = Join-Path $outDir "$Scenario.vm.log"
+    Remove-Item $kept -ErrorAction SilentlyContinue
+    # A refusal of the guard (the VM copy's mods.txt, in the stage) ends the run before anything is installed there.
+    try {
+        $run = Invoke-NNBSpRun -Instance $inst -TestMod $driver -Mods $CoreName, $driver, $name -Paks "$CoreName.pak" `
+            -EndPattern "\[$driver\] END result=" -TimeoutSec (Get-NNBSpTimeout $hostTimeout $TimeoutSec) -LogOut $kept -Prepare {
+                param($stage)
+                $refusal = Get-RunGuardRefusal -Workspace $root -Instance $stage -Owner 'difficulty' -Bypass:$AllowOtherDrivers -Vm
+                if ($refusal) { throw $refusal }
+                & pwsh -NoProfile -NonInteractive -File $coreDeploy -Instance $stage -Staged
+                if ($LASTEXITCODE -ne 0) { throw "$CoreName's deploy.ps1 failed in the stage (exit $LASTEXITCODE)" }
+                $script:deployInst = $stage
+                Invoke-Deploy @('-Test', '-PreCore', '-Scenario', $Scenario)
+            }
+    } catch { if ("$($_.Exception.Message)".StartsWith('refused: ')) { Write-Host $_.Exception.Message; exit 1 }; throw }
+    Write-Host "VM run: $($run.Result)"
+    if (-not $run.Log) { Write-Host 'No UE4SS.log from the VM.'; exit 1 }
+    & pwsh -NoProfile -NonInteractive -File (Join-Path $here 'check.ps1') -Log $kept -Scenario $Scenario -Target vm
+    exit $LASTEXITCODE
 }
 
 # A test mod another runner left enabled (or test/run-probe.ps1's probe) would fail this run in confusing ways.

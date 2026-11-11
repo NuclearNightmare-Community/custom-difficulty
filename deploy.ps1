@@ -25,6 +25,9 @@
   dev.lua is git-ignored and never shipped.
   -Remove deletes Mods/Difficulty, Mods/DifficultyDriver and their mods.txt lines; nothing else changes (mods.txt
   keeps its bytes when it had neither line).
+  -Staged: $Instance is the host-side staging folder of a VM run (run.ps1 -Target vm, the workspace's
+  tools/vm/vm-sp.ps1), not a game: it only skips the "Nuclear Nightmare is running" check, so a VM run can deploy
+  while a game runs on the host. Everything else is the same as a host deploy.
   Pass the main checkout's instance path when running from a worktree.
 .EXAMPLE
   ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322
@@ -42,7 +45,8 @@ param(
     [ValidateSet('', 'scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite', 'frostbite-zero',
                  'tokens-more', 'tokens-fewer', 'cold-whiteout')] [string] $Scenario = '',
     [switch] $Force,
-    [switch] $Remove
+    [switch] $Remove,
+    [switch] $Staged
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'deploy-lib.ps1')
@@ -76,7 +80,7 @@ $modsTxt  = Join-Path $modsDir 'mods.txt'
 if (-not (Test-Path (Join-Path $win64 'NuclearNightmare-Win64-Shipping.exe'))) { Stop-Deploy "not a game instance: $inst" }
 if (-not (Test-Path (Join-Path $ue4ss 'UE4SS.dll'))) { Stop-Deploy "UE4SS is not installed in $win64" }
 if (-not (Test-Path $modsTxt)) { Stop-Deploy "no mods.txt in $modsDir" }
-if (Get-Process -Name 'NuclearNightmare*' -ErrorAction SilentlyContinue) { Stop-Deploy 'Nuclear Nightmare is running; close it first.' }
+if (-not $Staged -and (Get-Process -Name 'NuclearNightmare*' -ErrorAction SilentlyContinue)) { Stop-Deploy 'Nuclear Nightmare is running; close it first.' }
 
 $file  = Read-ModsTxt $modsTxt
 $clean = Edit-ModsTxt -Lines $file.Lines -Remove @($name, $driver)

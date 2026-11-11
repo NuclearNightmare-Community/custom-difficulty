@@ -206,6 +206,25 @@ try {
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($dev -match '(?m)^return \{ debug = true \}$' -and $dev -cnotmatch 'preCore =') 'deploy -Test -PreCore on core 0.4.0: dev.lua without preCore (need stays 0.4.0)' $dev
     Ok ($d.Out -match '-PreCore not needed: Nucleus 0\.4\.0 satisfies \^0\.4\.0' -and $d.Out -notmatch 'dev core mode') 'deploy -Test -PreCore on core 0.4.0: says -PreCore is not needed' $d.Out
+    # Core 0.6.0 (newer than dependsOn's minimum; core's rule since its story 18): accepted, no dev core mode.
+    Set-Core '0.6.0'
+    $d = Deploy @('-Test', '-PreCore', '-Scenario', 'flip')
+    Ok ($d.Code -eq 0 -and $d.Out -match '-PreCore not needed: Nucleus 0\.6\.0 satisfies \^0\.4\.0') 'deploy -Test -PreCore -Scenario: core 0.6.0 accepted' $d.Out
+    $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+    Ok ($dev -cnotmatch 'preCore =') 'deploy on core 0.6.0: dev.lua without preCore' $dev
+
+    # -Staged (a VM run's host-side stage): deploys while a game runs on the host; without it, refused.
+    function DeployRunning([string[]] $a) {
+        $cmd = "function Get-Process { [pscustomobject]@{ Name = 'NuclearNightmare-Win64-Shipping' } }; & '$(Join-Path $repo 'deploy.ps1')' -Instance '$inst' $($a -join ' '); exit `$LASTEXITCODE"
+        $out = & pwsh -NoProfile -NonInteractive -Command $cmd 2>&1 | Out-String
+        return @{ Code = $LASTEXITCODE; Out = $out }
+    }
+    $d = DeployRunning @('-Test', '-PreCore', '-Scenario', 'default')
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Difficulty not deployed: Nuclear Nightmare is running; close it first\.') 'deploy: a running game -> refused' $d.Out
+    $d = DeployRunning @('-Test', '-PreCore', '-Scenario', 'default', '-Staged')
+    Ok ($d.Code -eq 0 -and (Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw) -eq 'default') 'deploy -Staged: a running game on the host does not matter' $d.Out
+    Eq (Txt) ("Nucleus : 1`r`nDifficultyDriver : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy -Staged: the same mods.txt as a host deploy'
+    Set-Core '0.4.0'
 
     # -Force: old-core scenario (0.3.0, normal deploy): warns and installs, no dev.lua.
     Set-Core '0.3.0'

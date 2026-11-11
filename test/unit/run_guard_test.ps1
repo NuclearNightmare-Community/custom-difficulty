@@ -14,7 +14,7 @@ $Own = @('DifficultyDriver')
 $Foreign = 'ClockDriver'; $ForeignRepo = 'clock'
 $AlsoForeign = @('DifficultyProbe') # test/run-probe.ps1's: deploy.ps1 doesn't clear it
 $RunArgs = @('-Scenario', 'flip')
-$Vm = $false # run.ps1 is host-only
+$Vm = $true # run.ps1 -Target vm: the guard runs on the stage too
 
 $script:passed = 0; $script:failed = 0
 function Ok([bool] $cond, [string] $name, $detail) {

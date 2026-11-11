@@ -17,14 +17,14 @@ function L([string] $tag, [string] $msg) { $script:t++; "[2026-11-03 01:00:{0:D2
 function U([string] $msg) { $script:t++; "[2026-11-03 01:00:00.{0:D7}] $msg" -f $script:t }
 function D([string] $msg) { L 'Difficulty' $msg }
 
-function Run([string[]] $log, [string] $scenario) {
+function Run([string[]] $log, [string] $scenario, [string] $target = 'host') {
     $p = Join-Path $tmp "$scenario-$([guid]::NewGuid().ToString('N').Substring(0, 6)).log"
     Set-Content $p $log
-    $out = & pwsh -NoProfile -NonInteractive -File $check -Log $p -Scenario $scenario 2>&1 | Out-String
+    $out = & pwsh -NoProfile -NonInteractive -File $check -Log $p -Scenario $scenario -Target $target 2>&1 | Out-String
     return @{ Code = $LASTEXITCODE; Out = $out }
 }
-function Expect([string[]] $log, [string] $scenario, [int] $code, [string] $name, [string] $mustSay) {
-    $r = Run $log $scenario
+function Expect([string[]] $log, [string] $scenario, [int] $code, [string] $name, [string] $mustSay, [string] $target = 'host') {
+    $r = Run $log $scenario $target
     $ok = $r.Code -eq $code -and (-not $mustSay -or $r.Out -match $mustSay)
     if ($ok) { $script:passed++ } else { $script:failed++; Write-Host "FAIL $name (exit $($r.Code), want $code)"; Write-Host ($r.Out -split "`n" | Where-Object { $_ -match 'FAIL|warn' } | Out-String) }
 }
@@ -169,6 +169,10 @@ Expect ($cold -replace 'raw=0\.1600 applied=0\.0400', 'raw=0.1600 applied=0.0450
 Expect ($cold -replace 'raw=0\.1600 applied=0\.0400', 'raw=0.1600 applied=0.0420') 'cold' 0 'cold: ratio 0.2625 (within 10%) passes' 'All checks passed'
 Expect ($cold -replace 'factor=0\.25', 'factor=0.5') 'cold' 1 'cold: another factor -> fails' 'factor'
 Expect ($cold -replace 'avg_ms=0\.031', 'avg_ms=0.250') 'cold' 1 'cold: a slow poll -> fails' 'avg_ms'
+# -Target vm: the same log passes; a slow poll is soft (the VM's game shares the CPU); anything else still fails.
+Expect $cold 'cold' 0 'cold -Target vm: passes as written' 'All checks passed\.' 'vm'
+Expect ($cold -replace 'avg_ms=0\.031', 'avg_ms=0.250') 'cold' 0 'cold -Target vm: a slow poll is soft' '(?s)warn: COLD poll avg_ms=0\.250.*All checks passed \(1 soft' 'vm'
+Expect ($cold -replace 'factor=0\.25', 'factor=0.5') 'cold' 1 'cold -Target vm: another factor still fails' 'factor' 'vm'
 Expect ($cold -replace 'clock=core', 'clock=os') 'cold' 1 'cold: measured with os.clock -> fails' 'clock'
 Expect ($cold + @(D 'COLD raw=0.2000 applied=0.0500 factor=0.25 polls=50 writes=48 players=1 avg_ms=0.031 clock=os')) 'cold' 1 'cold: one COLD line with clock=os -> fails' 'clock'
 Expect (Without $cold 'COLD raw') 'cold' 1 'cold: no COLD line -> fails' 'COLD'

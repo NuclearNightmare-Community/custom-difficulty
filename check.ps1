@@ -51,16 +51,21 @@
   When the driver reports NOTSHOWN (it couldn't make the case happen: an enemy didn't attack in time, the player
   wasn't outdoors, no frostbite tick came), or a cold run's game never cooled (raw=0), the run is not shown: exit 2,
   never "passed".
+  -Target vm judges a log from run.ps1 -Target vm. The VM's game shares the CPU with the host, so the one timing
+  assertion (the cold poll's avg_ms under 0.1 in cold and cold-whiteout) is soft there ("warn:", never failing);
+  everything else is judged as on the host.
 .EXAMPLE
   ./check.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario ready
   ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.2-build26512322\difficulty\old-core.log -Scenario old-core
+  ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.2-build26512322\difficulty\default.vm.log -Scenario default -Target vm
 #>
 param(
     [string] $Instance,
     [string] $Log,
     [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit', 'scaled', 'flip', 'per-enemy', 'default', 'clash',
                  'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout')]
-    [string] $Scenario = 'ready'
+    [string] $Scenario = 'ready',
+    [ValidateSet('host', 'vm')] [string] $Target = 'host'
 )
 if ($Scenario -eq 'unit') { & pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'test.ps1'); exit $LASTEXITCODE }
 . (Join-Path $PSScriptRoot 'deploy-lib.ps1')
@@ -242,6 +247,7 @@ if ($Scenario -in 'cold', 'cold-zero', 'cold-whiteout' -and -not $driverNotShown
             else { Fail ("COLD applied/raw = {0:N4}, want 0.25 +- 10% (raw {1}, applied {2})" -f $ratio, $raw, $applied) }
             $avgN = 0.0
             if ([double]::TryParse($avg, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$avgN) -and $avgN -lt 0.1) { Pass "COLD poll avg_ms=$avg under 0.1" }
+            elseif ($Target -eq 'vm') { Write-Host "warn: COLD poll avg_ms=$avg, want under 0.1 (soft in the VM: its game shares the CPU with the host)"; $warned++ }
             else { Fail "COLD poll avg_ms=$avg, want under 0.1" }
         } else {
             if ($applied -eq 0) { Pass "COLD applied=0 with raw $raw (cold 0: no rise)" } else { Fail "COLD applied=$applied, want 0 (cold 0)" }

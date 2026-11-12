@@ -17,7 +17,7 @@
 #>
 param(
     [Parameter(Mandatory)] [string] $Workspace,
-    [string] $Copy = 'v8.2-build26512322',
+    [string] $Copy = 'v8.2.3-build26601774',
     [string[]] $Scenarios = @('dp-grab', 'dp-grab-vanilla', 'dp-revive'),
     [int] $RunMemoryGB = 8,
     [int] $RestoreMemoryGB = 0     # 0 = whatever NNB had before

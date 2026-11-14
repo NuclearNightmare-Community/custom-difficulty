@@ -70,10 +70,11 @@ param(
 if ($Scenario -eq 'unit') { & pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'test.ps1'); exit $LASTEXITCODE }
 . (Join-Path $PSScriptRoot 'deploy-lib.ps1')
 $CoreName = 'Nucleus'
+$CoreId = 'nuclearnightmare-community.nucleus'
 $manifest = Get-Content (Join-Path $PSScriptRoot 'mod.json') -Raw | ConvertFrom-Json
 $name = $manifest.name
 $C = [regex]::Escape($name); $K = [regex]::Escape($CoreName)
-$range = ($manifest.dependsOn | Where-Object id -eq 'nuclearnightmare-community.nucleus').version
+$range = ($manifest.dependsOn | Where-Object id -eq $CoreId).version
 $needVer = $range.TrimStart('^')
 $NeedRx = [regex]::Escape($needVer)
 if (-not $Log) {

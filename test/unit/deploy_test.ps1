@@ -47,8 +47,8 @@ Eq (Get-ModsTxtState -Lines $stock -Name 'Nucleus') 'absent' 'state: absent'
 
 # ---------------------------------------------------------------- mod.json and main.lua agree
 $m = Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json
-Ok ($m.id -eq 'difficulty' -and $m.name -eq 'Difficulty' -and $m.version -eq '0.1.0' -and $m.scope -eq 'all') 'mod.json: id, name, version, scope'
-Ok ($m.dependsOn[0].id -eq 'nucleus' -and $m.dependsOn[0].version -eq '^0.4.0') 'mod.json: dependsOn nucleus ^0.4.0'
+Ok ($m.id -eq 'nuclearnightmare-community.difficulty' -and $m.name -eq 'Difficulty' -and $m.version -eq '0.1.0' -and $m.scope -eq 'all') 'mod.json: id, name, version, scope'
+Ok ($m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '^0.4.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus ^0.4.0'
 Ok ($m.ue4ss -eq 'v3.0.1-1181-g83330635' -and $m.game.version -eq 'V8.2.3' -and $m.game.build -eq '26601774') 'mod.json: ue4ss and game build'
 $mainLua = Get-Content (Join-Path $repo 'Scripts\main.lua') -Raw
 Ok ($mainLua -match 'local ME, CORE, NEED = "Difficulty", "Nucleus", "0\.4\.0"') 'main.lua: NEED = dependsOn minimum (0.4.0)'
@@ -80,7 +80,7 @@ try {
     $modsTxt = Join-Path $mods 'mods.txt'
     $coreJson = Join-Path $mods 'Nucleus\mod.json'
     $dest = Join-Path $mods 'Difficulty'
-    function Set-Core([string] $version, [string] $id = 'nucleus') { Set-Content $coreJson "{ `"id`": `"$id`", `"name`": `"Nucleus`", `"version`": `"$version`" }" }
+    function Set-Core([string] $version, [string] $id = 'nuclearnightmare-community.nucleus') { Set-Content $coreJson "{ `"id`": `"$id`", `"name`": `"Nucleus`", `"version`": `"$version`" }" }
     # Each deploy runs in its own pwsh (it ends with exit), with Get-Process stubbed: a real game may be running.
     function Deploy([string[]] $a) {
         $cmd = "function Get-Process { }; & '$(Join-Path $repo 'deploy.ps1')' -Instance '$inst' $($a -join ' '); exit `$LASTEXITCODE"
@@ -119,7 +119,7 @@ try {
     Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.2\.0 is installed') 'deploy -Test -PreCore: core 0.2.0 refused' $d.Out
     Set-Core '0.4.0' 'markers'
     $d = Deploy @()
-    Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest \(id 'markers', expected 'nucleus'\)") 'deploy: wrong id -> refused' $d.Out
+    Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest \(id 'markers', expected 'nuclearnightmare-community\.nucleus'\)") 'deploy: wrong id -> refused' $d.Out
     Set-Content $coreJson 'not json'
     $d = Deploy @()
     Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest") 'deploy: unreadable core mod.json -> refused' $d.Out

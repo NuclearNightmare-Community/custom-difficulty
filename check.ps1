@@ -73,7 +73,7 @@ $CoreName = 'Nucleus'
 $manifest = Get-Content (Join-Path $PSScriptRoot 'mod.json') -Raw | ConvertFrom-Json
 $name = $manifest.name
 $C = [regex]::Escape($name); $K = [regex]::Escape($CoreName)
-$range = ($manifest.dependsOn | Where-Object id -eq $CoreName.ToLowerInvariant()).version
+$range = ($manifest.dependsOn | Where-Object id -eq 'nuclearnightmare-community.nucleus').version
 $needVer = $range.TrimStart('^')
 $NeedRx = [regex]::Escape($needVer)
 if (-not $Log) {

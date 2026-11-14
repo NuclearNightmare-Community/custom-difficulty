@@ -36,7 +36,7 @@ param([string] $Instance, [switch] $Staged)
 if (-not $Staged) { Write-Host 'core stub: not staged'; exit 1 }
 $mods = Join-Path $Instance 'NuclearNightmare\Binaries\Win64\ue4ss\Mods'
 New-Item -ItemType Directory -Force (Join-Path $mods 'Nucleus') | Out-Null
-Set-Content (Join-Path $mods 'Nucleus\mod.json') '{ "id": "nucleus", "name": "Nucleus", "version": "0.6.0" }'
+Set-Content (Join-Path $mods 'Nucleus\mod.json') '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.6.0" }'
 Set-Content (Join-Path $Instance 'NuclearNightmare\Content\Paks\LogicMods\Nucleus.pak') 'pak'
 $txt = Join-Path $mods 'mods.txt'
 $lines = @(Get-Content $txt | Where-Object { $_ -notmatch '^\s*Nucleus\s*:' })

@@ -16,7 +16,7 @@ local okJ, m = pcall(J.decode, text)
 ok(okJ, "mod.json parses", m)
 if not okJ then H.done() end
 
-eq(m.id, "difficulty", "id")
+eq(m.id, "nuclearnightmare-community.difficulty", "id")
 eq(m.name, "Difficulty", "name")
 eq(m.version, "0.1.0", "version")
 ok(tostring(m.version):match("^%d+%.%d+%.%d+$"), "version is semver")
@@ -25,7 +25,7 @@ eq(m.game and m.game.version, "V8.2.3", "game.version")
 eq(m.game and m.game.build, "26601774", "game.build")
 eq(m.ue4ss, "v3.0.1-1181-g83330635", "ue4ss pinned")
 ok(type(m.dependsOn) == "table" and #m.dependsOn == 1, "one dependency")
-eq(m.dependsOn[1].id, "nucleus", "dependsOn nucleus")
+eq(m.dependsOn[1].id, "nuclearnightmare-community.nucleus", "dependsOn nuclearnightmare-community.nucleus")
 eq(m.dependsOn[1].version, "^0.4.0", "dependsOn ^0.4.0")
 ok(not text:lower():find("infection", 1, true), "no Infection Chance anywhere in mod.json (v2)")
 

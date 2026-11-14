@@ -51,6 +51,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'deploy-lib.ps1')
 
+$CoreId   = 'nuclearnightmare-community.nucleus' # core's mod id (distribution story 13, mod-ids.md)
 $CoreName = 'Nucleus'   # core's folder and mods.txt name: the one place this script spells it
 $PreCoreRange = '^0.3.0' # -PreCore: the core before the one dependsOn names (dev only)
 $here     = $PSScriptRoot
@@ -93,8 +94,8 @@ if ($Remove) {
 }
 
 # Core: installed, enabled, really core, and a version dependsOn accepts (or, with -PreCore, ^0.3.0).
-$dep = @($manifest.dependsOn | Where-Object { $_.id -eq $CoreName.ToLowerInvariant() })[0]
-if (-not $dep) { throw "mod.json has no dependsOn entry for $($CoreName.ToLowerInvariant())" }
+$dep = @($manifest.dependsOn | Where-Object { $_.id -is [string] -and $_.id.ToLowerInvariant() -eq $CoreId })[0]
+if (-not $dep) { throw "mod.json has no dependsOn entry for $CoreId" }
 $coreJson = Join-Path $modsDir "$CoreName\mod.json"
 $problem = $null
 $coreVersion = $null

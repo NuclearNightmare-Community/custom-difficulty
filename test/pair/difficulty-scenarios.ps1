@@ -175,7 +175,7 @@ $script:DpCoreName = 'Nucleus'   # core's folder name (the one place this file s
 $script:DpCorePackage = Join-Path $Workspace "mods\$DpCoreName\build\package"
 $script:DpKnobs = 'enemyDamage=25'   # with the Nightmare lobby: a Meek grab at 100 HP is survivable (E 25), the game's is an execution
 
-# Core's package must exist and satisfy Difficulty's dependsOn (^ rules: 0.x, same minor, at least the patch).
+# Core's package must exist and satisfy Difficulty's dependsOn (core reads the caret as a minimum: have >= need).
 $script:DpD5Prereq = {
     $mj = Join-Path $DpCorePackage "Mods\$DpCoreName\mod.json"
     if (-not (Test-Path $mj)) { throw "No $DpCoreName package at $DpCorePackage; build it with its build.ps1 (not while a game runs)." }
@@ -184,7 +184,7 @@ $script:DpD5Prereq = {
     $range = @($DpManifest.dependsOn)[0].version
     $need = $range.TrimStart('^')
     $h = $have -split '\.' | ForEach-Object { [int]$_ }; $n = $need -split '\.' | ForEach-Object { [int]$_ }
-    $okV = if ($n[0] -eq 0) { $h[0] -eq 0 -and $h[1] -eq $n[1] -and $h[2] -ge $n[2] } else { $h[0] -eq $n[0] -and ($h[1] -gt $n[1] -or ($h[1] -eq $n[1] -and $h[2] -ge $n[2])) }
+    $okV = $h[0] -gt $n[0] -or ($h[0] -eq $n[0] -and ($h[1] -gt $n[1] -or ($h[1] -eq $n[1] -and $h[2] -ge $n[2])))
     if (-not $okV) { throw "$DpCoreName package $have does not satisfy $DpName's dependsOn $range." }
 }
 

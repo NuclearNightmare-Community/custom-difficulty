@@ -6,9 +6,10 @@ Version 0.1.0: the skeleton (story 1) connects to Nucleus (core) and works out p
 Story 3 adds enemy damage on the host and survivable grabs for the host's own player; story 4 adds cold, frostbite and
 reinforcement tokens on the host; story 5 adds survivable grabs on modded clients (below). The knob values have
 no player-facing source yet: until the rows and presets (stories 6 and 7) they come only from a dev file, so a
-normal install leaves every knob Default and changes nothing. Targets V8.2 (build 26512322) with the pinned UE4SS
+normal install leaves every knob Default and changes nothing, except the soft-lock recovery (story 5, every machine
+with the mod, own player only). Targets V8.2 (build 26512322) with the pinned UE4SS
 `v3.0.1-1181-g83330635`, and needs Nucleus `^0.12.0` (story 5: core's host replicated state and player presence,
-`core.net`; for 0.x the caret means 0.12.x).
+`core.net`): Nucleus 0.12.0 or later (core reads the caret as a minimum).
 
 ## Install
 
@@ -55,7 +56,8 @@ runtime refuse core 0.3.0.
   the same way only when core's player presence says its machine runs a compatible Difficulty (below); any other
   victim keeps the game's choice.
 - Everything waits for the match to start (`UpdateFriendlyFire` in this world), acts only on the host, and does
-  nothing at all for a knob that is Default.
+  nothing at all for a knob that is Default. Two exceptions (story 5): a modded client's grab on its own player, from
+  the host's values, and the soft-lock recovery, on every machine with the mod for its own player, Default knobs too.
 - **Cold Exposure** (`cold`, the freeze rate in % of Normal's): one 250 ms game-thread poll on the host. The match's
   game state is held as a core weak handle (taken at the match start). On a match's first poll and every 8th poll
   (2 s) the poll discovers the characters: the game state's `PlayerArray`, each player state's pawn, live

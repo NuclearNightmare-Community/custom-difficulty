@@ -348,7 +348,9 @@ local function installGrabHooks(noInfect)
             if isMe(victim) then S.grabsOnMe = S.grabsOnMe + 1 S.ownGrabAt = { t = os.clock(), n = 0, seq = S.seq } end
             if isOther(victim) then S.hostGrabAt = { t = os.clock(), n = 0, seq = S.seq } end
             local c = S.case
-            if c and valid(attacker) and pathOf(attacker) == c.actor then c.grabs = (c.grabs or 0) + 1 c.lastGrab = os.clock() end
+            -- A case counts only grabs on its own target (a Meek sent at B can pick the host instead).
+            local onTarget = (c and c.target == "me") and isMe(victim) or (c and c.target ~= "me" and isOther(victim))
+            if c and onTarget and valid(attacker) and pathOf(attacker) == c.actor then c.grabs = (c.grabs or 0) + 1 c.lastGrab = os.clock() end
         end)
     end
 end
@@ -569,6 +571,20 @@ local function buildHostSpawn()
     waitMatch()
     step("other present", function() return function() return other() ~= nil end, 600, "the other player's character" end)
     waitFile("bready", 600)
+    -- Spawn only after the lobby countdown: Difficulty acts from its match start (UpdateFriendlyFire), and the lobby
+    -- runs on the match map, so waitMatch() alone returns during the countdown (pair runs 2026-11-15).
+    step("match started", function()
+        return function()
+            local ok, st = pcall(function() return gameState()["StartedGame?"] end)
+            return ok and st == true
+        end, 600, "StartedGame?"
+    end)
+    wait("after the start", 10)
+    step("difficulty after the start", function()
+        local ok, d = pcall(function() return num(gameState().Diffculty) end)
+        S.diff = ok and d or S.diff
+        say("STARTED Diffculty=%s", tostring(d))
+    end)
     step("hooks", function() installGrabHooks(true) S.guard = true end)
     for _, c in ipairs(SPAWN_CASES) do
         local label = c.name .. " on B"

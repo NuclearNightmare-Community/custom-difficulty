@@ -112,16 +112,17 @@ function M.hit(stock, values, d, row, kind, hp, rng)
     return { stock = stock, scaled = scaled, rolled = rolled, applied = applied, new = new, planned = planned }
 end
 
--- grab(hp, values, d, row, mine) -> { E, game, decision, flip } or nil (unknown difficulty). mine: the victim is
--- this machine's own player (the only victim whose decision the host changes in v1); for any other victim the
--- recorded decision is the game's. flip is the temporary Health, or nil when no change is needed.
-function M.grab(hp, values, d, row, mine)
+-- grab(hp, values, d, row, spare) -> { E, game, decision, flip } or nil (unknown difficulty). spare: this machine may
+-- change the victim's decision (story 5: the host for its own player and for a client whose machine runs a compatible
+-- Difficulty; a modded client for its own player); for any other victim the recorded decision is the game's. flip is
+-- the temporary Health, or nil when no change is needed.
+function M.grab(hp, values, d, row, spare)
     local s = M.standard(d)
     local E = M.expected(values, d, row)
     if not s or not E or type(hp) ~= "number" then return nil end
     local game = M.decide(hp, s)
     local wanted = M.decide(hp, E)
-    local decision = mine and wanted or game
+    local decision = spare and wanted or game
     local flip = (decision ~= game) and M.flipValue(decision, d) or nil
     return { E = E, game = game, decision = decision, flip = flip }
 end

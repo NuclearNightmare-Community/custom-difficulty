@@ -4,10 +4,12 @@
 -- tokens.lua, wired in hits.lua; one host poll started here). Until stories 6 and 7, the knob values come only from
 -- dev.lua (deploy.ps1 -Test -Knobs), so a release (no dev.lua) leaves every knob Default and changes nothing.
 -- Holds no UObject between callbacks (AGENTS.md): world.lua keeps only world names and booleans. Every hook body and
--- every call into core runs under pcall, with one log line per failure.
-local ME, CORE, NEED = "Difficulty", "Nucleus", "0.4.0"
+-- every call into core runs under pcall, with one log line per failure. Story 5: survivable grabs on modded clients
+-- through core.net (core 0.12.0: host replicated state and player presence); the mod's own id comes from mod.json.
+local ME, CORE, NEED = "Difficulty", "Nucleus", "0.12.0"
 local VERSION = "0.1.0"
 local PRE_NEED = "0.3.0" -- dev only (deploy.ps1 -Test -PreCore writes Scripts/dev.lua): core before 0.4.0, no UI
+local UI_CORE = "0.4.0" -- the first core with the UI (the dev core mode's WARN names it)
 
 local source = debug.getinfo(1, "S").source:gsub("^@", "")
 local scriptDir = source:match("^(.*)[/\\]") or "."
@@ -20,6 +22,25 @@ if not ok then print(("[%s] %s is not installed. %s will not run.\n"):format(ME,
 
 local world = require("world")
 local hits = require("hits")
+local net = require("net")
+
+-- ---------------------------------------------------------------- mod.json (the id for core.net; never hard-coded)
+-- Read once, bounded; data only. A problem is remembered and logged once connected (the host then spares only its own
+-- player, and a client stays inactive).
+local function loadManifest()
+    local f = io.open(scriptDir .. "/../mod.json", "rb")
+    if not f then return {}, "mod.json not found next to Scripts" end
+    local text = f:read(net.MAX_MANIFEST + 1)
+    f:close()
+    if type(text) ~= "string" or #text > net.MAX_MANIFEST then return {}, "mod.json is empty or over " .. net.MAX_MANIFEST .. " bytes" end
+    local m = net.manifest(text)
+    if type(m.id) ~= "string" or not m.id:match("^[a-z0-9][a-z0-9%-]*%.[a-z0-9][a-z0-9%-]*$") or #m.id > 200 then
+        return m, "mod.json has no usable id (" .. tostring(m.id) .. ")"
+    end
+    if m.netCompat ~= nil and not net.parse(m.netCompat) then return m, "mod.json netCompat " .. tostring(m.netCompat) .. " is not x.y.z" end
+    return m
+end
+local manifest, manifestProblem = loadManifest()
 
 -- ---------------------------------------------------------------- dev.lua (deploy.ps1 -Test; never shipped)
 -- Optional. Data only: loaded with an empty environment; two booleans and the knobs string are read from it (the knobs
@@ -63,7 +84,19 @@ local function start(core)
     end
     if devProblem then warnOnce("dev", "%s", devProblem) end
     if dev.preCore then
-        say("warn", "running on %s %s before %s (dev only): no UI", CORE, tostring(core.version), NEED)
+        say("warn", "running on %s %s before %s (dev only): no UI", CORE, tostring(core.version), UI_CORE)
+    end
+
+    -- Story 5: core.net for client grabs and the host's spare decision. One line when it can't be used.
+    local okNet, coreNet = pcall(function() return core.net end)
+    if not okNet or type(coreNet) ~= "table" then coreNet = nil end
+    local netMissing = net.missing(core.has)
+    if not netMissing and not coreNet then netMissing = "net" end
+    if not netMissing and manifestProblem then netMissing = "mod.json id" end
+    if netMissing then
+        -- WARN, except in the dev core mode (a core before 0.4.0 has no net at all; its one WARN is the pre-core line)
+        say(dev.preCore and "info" or "warn", "%s %s has no %s%s: survivable grabs only for the host's own player; as a client, inactive", CORE,
+            tostring(core.version), netMissing, manifestProblem and (" (" .. manifestProblem .. ")") or "")
     end
 
     local W = world.new()
@@ -82,6 +115,8 @@ local function start(core)
         ref = type(core.ref) == "function" and core.ref or nil,
         deref = type(core.deref) == "function" and core.deref or nil,
         free = type(core.free) == "function" and core.free or nil,
+        -- story 5: core.net, this mod's own id, version and netCompat (mod.json; nil: core's default)
+        net = coreNet, modId = manifest.id, version = VERSION, netCompat = manifest.netCompat, netMissing = netMissing,
     }
     -- Evaluates one world: plain values from world.lua, cached by full name; one WORLD line per world.
     local function evaluate(w, how)
@@ -92,7 +127,7 @@ local function start(core)
         currentName = e.name
         if fresh then world.forget() end -- alive()'s cached KSL lookups are found again per world
         -- A fresh world is a new match state for hits.lua; its Blueprint hooks follow the world.
-        local okW, errW = pcall(H.onWorld, H, e.name, e.host, fresh)
+        local okW, errW = pcall(H.onWorld, H, e.name, e.host, fresh, e.server == false)
         if not okW then say("error", "hits for %s failed: %s", e.map, tostring(errW)) end
         if fresh and problem then say("warn", "isHost for %s: %s; host=false for this world", e.map, problem) end
         if fresh then

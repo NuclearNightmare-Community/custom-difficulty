@@ -39,7 +39,7 @@ local function boot(opts)
     W = F.new()
     F.install(W)
     S = { dev = opts.dev, connects = {} }
-    for _, m in ipairs({ "world", "hits", "damage", "knobs", "env", "tokens", "nucleus.client" }) do package.loaded[m] = nil end
+    for _, m in ipairs({ "world", "hits", "damage", "knobs", "env", "tokens", "net", "nucleus.client" }) do package.loaded[m] = nil end
     package.preload["nucleus.client"] = nil
     if opts.client ~= false then
         package.preload["nucleus.client"] = function()
@@ -53,6 +53,12 @@ local function boot(opts)
         if tostring(path):match("[/\\]dev%.lua$") then
             if S.dev == nil then return nil, path .. ": No such file or directory" end
             return { close = function() end }
+        end
+        -- opts.manifest: the text of mod.json (false: no file); nil: the repo's own mod.json
+        if opts.manifest ~= nil and tostring(path):match("[/\\]mod%.json$") then
+            if opts.manifest == false then return nil, path .. ": No such file or directory" end
+            local text = opts.manifest
+            return { read = function() return text end, close = function() end }
         end
         return realOpen(path, mode)
     end
@@ -68,7 +74,8 @@ local function boot(opts)
     chunk()
 end
 local function newCore(version)
-    return { name = "Nucleus", version = version or "0.4.0", log = newLog("Difficulty") }
+    local N = F.net()
+    return { name = "Nucleus", version = version or "0.12.0", log = newLog("Difficulty"), net = N, has = N.has }
 end
 -- As core's connect: onReady only when the core satisfies need; otherwise core's one ERROR line and onFail.
 local function ready(core)
@@ -100,11 +107,11 @@ do
     boot()
     eq(#S.connects, 1, "connect called once")
     local c = S.connects[1]
-    ok(c.mod == "Difficulty" and c.need == "0.4.0", "connect{ mod = 'Difficulty', need = '0.4.0' }", tostring(c.mod) .. " " .. tostring(c.need))
+    ok(c.mod == "Difficulty" and c.need == "0.12.0", "connect{ mod = 'Difficulty', need = '0.12.0' }", tostring(c.mod) .. " " .. tostring(c.need))
     eq(#W.printed, 0, "nothing printed during main.lua")
     eq(#W.loadMapHooks, 0, "no hook before connect succeeds")
     -- old core: connect logs the one ERROR line itself; onFail adds nothing and registers nothing.
-    c.onFail("Nucleus 0.3.0 is not compatible; Difficulty needs 0.4.0 (^ rules). Update Nucleus.")
+    c.onFail("Nucleus 0.3.0 is not compatible; Difficulty needs 0.12.0 (^ rules). Update Nucleus.")
     eq(#W.printed, 0, "onFail adds no line (connect logged the cause)")
     eq(#W.loadMapHooks, 0, "onFail: no hook registered")
 end
@@ -118,11 +125,11 @@ end
 -- ---------------------------------------------------------------- ready on the menu, then a hosted match
 do
     boot()
-    local core = newCore("0.4.0")
+    local core = newCore("0.12.0")
     ready(core)
     eq(#W.loadMapHooks, 1, "one LoadMap hook after connect")
     eq(count("^%[Difficulty%] WORLD host=false standalone=true map=NewMainMenu$"), 1, "the menu world evaluated at ready")
-    eq(count("^%[Difficulty%] READY version=0%.1%.0 Nucleus=0%.4%.0 need=0%.4%.0$"), 1, "READY line")
+    eq(count("^%[Difficulty%] READY version=0%.1%.0 Nucleus=0%.12%.0 need=0%.12%.0$"), 1, "READY line")
     local iw, ir
     for i, l in ipairs(W.printed) do if l:find("WORLD", 1, true) then iw = iw or i end if l:find("READY", 1, true) then ir = i end end
     ok(iw and ir and iw < ir, "WORLD for the current world comes before READY")
@@ -182,7 +189,7 @@ do -- main.lua passes core's weak handles and clock into hits: a hosted cold mat
     local now = 1000
     local realClock = os.clock
     os.clock = function() return now end
-    local core = newCore("0.4.0")
+    local core = newCore("0.12.0")
     local refs, us = 0, 0
     local handles = {}
     core.ref = function(o) refs = refs + 1 handles[refs] = o return refs end
@@ -244,30 +251,30 @@ do
     W.loadMapHooks[1](nil, W.param(W.menu))
     eq(count("DEBUG WORLD again map=NewMainMenu"), 1, "debug: the repeat is a DEBUG line")
 end
-do -- dev.lua without preCore (what deploy -Test -PreCore writes on core 0.4.x) on core 0.4.0: connects, no pre-core WARN.
+do -- dev.lua without preCore (what deploy -Test -PreCore writes on core 0.4.x) on core 0.12.0: connects, no pre-core WARN.
     boot{ dev = "return { debug = true }" }
-    eq(S.connects[1].need, "0.4.0", "dev.lua without preCore: need 0.4.0")
-    ok(ready(newCore("0.4.0")), "dev.lua without preCore on core 0.4.0: connects")
+    eq(S.connects[1].need, "0.12.0", "dev.lua without preCore: need 0.12.0")
+    ok(ready(newCore("0.12.0")), "dev.lua without preCore on core 0.12.0: connects")
     eq(count("running on"), 0, "dev.lua without preCore: no pre-core WARN")
-    eq(count("READY version=0%.1%.0 Nucleus=0%.4%.0 need=0%.4%.0$"), 1, "dev.lua without preCore: READY need 0.4.0")
+    eq(count("READY version=0%.1%.0 Nucleus=0%.12%.0 need=0%.12%.0$"), 1, "dev.lua without preCore: READY need 0.12.0")
 end
-do -- preCore on core 0.4.0 would need 0.3.0, which 0.4.0 doesn't satisfy (0.x caret: same minor): the fake connect refuses.
+do -- preCore on core 0.12.0 would need 0.3.0, which 0.12.0 doesn't satisfy (0.x caret: same minor): the fake connect refuses.
     boot{ dev = "return { debug = true, preCore = true }" }
-    ok(not ready(newCore("0.4.0")), "preCore on core 0.4.0: connect refuses")
-    eq(#W.loadMapHooks, 0, "preCore on core 0.4.0: no hook")
-    eq(ours(), 1, "preCore on core 0.4.0: exactly one line")
+    ok(not ready(newCore("0.12.0")), "preCore on core 0.12.0: connect refuses")
+    eq(#W.loadMapHooks, 0, "preCore on core 0.12.0: no hook")
+    eq(ours(), 1, "preCore on core 0.12.0: exactly one line")
 end
-do -- normal need 0.4.0 on core 0.3.0: refused with core's line (the old-core scenario).
+do -- normal need 0.12.0 on core 0.3.0: refused with core's line (the old-core scenario).
     boot()
-    ok(not ready(newCore("0.3.0")), "core 0.3.0, need 0.4.0: refused")
-    eq(count("^%[Difficulty%] ERROR Nucleus 0%.3%.0 is not compatible; Difficulty needs 0%.4%.0 %(%^ rules%)%. Update Nucleus%. Difficulty will not run%.$"), 1, "old core: core's one line")
+    ok(not ready(newCore("0.3.0")), "core 0.3.0, need 0.12.0: refused")
+    eq(count("^%[Difficulty%] ERROR Nucleus 0%.3%.0 is not compatible; Difficulty needs 0%.12%.0 %(%^ rules%)%. Update Nucleus%. Difficulty will not run%.$"), 1, "old core: core's one line")
     eq(ours(), 1, "old core: exactly one line")
     eq(#W.loadMapHooks, 0, "old core: no hook")
 end
 do -- A broken dev.lua: ignored, one WARN after connect, normal need; nothing printed before connect.
     boot{ dev = "return {" }
     eq(#W.printed, 0, "broken dev.lua: nothing before connect")
-    eq(S.connects[1].need, "0.4.0", "broken dev.lua: need 0.4.0")
+    eq(S.connects[1].need, "0.12.0", "broken dev.lua: need 0.12.0")
     ready(newCore())
     eq(count("^%[Difficulty%] WARN dev%.lua could not be read"), 1, "broken dev.lua: one WARN")
     boot{ dev = "return 7" }
@@ -277,7 +284,7 @@ do -- A broken dev.lua: ignored, one WARN after connect, normal need; nothing pr
     ready(newCore())
     eq(count("WARN dev%.lua did not return a table"), 1, "dev.lua can't reach os (empty environment)")
     boot{ dev = "return { preCore = 'yes' }" }
-    eq(S.connects[1].need, "0.4.0", "preCore must be the boolean true")
+    eq(S.connects[1].need, "0.12.0", "preCore must be the boolean true")
 end
 do -- A failed connect with a broken dev.lua stays one line (the dev problem is never printed).
     boot{ dev = "return {" }
@@ -301,6 +308,16 @@ do
     W.loadMapHooks[1](nil, W.param(W.menu))
     eq(W.count(HASPERK), 0, "back to the menu: the Blueprint hooks are unregistered")
     eq(count("ERROR"), 0, "story 3 wiring: no ERROR")
+    -- Story 5: main.lua passes the client flag (IsServer false) to hits.onWorld: a client match world gets the grab
+    -- hooks, never the match start; a world whose IsServer fails gets none.
+    W.loadMapHooks[1](nil, W.param(W.world("/Game/Maps/SmallLoweIsland/SmallMap.SmallMap", "client")))
+    eq(W.count(HASPERK), 1, "a client match world: HasPerk hooked")
+    eq(W.count(UFF), 0, "a client match world: no UpdateFriendlyFire hook")
+    W.loadMapHooks[1](nil, W.param(W.menu))
+    W.serverFails = true
+    W.loadMapHooks[1](nil, W.param(W.world("/Game/Maps/SmallLoweIsland/SmallMap.SmallMap", "client")))
+    eq(W.count(HASPERK), 0, "IsServer fails: no grab hooks")
+    W.serverFails = false
 
     boot() -- a release: no dev.lua, so every knob is Default
     ready(newCore())
@@ -321,10 +338,82 @@ do
     eq(count("READY"), 1, "natives can't be hooked: still READY (isHost works)")
 end
 
+-- ---------------------------------------------------------------- story 5: core.net, the version gate, mod.json's id
+local UFF5 = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameState.BP_FirstPersonGameState_C:UpdateFriendlyFire"
+do -- a full core: no net line; the host publishes under mod.json's own id at the match start
+    boot{ dev = 'return { knobs = "enemyDamage=25" }' }
+    local core = newCore()
+    ready(core)
+    eq(count("has no net"), 0, "full core: no missing-feature line")
+    W.loadMapHooks[1](nil, W.param(W.match))
+    W.fire(UFF5, W.p(nil))
+    local keys = {}
+    for _, kv in ipairs(core.net.published) do keys[#keys + 1] = kv[1] .. "=" .. tostring(kv[2]) end
+    eq(table.concat(keys, ","), "nuclearnightmare-community.difficulty.enemyDamage=25,nuclearnightmare-community.difficulty.ver=1000,nuclearnightmare-community.difficulty.compat=1000",
+        "publish: ver, compat and the set knob under mod.json's id")
+    eq(count("^%[Difficulty%] NET published enemyDamage=25 ver=1000 compat=1000$"), 1, "publish: one NET line")
+end
+for _, missing in ipairs({ "net.publish", "net.read", "net.presence", "net.compatible", "net.versionsCompatible" }) do
+    boot{ dev = 'return { knobs = "enemyDamage=25" }' }
+    local core = newCore()
+    local feats = { ["net.publish"] = true, ["net.read"] = true, ["net.presence"] = true, ["net.compatible"] = true, ["net.versionsCompatible"] = true }
+    feats[missing] = nil
+    core.has = function(n) return feats[n] == true end
+    ready(core)
+    eq(count("^%[Difficulty%] WARN Nucleus 0%.12%.0 has no " .. missing:gsub("%.", "%%.") .. ": survivable grabs only for the host's own player; as a client, inactive$"), 1, "no " .. missing .. ": one line naming it")
+    eq(count("WARN"), 1, "no " .. missing .. ": nothing else")
+    W.loadMapHooks[1](nil, W.param(W.match))
+    W.fire(UFF5, W.p(nil))
+    eq(#core.net.published, 0, "no " .. missing .. ": nothing published")
+    eq(count("^%[Difficulty%] MATCH start "), 1, "no " .. missing .. ": the host's match still starts")
+end
+do -- core without has() at all, or without core.net
+    boot()
+    local core = newCore()
+    core.has = nil
+    ready(core)
+    eq(count("WARN Nucleus 0%.12%.0 has no net%.publish: "), 1, "no core.has: the first feature named")
+    boot()
+    core = newCore()
+    core.net = nil
+    ready(core)
+    eq(count("WARN Nucleus 0%.12%.0 has no net: "), 1, "no core.net: named")
+end
+do -- the dev core mode on a core without net: the net line is INFO (the pre-core WARN stays the only WARN)
+    boot{ dev = "return { preCore = true }" }
+    local core = newCore("0.3.0")
+    core.has, core.net = nil, nil
+    ready(core)
+    eq(count("WARN"), 1, "preCore without net: one WARN (the pre-core line)")
+    eq(count("^%[Difficulty%] Nucleus 0%.3%.0 has no net%.publish: "), 1, "preCore without net: the net line as INFO")
+end
+do -- mod.json without a usable id: named once; nothing published (the host spares only itself)
+    for _, case in ipairs({ { false, "mod%.json not found" }, { '{ "id": "Difficulty", "version": "0.1.0" }', "no usable id %(Difficulty%)" },
+                            { '{ "version": "0.1.0" }', "no usable id %(nil%)" },
+                            { '{ "id": "a.b", "version": "0.1.0", "netCompat": "x" }', "netCompat x is not x%.y%.z" } }) do
+        boot{ dev = 'return { knobs = "enemyDamage=25" }', manifest = case[1] }
+        local core = newCore()
+        ready(core)
+        ok(count("WARN Nucleus 0%.12%.0 has no mod%.json id %(.*" .. case[2]) == 1, "mod.json " .. tostring(case[1]) .. ": one line", table.concat(W.printed, " | "))
+        W.loadMapHooks[1](nil, W.param(W.match))
+        W.fire(UFF5, W.p(nil))
+        eq(#core.net.published, 0, "mod.json " .. tostring(case[1]) .. ": nothing published")
+    end
+end
+do -- a netCompat in mod.json is published as compat; a nested "id" is not taken for the mod's own
+    boot{ manifest = '{ "settings": { "x": { "id": "no" } }, "id": "nuclearnightmare-community.difficulty", "version": "0.1.0", "netCompat": "0.0.9" }' }
+    local core = newCore()
+    ready(core)
+    W.loadMapHooks[1](nil, W.param(W.match))
+    W.fire(UFF5, W.p(nil))
+    eq(core.net.published[1] and core.net.published[1][1], "nuclearnightmare-community.difficulty.ver", "a nested id is not taken")
+    eq(core.net.published[2] and core.net.published[2][2], 9, "netCompat 0.0.9: compat=9")
+end
+
 -- ---------------------------------------------------------------- the constants
 do
     local src = assert(realOpen(MAIN, "r")):read("a")
-    ok(src:find('local ME, CORE, NEED = "Difficulty", "Nucleus", "0.4.0"', 1, true), "main.lua: ME, CORE, NEED constants")
+    ok(src:find('local ME, CORE, NEED = "Difficulty", "Nucleus", "0.12.0"', 1, true), "main.lua: ME, CORE, NEED constants")
     ok(not src:find("HasAuthority", 1, true), "main.lua: isHost never from HasAuthority")
     ok(not src:find("LoopAsync", 1, true) and not src:find("ExecuteInGameThread%(") , "main.lua: no LoopAsync / ExecuteInGameThread")
 end

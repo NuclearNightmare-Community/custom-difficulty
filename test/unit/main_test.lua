@@ -244,7 +244,7 @@ do
     ok(type(env) == "table" and next(env) == nil, "dev.lua loaded with an empty environment")
     local core = newCore("0.3.0")
     ready(core)
-    eq(count("^%[Difficulty%] WARN running on Nucleus 0%.3%.0 before 0%.12%.0 %(dev only%): no UI$"), 1, "preCore: one pre-core WARN")
+    eq(count("^%[Difficulty%] WARN running on Nucleus 0%.3%.0 before 0%.4%.0 %(dev only%): no UI$"), 1, "preCore: one pre-core WARN")
     eq(count("WARN"), 1, "preCore: no other WARN")
     ok(core.log.debugEnabled == true, "debug = true turns DEBUG lines on")
     eq(count("READY version=0%.1%.0 Nucleus=0%.3%.0 need=0%.3%.0$"), 1, "preCore: READY names need 0.3.0")
@@ -308,6 +308,16 @@ do
     W.loadMapHooks[1](nil, W.param(W.menu))
     eq(W.count(HASPERK), 0, "back to the menu: the Blueprint hooks are unregistered")
     eq(count("ERROR"), 0, "story 3 wiring: no ERROR")
+    -- Story 5: main.lua passes the client flag (IsServer false) to hits.onWorld: a client match world gets the grab
+    -- hooks, never the match start; a world whose IsServer fails gets none.
+    W.loadMapHooks[1](nil, W.param(W.world("/Game/Maps/SmallLoweIsland/SmallMap.SmallMap", "client")))
+    eq(W.count(HASPERK), 1, "a client match world: HasPerk hooked")
+    eq(W.count(UFF), 0, "a client match world: no UpdateFriendlyFire hook")
+    W.loadMapHooks[1](nil, W.param(W.menu))
+    W.serverFails = true
+    W.loadMapHooks[1](nil, W.param(W.world("/Game/Maps/SmallLoweIsland/SmallMap.SmallMap", "client")))
+    eq(W.count(HASPERK), 0, "IsServer fails: no grab hooks")
+    W.serverFails = false
 
     boot() -- a release: no dev.lua, so every knob is Default
     ready(newCore())
@@ -339,9 +349,9 @@ do -- a full core: no net line; the host publishes under mod.json's own id at th
     W.fire(UFF5, W.p(nil))
     local keys = {}
     for _, kv in ipairs(core.net.published) do keys[#keys + 1] = kv[1] .. "=" .. tostring(kv[2]) end
-    eq(table.concat(keys, ","), "nuclearnightmare-community.difficulty.ver=1000,nuclearnightmare-community.difficulty.compat=1000,nuclearnightmare-community.difficulty.enemyDamage=25",
+    eq(table.concat(keys, ","), "nuclearnightmare-community.difficulty.enemyDamage=25,nuclearnightmare-community.difficulty.ver=1000,nuclearnightmare-community.difficulty.compat=1000",
         "publish: ver, compat and the set knob under mod.json's id")
-    eq(count("^%[Difficulty%] NET published ver=1000 compat=1000 enemyDamage=25$"), 1, "publish: one NET line")
+    eq(count("^%[Difficulty%] NET published enemyDamage=25 ver=1000 compat=1000$"), 1, "publish: one NET line")
 end
 for _, missing in ipairs({ "net.publish", "net.read", "net.presence", "net.compatible", "net.versionsCompatible" }) do
     boot{ dev = 'return { knobs = "enemyDamage=25" }' }

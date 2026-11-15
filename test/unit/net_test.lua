@@ -52,7 +52,7 @@ do
     local pairs_, problems = net.encode({ enemyDamage = 25.0, ["dmg.meek"] = 50.0, spread = 20, cold = 0, revives = 8 }, "0.1.0")
     local t = {}
     for _, kv in ipairs(pairs_) do t[#t + 1] = kv[1] .. "=" .. tostring(kv[2]) ok(math.type(kv[2]) == "integer", "encode: " .. kv[1] .. " is an integer") end
-    eq(table.concat(t, ","), "ver=1000,compat=1000,enemyDamage=25,dmg_meek=50", "encode: ver, compat, then only the set grab knobs")
+    eq(table.concat(t, ","), "enemyDamage=25,dmg_meek=50,ver=1000,compat=1000", "encode: only the set grab knobs, then ver and compat last")
     eq(#problems, 0, "encode: no problem")
     pairs_ = net.encode({}, "0.1.0")
     eq(#pairs_, 2, "encode: all Default -> ver and compat only")

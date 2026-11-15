@@ -34,7 +34,7 @@ Kept from before Nucleus 0.4.0 (the UI stories), for tests with core 0.3.0:
 
 `-PreCore` works only with `-Test`. It also accepts an installed core `^0.3.0` and, on such a core only, writes `Scripts/dev.lua`
 (`return { debug = true, preCore = true }`; git-ignored, never shipped). `main.lua` then connects with need 0.3.0 and
-logs one `WARN running on Nucleus <v> before 0.12.0 (dev only): no UI` (the net line is then INFO, as core 0.3.0 has no `core.net`). `-Test` alone writes
+logs one `WARN running on Nucleus <v> before 0.4.0 (dev only): no UI` (the net line is then INFO, as core 0.3.0 has no `core.net`). `-Test` alone writes
 `return { debug = true }` (DEBUG lines), as does `-Test -PreCore` on a core that already satisfies `^0.12.0`. Without `dev.lua`, the mod needs 0.12.0, so a normal deploy and a normal
 runtime refuse core 0.3.0.
 
@@ -97,7 +97,7 @@ runtime refuse core 0.3.0.
 ## Modded clients (story 5)
 
 - **What the host publishes.** At the match start (`UpdateFriendlyFire`), through core's host replicated state
-  (`core.net.publish`, keys `<mod.json id>.<name>`): `ver` and `compat` (Difficulty's own version and effective
+  (`core.net.publish`, keys `<mod.json id>.<name>`; the knobs first, `ver` and `compat` last): `ver` and `compat` (Difficulty's own version and effective
   `netCompat` as `major*1000000 + minor*1000 + patch`; `mod.json` sets no `netCompat`, so core's default
   `0.<minor>.0` applies), then `enemyDamage` and `dmg_meek`, `dmg_mimic`, `dmg_psycho`, `dmg_husk`, `dmg_watcher`,
   `dmg_stalker`, only those that are set (an absent knob key is Default). One `NET published ...` line. In solo play
@@ -105,7 +105,9 @@ runtime refuse core 0.3.0.
 - **The host's decision for a client victim.** Spared only when `core.net.compatible(<the victim pawn's
   PlayerState>, <mod.json id>)` is true (core's `netCompat` rule); otherwise the game's decision stands. The GRAB line
   says `victim=<local|client> spare=<yes|no(<reason>)>` (`absent`, `incompatible`, `no-world`, `core` without core's
-  Net, `error`). The execution floor and the survivable cap apply to every victim.
+  Net, `error`, `unpublished` when this match's publish didn't complete). The execution floor and the survivable cap
+  apply to every victim. At the host's back-off, `compat` is republished as 999999999, which every client rejects, so
+  modded clients stop flipping too.
 - **A modded client** acts only on its own player and only from the host's values, read with `core.net.read` at every
   grab (never cached) with each knob's own range: the five AI grabs at `HasPerk(0x27)`, the Stalker in a
   `NNEnemyAttackContext:BeginStalkerPresentation` pre-hook (the first call in `PlayDamageEvent`'s body, before its

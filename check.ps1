@@ -99,7 +99,7 @@ $always = @(
     '!\[script_hook\]'
     '!A function requiring userdata as param #1 was called without userdata'
 )
-$preCoreWarn = "\[$C\] WARN running on $K \d+\.\d+\.\d+ before $NeedRx \(dev only\): no UI\s*$"
+$preCoreWarn = "\[$C\] WARN running on $K \d+\.\d+\.\d+ before 0\.4\.0 \(dev only\): no UI\s*$" # 0.4.0: the first core with the UI
 $running = @(
     "\[$C\] CONNECT ok $K \d+\.\d+\.\d+ "
     "#1|\[$C\] READY version=$([regex]::Escape($manifest.version)) $K=\d+\.\d+\.\d+ need=\d+\.\d+\.\d+\s*$"

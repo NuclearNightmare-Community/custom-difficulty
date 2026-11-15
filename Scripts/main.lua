@@ -9,6 +9,7 @@
 local ME, CORE, NEED = "Difficulty", "Nucleus", "0.12.0"
 local VERSION = "0.1.0"
 local PRE_NEED = "0.3.0" -- dev only (deploy.ps1 -Test -PreCore writes Scripts/dev.lua): core before 0.4.0, no UI
+local UI_CORE = "0.4.0" -- the first core with the UI (the dev core mode's WARN names it)
 
 local source = debug.getinfo(1, "S").source:gsub("^@", "")
 local scriptDir = source:match("^(.*)[/\\]") or "."
@@ -83,7 +84,7 @@ local function start(core)
     end
     if devProblem then warnOnce("dev", "%s", devProblem) end
     if dev.preCore then
-        say("warn", "running on %s %s before %s (dev only): no UI", CORE, tostring(core.version), NEED)
+        say("warn", "running on %s %s before %s (dev only): no UI", CORE, tostring(core.version), UI_CORE)
     end
 
     -- Story 5: core.net for client grabs and the host's spare decision. One line when it can't be used.

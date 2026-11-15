@@ -73,8 +73,8 @@ function M.defaultNetCompat(version)
     return string.format("%d.0.0", a)
 end
 
--- encode(values, version, netCompat) -> pairs, problems. pairs is a list of { name, int } to publish: ver, compat
--- (netCompat nil: the default), then each grab knob that is set. A knob that isn't an integer is left out (Default for
+-- encode(values, version, netCompat) -> pairs, problems. pairs is a list of { name, int } to publish: each grab knob
+-- that is set, then ver and compat last (netCompat nil: the default), so a client never sees ver with only some knobs. A knob that isn't an integer is left out (Default for
 -- clients) with a problem line; a version that isn't strict x.y.z gives no pairs at all.
 function M.encode(values, version, netCompat)
     local problems = {}
@@ -84,7 +84,7 @@ function M.encode(values, version, netCompat)
         problems[1] = ("version %s / netCompat %s is not strict x.y.z; nothing published"):format(tostring(version), tostring(netCompat))
         return {}, problems
     end
-    local pairs_ = { { "ver", ver }, { "compat", compat } }
+    local pairs_ = {}
     for _, k in ipairs(M.KNOBS) do
         local v = values and values[k.knob]
         if v ~= nil then
@@ -93,6 +93,8 @@ function M.encode(values, version, netCompat)
             else pairs_[#pairs_ + 1] = { k.net, i } end
         end
     end
+    pairs_[#pairs_ + 1] = { "ver", ver }
+    pairs_[#pairs_ + 1] = { "compat", compat }
     return pairs_, problems
 end
 

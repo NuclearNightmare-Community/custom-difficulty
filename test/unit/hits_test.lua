@@ -1060,9 +1060,9 @@ do
     setup{ knobs = "enemyDamage=25;dmg.meek=50;spread=20;cold=50;revives=8", net = net }
     local t = {}
     for _, kv in ipairs(net.published) do t[#t + 1] = kv[1]:sub(#NETID + 1) .. "=" .. tostring(kv[2]) end
-    eq(table.concat(t, ","), "ver=1000,compat=1000,enemyDamage=25,dmg_meek=50", "publish: ver, compat and the set grab knobs only")
+    eq(table.concat(t, ","), "enemyDamage=25,dmg_meek=50,ver=1000,compat=1000", "publish: the set grab knobs only, then ver and compat last")
     for _, kv in ipairs(net.published) do ok(kv[1]:sub(1, #NETID) == NETID, "publish: under the mod's own id: " .. kv[1]) end
-    eq(count("^NET published ver=1000 compat=1000 enemyDamage=25 dmg_meek=50$"), 1, "publish: one NET line", dump())
+    eq(count("^NET published enemyDamage=25 dmg_meek=50 ver=1000 compat=1000$"), 1, "publish: one NET line", dump())
     -- A second UpdateFriendlyFire in the same world (a client can call it again): nothing published again.
     W.fire(GSC .. ":UpdateFriendlyFire", W.p(T.gs))
     eq(#net.published, 4, "publish: once per match")
@@ -1101,6 +1101,37 @@ do -- core without Net: no publish, the host spares only its own player
     eq(T.other.writes, 0, "core without Net: a client victim keeps the game's decision")
     eq(count("victim=client spare=no%(core%)$"), 1, "core without Net: spare=no(core)", dump())
     eq(#net.compatCalls, 0, "core without Net: compatible never called")
+end
+
+do -- a publish failing partway: no ver (the knobs go first), and the host spares no client
+    local net = F.net()
+    local real, n = net.publish, 0
+    net.publish = function(k, v) n = n + 1 if n == 2 then return false, "no-world" end return real(k, v) end
+    setup{ knobs = "enemyDamage=25;dmg.meek=50", diff = 0, net = net }
+    eq(net.values[NETID .. "ver"], nil, "partial publish: ver not published")
+    eq(net.values[NETID .. "enemyDamage"], 25, "partial publish: the first knob went out")
+    net.compat[T.ps[2]] = true
+    eq(meekGrab(T.other), "e", "partial publish: a compatible client keeps the game's decision")
+    eq(count("victim=client spare=no%(unpublished%)$"), 1, "partial publish: spare=no(unpublished)", dump())
+    T.now = T.now + 30
+    meekGrab(T.me)
+    eq(count("victim=local spare=yes$"), 1, "partial publish: the host still spares itself")
+end
+do -- the host backs off mid-match: compat republished as VER_MAX, so a client reading that state stops flipping
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    T.locked[T.meek._path] = T.me
+    lockedHit(T.meek, 100, { inner = function() T.me._hp = T.me._hp + 5 end }) -- a clash: backed off
+    eq(net.values[NETID .. "compat"], 999999999, "back-off: compat republished as VER_MAX")
+    eq(count("^NET compat=999999999 republished at the back%-off"), 1, "back-off: one NET line", dump())
+    lockedHit(T.meek, 100, { inner = function() T.me._hp = T.me._hp + 5 end })
+    eq(#net.published, 4, "back-off: republished once")
+    local state = {}
+    for k, v in pairs(net.values) do state[k] = v end
+    clientSetup(state)
+    eq(meekGrab(T.me), "e", "back-off: the client keeps the game's decision")
+    eq(T.me.writes, 0, "back-off: the client writes nothing")
+    eq(count("^host has no Difficulty, inactive %(incompatible%)$"), 1, "back-off: the client is inactive (incompatible)", dump())
 end
 
 -- The host's decision for a client victim (presence).

@@ -168,6 +168,7 @@ function A:reset(world)
         client = false, -- story 5: this world is a client's (onWorld)
         inactiveSaid = false, -- the client's inactive line, at most once per world
         oobSaid = {},   -- net key -> true: its out-of-bounds line was logged this match
+        published = false, -- the host published every grab input this match (publish); clients may be spared
     }
 end
 
@@ -206,6 +207,19 @@ function A:backOff(level, fmt, ...)
     self.st.backedOff = true
     self.o.say(level, fmt .. M.OFF, ...)
     self:releaseTokens()
+    self:retract()
+end
+
+-- retract(): at the host's first back-off in a match where it published, modded clients must stop flipping too (the
+-- host now keeps the game's decision). core.net has no unpublish, so compat is republished as VER_MAX: a netCompat above
+-- any version, which every client's versionsCompatible rejects (inactive, reason incompatible). Under pcall.
+function A:retract()
+    local st, o = self.st, self.o
+    if not st.published then return end
+    st.published = false
+    local ok, r, why = pcall(o.net.publish, o.modId .. ".compat", net.VER_MAX)
+    if ok and r == true then o.say("info", "NET compat=%d republished at the back-off: modded clients stop flipping", net.VER_MAX)
+    else o.say("warn", "NET could not withdraw the published values at the back-off (%s); modded clients may still flip", tostring(ok and why or r)) end
 end
 
 -- guard(label, fn): fn under pcall; a failure logs one ERROR and backs off.
@@ -215,7 +229,7 @@ function A:guard(label, fn)
         if not ok then
             local first = not self.st.backedOff
             self.st.backedOff = true
-            if first then self.o.say("error", "%s failed: %s" .. M.OFF, label, tostring(err)) self:releaseTokens()
+            if first then self.o.say("error", "%s failed: %s" .. M.OFF, label, tostring(err)) self:releaseTokens() self:retract()
             else self.o.say("debug", "%s failed again: %s", label, tostring(err)) end
         end
     end
@@ -531,6 +545,7 @@ function A:spareClient(v)
     local o = self.o
     if o.netMissing then return false, "core" end
     if not (o.net and o.modId) then return false, "core" end
+    if not self.st.published then return false, "unpublished" end
     local ps
     pcall(function() ps = v.PlayerState end)
     if not exists(ps) or not self:alive(ps) then return false, "no-player-state" end
@@ -787,6 +802,8 @@ function A:publish(values)
             names[#names + 1] = kv[1] .. "=" .. tostring(kv[2])
         end
         if #names > 0 then o.say("info", "NET published %s", table.concat(names, " ")) end
+        -- Only a complete set (ver and compat come last) lets the host spare a client.
+        self.st.published = #list > 0 and #names == #list
     end)
     if not ok then o.say("warn", "NET publish failed: %s; modded clients keep the game's grab decisions this match", tostring(err)) end
 end

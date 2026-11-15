@@ -1133,6 +1133,18 @@ do -- the host backs off mid-match: compat republished as VER_MAX, so a client r
     eq(T.me.writes, 0, "back-off: the client writes nothing")
     eq(count("^host has no Difficulty, inactive %(incompatible%)$"), 1, "back-off: the client is inactive (incompatible)", dump())
 end
+do -- a guarded hook body raises mid-match: guard's back-off also republishes compat as VER_MAX
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    eq(net.values[NETID .. "compat"], 1000, "guard fault: compat published at the start")
+    T.locked[T.meek._path] = T.me
+    T.H.plan = function() error("boom") end
+    lockedHit(T.meek, 100)
+    T.H.plan = nil
+    eq(count("^ERROR ApplyLockedDamage hook failed: .*boom; every knob off until the next match$"), 1, "guard fault: one ERROR", dump())
+    eq(net.values[NETID .. "compat"], 999999999, "guard fault: compat republished as VER_MAX")
+    eq(count("^NET compat=999999999 republished at the back%-off"), 1, "guard fault: one NET line", dump())
+end
 
 -- The host's decision for a client victim (presence).
 do -- a compatible client: spared; the host applies at most 99 (here 25)

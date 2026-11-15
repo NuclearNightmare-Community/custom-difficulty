@@ -2,13 +2,19 @@
 -- Story 3: enemy damage on the host and survivable grabs for the host's own player (attribution, Health
 -- compensation, the grab flip and its restore, the guards against other mods; the math is damage.lua's). Story 4:
 -- frostbite in the CallFrostbiteDamageEvent pre-hook (V8.2's native), cold in the host poll (env.lua), reinforcement
--- tokens at the match start, in the radio's server-event callbacks and in the poll (tokens.lua).
+-- tokens at the match start, in the radio's server-event callbacks and in the poll (tokens.lua). Story 5: survivable
+-- grabs on modded clients. The host publishes the grab inputs through core.net at the match start (net.lua) and spares
+-- a client victim only when core's presence says its machine runs a compatible Difficulty; a modded client flips only
+-- its own player's grab from the host's values (HasPerk(0x27) for the five AI grabs, the BeginStalkerPresentation
+-- pre-hook for the Stalker); every machine runs the 6 s recovery for its own player after an execution began.
 --
 -- Rules every hook body follows (spec "Always"):
 --   * it runs under pcall; a failure logs one ERROR and turns every knob off for the match (a pending temporary
 --     Health is still restored);
 --   * it returns unless this machine hosts the current world, the match started in it (UpdateFriendlyFire ran), the
---     mod hasn't backed off this match, and a knob the hit or grab depends on isn't Default (all Default: no write);
+--     mod hasn't backed off this match, and a knob the hit or grab depends on isn't Default (all Default: no write).
+--     The exceptions run on a modded client for its own player only: the grab flip (only from the host's published
+--     values, once they have arrived), its restore, and the recovery (which also runs after a back-off);
 --   * GameState.Diffculty is read live at each hit and grab, never written;
 --   * no UObject is kept between callbacks: victims and attackers are kept as paths and found again;
 --   * nothing runs per frame: one 250 ms game-thread poll (cold, token re-check; no work while those knobs are
@@ -17,6 +23,7 @@ local damage = require("damage")
 local knobs = require("knobs")
 local env = require("env")
 local tokens = require("tokens")
+local net = require("net")
 local M = {}
 
 local CTX_CDO = "/Script/NuclearNightmare.Default__NNEnemyAttackContext"
@@ -35,6 +42,12 @@ M.BAT_RANGE = 300     -- cm: a phase-3 bat this close to the victim made the hit
 M.STALKER_RANGE = 1000 -- cm: the nearest Stalker this close is the grab's attacker when nothing names it
 M.TOLERANCE = 0.01    -- HP: the guards' tolerance
 M.RESTORE_DELAY = 10  -- ms: the next-tick restore fallback
+M.CLIENT_RANGE = 1000 -- cm: on a client, the nearest grab-class AI this close is the grab's attacker when nothing names it
+M.RECOVER_DELAY = 6000 -- ms: the recovery check after an execution began on this machine's own player
+
+-- The Stalker's presentation (native, first call in PlayDamageEvent's body on every machine, before its Health
+-- test): a modded client's hook point for its own Stalker grab (the Stalker's HasPerk(0x27) runs on the host only).
+M.PRESENT = "/Script/NuclearNightmare.NNEnemyAttackContext:BeginStalkerPresentation"
 
 -- Native hooks (registered at ready; their classes are always loaded).
 M.NATIVES = {
@@ -115,8 +128,12 @@ A.__index = A
 -- (the KismetSystemLibrary:IsValid UFunction), opts.clock() (s), opts.rng() ([0, 1)), opts.seed(n), opts.micros()
 -- (core's microsecond clock, optional: the poll's cost; os.clock otherwise), opts.ref / deref / free (core's weak
 -- handles, optional: the match's game state for the poll; without them the poll falls back to a FindAllOf).
+-- Story 5: opts.net (core.net), opts.modId (Difficulty's own mod.json id), opts.version (VERSION), opts.netCompat
+-- (mod.json's netCompat, nil: core's default), opts.netMissing (the first core feature missing, nil when all are
+-- there: then the host spares only its own player and a client stays inactive).
 function M.new(opts)
     local self = setmetatable({ o = opts, hooks = {}, bpHooks = {}, queued = {}, st = nil, installFailed = true }, A) -- until install() hooks the natives
+    self.recover = { seq = 0 } -- grabs begun on this machine's own player (the recovery's "no other grab since")
     self.clock = opts.clock or os.clock
     self.micros = opts.micros
     self.rng = opts.rng or math.random
@@ -148,12 +165,23 @@ function A:reset(world)
         charRefs = nil, -- the characters between discoveries: { h = weak handle, path } (nil: discover next poll)
         sinceDiscovery = 0,
         isFP = {},      -- pawn path -> true when it is a BP_FirstPersonCharacter_C (the class check once per path)
+        client = false, -- story 5: this world is a client's (onWorld)
+        inactiveSaid = false, -- the client's inactive line, at most once per world
+        oobSaid = {},   -- net key -> true: its out-of-bounds line was logged this match
     }
 end
 
+-- The host gate: this machine hosts the current world and the match started in it.
 function A:active()
     local st = self.st
     return not self.installFailed and st.started and not st.backedOff and st.world ~= nil and st.world == self.o.world() and self.o.isHost() == true
+end
+
+-- The client grab gate (story 5): this machine is a client in the current world, the mod hasn't backed off. Whether
+-- the host's values are usable is decided at each grab (clientGrab).
+function A:clientActive()
+    local st = self.st
+    return not self.installFailed and st.client == true and not st.backedOff and st.world ~= nil and st.world == self.o.world() and self.o.isHost() ~= true
 end
 
 M.OFF = "; every knob off until the next match"
@@ -237,8 +265,11 @@ function A:rowOf(o) return M.CLASS_ROW[classOf(o) or ""] end
 
 -- The grab's attacker for victim v at HasPerk(0x27): the AI whose locked victim is v, else the Stalker (its
 -- presentation source, or the nearest live Stalker). Returns path, row, short class (any may be nil).
-function A:grabAttacker(v, vpath)
+-- client (story 5): HasPerk(0x27) on a client is always one of the five AI grabs, and GetLockedVictim may not be set
+-- there, so the fallback is the nearest of those AI within CLIENT_RANGE; nothing found: no row (enemy % 100).
+function A:grabAttacker(v, vpath, client)
     local ctx = cdo(CTX_CDO)
+    local best, bestD, bestShort
     for _, g in ipairs(M.GRABS) do
         for _, a in ipairs(FindAllOf(g.short) or {}) do
             local ap = pathOf(a)
@@ -246,8 +277,16 @@ function A:grabAttacker(v, vpath)
                 local lv
                 if ctx then pcall(function() lv = ctx:GetLockedVictim(a) end) end
                 if exists(lv) and pathOf(lv) == vpath then return ap, M.CLASS_ROW[g.short], g.short end
+                if client then
+                    local d = dist(a, v)
+                    if d and d <= M.CLIENT_RANGE and (not bestD or d < bestD) then best, bestD, bestShort = ap, d, g.short end
+                end
             end
         end
+    end
+    if client then
+        if best then return best, M.CLASS_ROW[bestShort], bestShort end
+        return nil, nil, nil
     end
     local src
     if ctx then pcall(function() src = ctx:GetStalkerPresentationSource(v) end) end
@@ -460,32 +499,196 @@ function A:onFrostPost()
 end
 
 -- HasPerk(0x27): the grab decision (knob-mechanics.md "Where to set it").
+-- On the host it decides for every victim (hostGrab); on a client only for its own player (clientGrab). Any other
+-- local grab only feeds the recovery.
 function A:onHasPerk(selfp, perk)
     if num(get(perk)) ~= 39 then return end
-    if not self:active() then return end
+    if self.installFailed then return end
     local v = get(selfp)
     if not self:alive(v) then return end
     local vpath = pathOf(v)
     if not vpath or self.st.pending[vpath] then return end -- our own temporary value (a repeated callback)
+    local isLocal = self:myPath(v) == vpath
+    if self:active() then return self:hostGrab(v, vpath, isLocal) end
+    if not isLocal then return end -- never a remote player's grab outside the host's match
+    if self:clientActive() then return self:clientGrab(v, vpath, nil) end
+    self:noteGrab(v, vpath, nil) -- the host before its match start or after a back-off: the recovery only
+end
+
+-- flipFor(v, vpath, hp, g, row): the temporary Health for decision g (when it differs from the game's), restored in
+-- the grab multicast's hook or on the next tick. Returns the flip text for the GRAB line.
+function A:flipFor(v, vpath, hp, g, row)
+    if not g.flip then return "none" end
+    if not setHp(v, g.flip) then error("could not write the temporary Health on " .. vpath) end
+    self.st.pending[vpath] = { saved = hp, temp = g.flip, label = "enemy=" .. (row or "?") }
+    self:later(vpath)
+    return F(g.flip)
+end
+
+-- spareClient(v) -> true | false, why: the host spares a client victim only when core's presence reports its machine
+-- running a Difficulty compatible with the host's (core's netCompat rule), keyed by the victim pawn's own PlayerState.
+function A:spareClient(v)
+    local o = self.o
+    if o.netMissing then return false, "core" end
+    if not (o.net and o.modId) then return false, "core" end
+    local ps
+    pcall(function() ps = v.PlayerState end)
+    if not exists(ps) or not self:alive(ps) then return false, "no-player-state" end
+    local ok, r, why = pcall(o.net.compatible, ps, o.modId)
+    if not ok then
+        o.warnOnce("compatible:" .. tostring(r), "core.net.compatible failed (%s); that client keeps the game's decision", tostring(r))
+        return false, "error"
+    end
+    if r == true then return true end
+    return false, tostring(why or "absent")
+end
+
+-- The host's grab on any victim: its own player, or a client spared by presence; anyone else keeps the game's decision.
+function A:hostGrab(v, vpath, isLocal)
     local apath, row, short = self:grabAttacker(v, vpath)
     if short then self:needClassHooks(short) end
     local values = self.st.values
-    if not damage.acts(values, row) then return end
+    if not damage.acts(values, row) then
+        if isLocal then self:noteGrab(v, vpath, nil) end
+        return
+    end
     local hp = hpOf(v)
     local d = self:difficulty(v)
-    if not hp or not d then return end
-    local mine = self:myPath(v) == vpath
-    local g = damage.grab(hp, values, d, row, mine)
-    if not g then return end
-    local flip = "none"
-    if g.flip then
-        if not setHp(v, g.flip) then error("could not write the temporary Health on " .. vpath) end
-        self.st.pending[vpath] = { saved = hp, temp = g.flip, label = "enemy=" .. (row or "?") }
-        flip = F(g.flip)
-        self:later(vpath)
+    if not hp or not d then
+        if isLocal then self:noteGrab(v, vpath, nil) end
+        return
     end
+    local spare, why = true, nil
+    if not isLocal then spare, why = self:spareClient(v) end
+    local g = damage.grab(hp, values, d, row, spare)
+    if not g then
+        if isLocal then self:noteGrab(v, vpath, nil) end
+        return
+    end
+    local flip = self:flipFor(v, vpath, hp, g, row)
     self.st.grabs[vpath] = { kind = g.decision == "s" and "survivable" or "execution", attacker = apath, row = row, at = self.clock() }
-    self.o.say("info", "GRAB enemy=%s hp=%s E=%s game=%s decision=%s flip=%s", row or "?", F(hp), F(g.E), g.game, g.decision, flip)
+    self.o.say("info", "GRAB enemy=%s hp=%s E=%s game=%s decision=%s flip=%s victim=%s spare=%s", row or "?", F(hp), F(g.E),
+        g.game, g.decision, flip, isLocal and "local" or "client", spare and "yes" or ("no(" .. tostring(why) .. ")"))
+    if isLocal then self:noteGrab(v, vpath, g.decision) end
+end
+
+-- inactive(reason): the client's one line per world when the host's values aren't usable.
+function A:inactive(reason)
+    if self.st.inactiveSaid then return end
+    self.st.inactiveSaid = true
+    self.o.say("info", "host has no Difficulty, inactive (%s)", tostring(reason))
+end
+
+-- hostValues() -> values | nil: the host's published grab inputs, read now (never cached), checked against this
+-- machine's own bounds and version. nil: no change for this grab (the reason is logged: the inactive line once per
+-- world, an out-of-bounds key once per match).
+function A:hostValues()
+    local o, st = self.o, self.st
+    if o.netMissing or not (o.net and o.modId) then return nil end -- connect's one line named the missing feature
+    local values, a, b = net.decode(function(name, lo, hi) return o.net.read(o.modId .. "." .. name, lo, hi) end)
+    if not values then
+        if a == "out-of-bounds" then
+            if not st.oobSaid[b] then
+                st.oobSaid[b] = true
+                o.say("warn", "the host's %s is outside this mod's bounds; grabs on this player keep the game's decision while it is", tostring(b))
+            end
+        else
+            self:inactive(a)
+        end
+        return nil
+    end
+    local okC, compat = pcall(o.net.versionsCompatible, o.version, o.netCompat, a, b)
+    if not okC or compat ~= true then self:inactive("incompatible") return nil end
+    return values
+end
+
+-- The client's grab on its own player (HasPerk(0x27) of an AI grab, or the Stalker's presentation with its attacker):
+-- the host's decision rule from the host's values, flipped and restored like the host's own.
+function A:clientGrab(v, vpath, attacker)
+    local values = self:hostValues()
+    if not values then self:noteGrab(v, vpath, nil) return end
+    local apath, row, short
+    if attacker ~= nil and self:alive(attacker) then
+        apath, short = pathOf(attacker), classOf(attacker)
+        row = M.CLASS_ROW[short or ""]
+    else
+        apath, row, short = self:grabAttacker(v, vpath, true)
+    end
+    if short then self:needClassHooks(short) end
+    local hp = hpOf(v)
+    local d = self:difficulty(v)
+    if not damage.acts(values, row) or not hp or not d then self:noteGrab(v, vpath, nil) return end
+    local g = damage.grab(hp, values, d, row, true)
+    if not g then self:noteGrab(v, vpath, nil) return end
+    local flip = self:flipFor(v, vpath, hp, g, row)
+    self.o.say("info", "GRAB enemy=%s hp=%s E=%s game=%s decision=%s flip=%s victim=local spare=yes", row or "?", F(hp), F(g.E),
+        g.game, g.decision, flip)
+    self:noteGrab(v, vpath, g.decision)
+end
+
+-- The Stalker's presentation (native pre-hook, before PlayDamageEvent's Health test): a client's own Stalker grab.
+-- Nothing on the host, which decides the Stalker at its HasPerk(0x27).
+function A:onPresent(_, attacker, victim)
+    if self.installFailed or self.o.isHost() == true then return end
+    local v = get(victim)
+    if not self:alive(v) then return end
+    local vpath = pathOf(v)
+    if not vpath or self.st.pending[vpath] then return end
+    if self:myPath(v) ~= vpath then return end -- never a remote player
+    if self:clientActive() then return self:clientGrab(v, vpath, get(attacker)) end
+    self:noteGrab(v, vpath, nil)
+end
+
+-- ---------------------------------------------------------------- the recovery (every machine, own player only)
+-- noteGrab(v, vpath, decision): a grab began on this machine's own player. decision is the one this machine's game
+-- test makes ("e" / "s"; nil: the game's own, from Health and the standard hit). After an execution, the check runs
+-- RECOVER_DELAY later.
+function A:noteGrab(v, vpath, decision)
+    local R = self.recover
+    R.seq = R.seq + 1
+    if decision == nil then
+        local hp, s = hpOf(v), damage.standard(self:difficulty(v))
+        if hp and s then decision = damage.decide(hp, s) end
+    end
+    if decision ~= "e" then return end
+    local seq, world = R.seq, self.o.world()
+    local o = self.o
+    -- core's weak handle when there is one (no StaticFindObject miss after the pawn is gone), else the path.
+    local h
+    if o.ref and o.deref then
+        local okR, r = pcall(o.ref, v)
+        if okR and r ~= nil then h = r end
+    end
+    self:delay(M.RECOVER_DELAY, function()
+        local ok, err = pcall(self.recoverCheck, self, vpath, seq, world, h)
+        if h ~= nil and o.free then pcall(o.free, h) end
+        if not ok then o.warnOnce("recover:" .. tostring(err), "recovery check failed: %s", tostring(err)) end
+    end, "recovery")
+end
+
+-- recoverCheck(vpath, seq, world, h): the player still alive, no newer grab, same world: stop the montage,
+-- PlayingMontage = false, walking movement (the game's own enemy-died branch). Runs after a back-off too. h: core's
+-- weak handle on the pawn (nil: found again by path).
+function A:recoverCheck(vpath, seq, world, h)
+    if self.recover.seq ~= seq then return end -- another grab began since
+    if world == nil or self.o.world() ~= world then return end
+    local v
+    if h ~= nil then
+        local okD, d = pcall(self.o.deref, h)
+        v = okD and d or nil
+    else
+        v = StaticFindObject(vpath)
+    end
+    if not exists(v) or not self:alive(v) or pathOf(v) ~= vpath then return end
+    local hp = hpOf(v)
+    if not hp or hp <= 0 then return end
+    local m
+    pcall(function() m = v:GetCurrentMontage() end)
+    local okS = pcall(function() if exists(m) then v:StopAnimMontage(m) else v:StopAnimMontage() end end)
+    local okP = pcall(function() v.PlayingMontage = false end)
+    local okM = pcall(function() v.CharacterMovement:SetMovementMode(1, 0) end)
+    self.o.say("info", "RECOVER hp=%s montage=%s stop=%s playing=%s movement=%s", F(hp), exists(m) and "yes" or "none",
+        tostring(okS), tostring(okP), tostring(okM))
 end
 
 -- restore(vpath, how): put the saved Health back, only if Health still holds the temporary value.
@@ -514,15 +717,21 @@ end
 -- The next-tick fallback: ExecuteInGameThreadWithDelay from the game thread (the HasPerk hook), else a one-shot
 -- game-thread loop. Never ExecuteInGameThread, never LoopAsync.
 function A:later(vpath)
-    local fn = self:guard("restore fallback", function(s) s:restore(vpath, "next tick") end)
-    if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, M.RESTORE_DELAY, fn) then return end
+    self:delay(M.RESTORE_DELAY, self:guard("restore fallback", function(s) s:restore(vpath, "next tick") end), "restore")
+end
+
+-- delay(ms, fn, what): fn once on the game thread ms later (called from the game thread: a hook body).
+function A:delay(ms, fn, what)
+    if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, ms, fn) then return end
     local handle, done = nil, false
-    local ok, h = pcall(LoopInGameThreadWithDelay, M.RESTORE_DELAY, function()
+    local ok, h = pcall(LoopInGameThreadWithDelay, ms, function()
         if not done then done = true fn() end
         if handle ~= nil then pcall(CancelDelayedAction, handle) end
         return true
     end)
-    if ok then handle = h else self.o.warnOnce("later", "no game-thread delay available (%s); the grab hook restores alone", tostring(h)) end
+    if ok then handle = h
+    elseif what == "restore" then self.o.warnOnce("later", "no game-thread delay available (%s); the grab hook restores alone", tostring(h))
+    else self.o.warnOnce("later:" .. tostring(what), "no game-thread delay available (%s); no %s", tostring(h), tostring(what)) end
 end
 
 -- UpdateFriendlyFire (host): the match starts. Knob values are parsed again for every match.
@@ -539,6 +748,7 @@ function A:onStart(gsParam)
     self.seed(math.floor((os.time() % 1000000) * 1000 + (self.clock() * 1000) % 1000))
     st.started = true
     self.o.say("info", "MATCH start knobs=%s", knobs.describe(values))
+    self:publish(values)
     local gs0 = (values.cold ~= nil or values.revives ~= nil) and self:gameState(get(gsParam)) or nil
     -- The poll re-finds this game state through a weak handle each tick (no scan, no UObject kept).
     if self.o.ref and gs0 then
@@ -556,6 +766,29 @@ function A:onStart(gsParam)
         if gs then st.tok = tokens.start(gs, values.revives, self.o)
         else self.o.warnOnce("tokens:gs", "TOKENS no game state at the match start; tokens stay stock") end
     end
+end
+
+-- publish(values) (host, match start): the grab inputs for modded clients through core.net (net.lua's keys). Under
+-- pcall: a failure costs only the clients' flips (they stay inactive), never the host's match. In solo play core
+-- answers "standalone" and nothing is published.
+function A:publish(values)
+    local o = self.o
+    if o.netMissing or not (o.net and o.modId) then return end
+    local ok, err = pcall(function()
+        local list, problems = net.encode(values, o.version, o.netCompat)
+        for _, p in ipairs(problems) do o.warnOnce("net:" .. p, "NET %s", p) end
+        local names = {}
+        for _, kv in ipairs(list) do
+            local okP, why = o.net.publish(o.modId .. "." .. kv[1], kv[2])
+            if okP ~= true then
+                o.say("debug", "NET nothing more published (%s) at %s", tostring(why), kv[1])
+                break
+            end
+            names[#names + 1] = kv[1] .. "=" .. tostring(kv[2])
+        end
+        if #names > 0 then o.say("info", "NET published %s", table.concat(names, " ")) end
+    end)
+    if not ok then o.say("warn", "NET publish failed: %s; modded clients keep the game's grab decisions this match", tostring(err)) end
 end
 
 -- The radio's server-event callbacks (host only; they run after the body, so the count already moved).
@@ -668,6 +901,7 @@ end
 -- state through the weak handle, the characters from its PlayerArray (no FindAllOf, no StaticFindObject miss).
 function A:onPoll()
     local st = self.st
+    if st.client then return self:clientHooks() end
     if not st.started or st.backedOff then return end
     local cold = st.values.cold
     if cold == nil and not st.tok then return end
@@ -687,6 +921,24 @@ function A:onPoll()
     if cold ~= nil then
         st.cold:cost(self:now() - t0, tFind - t0, discovered)
         st.cold:summary(clockName)
+    end
+end
+
+-- clientHooks() (the poll, on a client world): the character's grab hooks if the class wasn't loaded yet when the
+-- world was evaluated. Tried every REDISCOVER_EVERY polls (2 s), at most CLIENT_HOOK_TRIES times per world (a failed
+-- registration costs a StaticFindObject miss); then one line.
+M.CLIENT_HOOK_TRIES = 30
+function A:clientHooks()
+    local st = self.st
+    if self.bpHooks[FPC .. ":HasPerk"] or st.world == nil or st.world ~= self.o.world() then return end
+    st.hookPolls = (st.hookPolls or 0) + 1
+    if st.hookPolls % M.REDISCOVER_EVERY ~= 0 then return end
+    st.hookTries = (st.hookTries or 0) + 1
+    if st.hookTries > M.CLIENT_HOOK_TRIES then return end
+    self:installClass(FPC)
+    if self.bpHooks[FPC .. ":HasPerk"] then self.o.say("debug", "client grab hooks registered (try %d)", st.hookTries)
+    elseif st.hookTries == M.CLIENT_HOOK_TRIES then
+        self.o.warnOnce("clienthooks:" .. tostring(st.world), "the character class never loaded on this client; its grabs keep the game's decision this world")
     end
 end
 
@@ -733,6 +985,11 @@ function A:install()
         self.installFailed = true -- no flips and no compensation without the damage hooks
         return false, "could not hook " .. table.concat(missing, ", ")
     end
+    -- Story 5: the Stalker's presentation, for a client's own Stalker grab. Without it only that grab stays the game's.
+    if not self.hooks[M.PRESENT] then
+        if self:register(M.PRESENT, self:guard("BeginStalkerPresentation hook", A.onPresent)) then self.hooks[M.PRESENT] = true
+        else self.o.warnOnce("present", "could not hook BeginStalkerPresentation; a client's own Stalker grabs keep the game's decision") end
+    end
     self.installFailed = false
     return true
 end
@@ -758,10 +1015,12 @@ function A:classDefs(classPath)
     return defs
 end
 
-function A:classes()
-    local t = { GAMESTATE, FPC }
+-- classes(client): the classes whose Blueprint hooks a host world registers; a client world (story 5) only the grab
+-- hooks: HasPerk, PlayDamageEvent and the five AI grab multicasts (no match start, no radio).
+function A:classes(client)
+    local t = client and { FPC } or { GAMESTATE, FPC }
     for _, g in ipairs(M.GRABS) do t[#t + 1] = g.class end
-    t[#t + 1] = RADIO
+    if not client then t[#t + 1] = RADIO end
     return t
 end
 
@@ -789,13 +1048,15 @@ end
 
 -- onWorld(name, host, fresh): per world (main.lua's LoadMap evaluation). A fresh world is a new match state (the
 -- poll's per-path cold state and the token state go with it); the Blueprint hooks of the last world are unregistered
--- and, on a host world, registered again for the loaded classes.
-function A:onWorld(name, host, fresh)
+-- and, on a host world, registered again for the loaded classes; on a client world (client: IsServer false, story 5)
+-- only the grab hooks.
+function A:onWorld(name, host, fresh, client)
     if fresh or self.st.world ~= name then self:reset(name) end
+    self.st.client = host ~= true and client == true
     for path, ids in pairs(self.bpHooks) do pcall(UnregisterHook, path, ids.pre, ids.post) end
     self.bpHooks, self.queued = {}, {}
-    if host ~= true then return end
-    for _, c in ipairs(self:classes()) do self:installClass(c) end
+    if host ~= true and not self.st.client then return end
+    for _, c in ipairs(self:classes(self.st.client)) do self:installClass(c) end
 end
 
 return M

@@ -6,7 +6,7 @@
   mod.json has id nucleus, and its version satisfies Difficulty's dependsOn (^ rules, deploy-lib.ps1). -Force installs
   anyway with a warning, for the failure scenarios (Difficulty's own runtime check then has to catch it).
   Installs ue4ss/Mods/Difficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua, env.lua,
-  tokens.lua} and writes "Difficulty : 1" into mods.txt right below Nucleus's line and above "Keybinds : 1", moving
+  tokens.lua, net.lua} and writes "Difficulty : 1" into mods.txt right below Nucleus's line and above "Keybinds : 1", moving
   it there if it was elsewhere. Never writes outside Mods/Difficulty, Mods/DifficultyDriver and their mods.txt lines,
   and never bundles any of core's files. Story 2's test drivers (DifficultyProbe, DifficultyPair) are left alone.
   -Test writes Scripts/dev.lua (return { debug = true }): Difficulty's DEBUG lines, which check.ps1 reads.
@@ -21,7 +21,7 @@
   the driver. Neither the driver nor dev.lua is ever shipped: a deploy without -Test installs no knob source at all.
   -PreCore (only with -Test) is the dev core mode: it also accepts an installed core ^0.3.0 (before core 0.4.0, which
   brings the UI) and writes dev.lua with preCore = true, so main.lua connects with need 0.3.0 and logs one WARN. On a
-  core that already satisfies dependsOn, -PreCore changes nothing: dev.lua is { debug = true } and need stays 0.4.0.
+  core that already satisfies dependsOn, -PreCore changes nothing: dev.lua is { debug = true } and need stays dependsOn's minimum.
   dev.lua is git-ignored and never shipped.
   -Remove deletes Mods/Difficulty, Mods/DifficultyDriver and their mods.txt lines; nothing else changes (mods.txt
   keeps its bytes when it had neither line).
@@ -58,7 +58,7 @@ $here     = $PSScriptRoot
 $manifest = Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json
 $name     = $manifest.name
 if ("$name" -notmatch '^[A-Za-z][A-Za-z0-9_-]*$') { throw "mod.json's name '$name' is not a plain name; refusing to deploy" }
-$files    = 'main.lua', 'world.lua', 'knobs.lua', 'damage.lua', 'hits.lua', 'env.lua', 'tokens.lua'
+$files    = 'main.lua', 'world.lua', 'knobs.lua', 'damage.lua', 'hits.lua', 'env.lua', 'tokens.lua', 'net.lua'
 $driver   = "${name}Driver"
 # The knobs each driver scenario needs (test/DifficultyDriver); -Knobs overrides them.
 $ScenarioKnobs = @{ 'scaled' = 'enemyDamage=17'; 'flip' = 'enemyDamage=25'; 'per-enemy' = 'dmg.stalker=200'; 'default' = ''; 'clash' = 'enemyDamage=17'

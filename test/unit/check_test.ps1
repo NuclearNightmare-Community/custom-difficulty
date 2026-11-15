@@ -36,12 +36,12 @@ $menu = D 'WORLD host=false standalone=true map=NewMainMenu'
 # ---------------------------------------------------------------- ready (dev core mode on 0.3.0)
 $ready = $coreStart + @(
     (D 'CONNECT ok Nucleus 0.3.0 (pong 0.3.0 boot=1)'),
-    (D 'WARN running on Nucleus 0.3.0 before 0.4.0 (dev only): no UI'),
+    (D 'WARN running on Nucleus 0.3.0 before 0.12.0 (dev only): no UI'),
     $menu,
     (D 'READY version=0.1.0 Nucleus=0.3.0 need=0.3.0'))
 Expect $ready 'ready' 0 'ready (dev): passes as written' 'All checks passed'
 Expect (Without $ready 'WARN running on') 'ready' 1 'ready (dev): no pre-core WARN on 0.3.0 -> fails' 'pre-core WARN'
-Expect ($ready + @(D 'WARN running on Nucleus 0.3.0 before 0.4.0 (dev only): no UI')) 'ready' 1 'ready (dev): two pre-core WARNs -> fails' 'pre-core WARN'
+Expect ($ready + @(D 'WARN running on Nucleus 0.3.0 before 0.12.0 (dev only): no UI')) 'ready' 1 'ready (dev): two pre-core WARNs -> fails' 'pre-core WARN'
 Expect (Without $ready 'READY version') 'ready' 1 'ready: no READY -> fails' 'READY'
 Expect ($ready + @(D 'READY version=0.1.0 Nucleus=0.3.0 need=0.3.0')) 'ready' 1 'ready: two READY lines -> fails' '#1'
 Expect (Without $ready 'WORLD host=false') 'ready' 1 'ready: no menu WORLD line -> fails' 'WORLD'
@@ -52,15 +52,15 @@ Expect ($ready + @(D 'WARN hud slow tick 1.4 ms (steady state)')) 'ready' 0 'rea
 Expect ($ready + @(U 'stack traceback:')) 'ready' 1 'ready: a traceback -> fails' 'stack traceback'
 Expect ($ready + @(U '[script_hook] removing hook')) 'ready' 1 'ready: a removed hook -> fails' 'removing hook'
 Expect ($ready -replace 'need=0\.3\.0', 'need=0.2.0') 'ready' 1 'ready: READY need other than dependsOn or 0.3.0 -> fails' 'READY need=0\.2\.0'
-$order = $coreStart + @((D 'READY version=0.1.0 Nucleus=0.3.0 need=0.3.0'), (D 'CONNECT ok Nucleus 0.3.0 (pong)'), (D 'WARN running on Nucleus 0.3.0 before 0.4.0 (dev only): no UI'), $menu)
+$order = $coreStart + @((D 'READY version=0.1.0 Nucleus=0.3.0 need=0.3.0'), (D 'CONNECT ok Nucleus 0.3.0 (pong)'), (D 'WARN running on Nucleus 0.3.0 before 0.12.0 (dev only): no UI'), $menu)
 Expect $order 'ready' 1 'ready: READY before CONNECT -> fails' 'READY comes after CONNECT'
 
 # ready on core 0.4.x: no pre-core WARN allowed.
-$ready4 = @((D 'CONNECT ok Nucleus 0.4.1 (pong 0.4.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.4.1 need=0.4.0'))
-Expect $ready4 'ready' 0 'ready on 0.4.1: passes without the pre-core WARN' 'no pre-core WARN'
-Expect ($ready4 + @(D 'WARN running on Nucleus 0.4.1 before 0.4.0 (dev only): no UI')) 'ready' 1 'ready on 0.4.1: a pre-core WARN -> fails' 'pre-core WARN'
-Expect $ready4 'ready' 0 'ready on 0.4.1: READY need=0.4.0 is dependsOn''s minimum' 'need=0\.4\.0 is dependsOn'
-Expect ($ready4 -replace 'need=0\.4\.0', 'need=0.3.0') 'ready' 1 'ready on 0.4.1: need=0.3.0 without the pre-core WARN -> fails' 'READY need=0\.3\.0'
+$ready4 = @((D 'CONNECT ok Nucleus 0.12.1 (pong 0.12.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.12.1 need=0.12.0'))
+Expect $ready4 'ready' 0 'ready on 0.12.1: passes without the pre-core WARN' 'no pre-core WARN'
+Expect ($ready4 + @(D 'WARN running on Nucleus 0.12.1 before 0.12.0 (dev only): no UI')) 'ready' 1 'ready on 0.12.1: a pre-core WARN -> fails' 'pre-core WARN'
+Expect $ready4 'ready' 0 'ready on 0.12.1: READY need=0.12.0 is dependsOn''s minimum' 'need=0.12.0 is dependsOn'
+Expect ($ready4 -replace 'need=0.12.0', 'need=0.3.0') 'ready' 1 'ready on 0.12.1: need=0.3.0 without the pre-core WARN -> fails' 'READY need=0\.3\.0'
 
 # ---------------------------------------------------------------- host
 $hostLog = $ready + @((U 'LoadMap /Game/Maps/SmallLoweIsland/SmallMap'), (D 'WORLD host=true standalone=false map=SmallMap'))
@@ -73,14 +73,14 @@ Expect $ready4 'hand' 0 'hand: passes' 'All checks passed'
 Expect (Without $ready4 'WORLD') 'hand' 1 'hand: no WORLD line -> fails' 'WORLD'
 
 # ---------------------------------------------------------------- old-core, no-core
-$oldCore = $coreStart + @((D 'ERROR Nucleus 0.3.0 is not compatible; Difficulty needs 0.4.0 (^ rules). Update Nucleus. Difficulty will not run.'))
+$oldCore = $coreStart + @((D 'ERROR Nucleus 0.3.0 is not compatible; Difficulty needs 0.12.0 (^ rules). Update Nucleus. Difficulty will not run.'))
 Expect $oldCore 'old-core' 0 'old-core: passes as written' 'All checks passed'
-Expect ($oldCore -replace 'needs 0\.4\.0', 'needs 0.3.0') 'old-core' 1 'old-core: the need must be dependsOn''s minimum' 'not compatible'
+Expect ($oldCore -replace 'needs 0.12.0', 'needs 0.3.0') 'old-core' 1 'old-core: the need must be dependsOn''s minimum' 'not compatible'
 Expect ($oldCore + @($menu)) 'old-core' 1 'old-core: a second Difficulty line -> fails' '#1'
 Expect (Without $oldCore 'not compatible') 'old-core' 1 'old-core: no line -> fails' '#1'
 $noCore = @((U "Starting Lua mod 'Difficulty'"), (D 'Nucleus is not installed. Difficulty will not run.'))
 Expect $noCore 'no-core' 0 'no-core: passes as written' 'All checks passed'
-Expect ($noCore + @(D 'READY version=0.1.0 Nucleus=0.4.0 need=0.4.0')) 'no-core' 1 'no-core: a second Difficulty line -> fails' '#1'
+Expect ($noCore + @(D 'READY version=0.1.0 Nucleus=0.12.0 need=0.12.0')) 'no-core' 1 'no-core: a second Difficulty line -> fails' '#1'
 Expect ($noCore -replace 'not installed', 'missing') 'no-core' 1 'no-core: another wording -> fails' 'not installed'
 
 # ---------------------------------------------------------------- story 3 scenarios (driver + Difficulty's lines)
@@ -116,7 +116,7 @@ Expect ($scaled + @(DR 'WHITEOUT disabled=true director=1 phase=0')) 'scaled' 1 
 Expect (Without $notShown 'WHITEOUT') 'scaled' 1 'scaled: NOTSHOWN still needs the WHITEOUT line' 'WHITEOUT'
 
 $flip = Story3 'flip' 'enemyDamage=25' @(
-    (D 'GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101'),
+    (D 'GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes'),
     (D 'RESTORE enemy=meek hp=101 -> 100 via=multicast'),
     (D 'HIT enemy=meek via=ApplyLockedDamage stock=100 scaled=25 rolled=25 applied=25 hp=100 kind=survivable')) @(
     (DR 'OK flip Meek #1 grab played the survivable montage (Animatronic_Paired_StabStomach_Victim_Montage; want *StabStomach*)'),

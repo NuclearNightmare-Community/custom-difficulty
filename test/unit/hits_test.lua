@@ -93,6 +93,19 @@ local function setup(opts)
     T.ps = { actor("BP_NNPlayerState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.PS_1", { PawnPrivate = T.me }),
              actor("BP_NNPlayerState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.PS_2", { PawnPrivate = T.other }) }
     rawset(T.gs, "PlayerArray", { T.ps[1], T.ps[2] })
+    rawset(T.me, "PlayerState", T.ps[1])
+    rawset(T.other, "PlayerState", T.ps[2])
+    -- story 5's recovery: the montage, PlayingMontage and the movement mode of each character
+    for _, ch in ipairs({ T.me, T.other }) do
+        rawset(ch, "montage", { IsValid = function() return true end })
+        rawset(ch, "stops", 0)
+        rawset(ch, "GetCurrentMontage", function(c) return rawget(c, "montage") end)
+        rawset(ch, "StopAnimMontage", function(c) rawset(c, "stops", rawget(c, "stops") + 1) end)
+        rawset(ch, "CharacterMovement", { SetMovementMode = function(m, mode) rawset(ch, "mode", mode) end })
+        rawset(ch, "PlayingMontage", true)
+    end
+    -- story 5: core.net (a fake; nil without opts.net)
+    T.net = opts.net
     -- core's weak handles: handle -> object; deref is nil once the object is gone.
     T.handles, T.freed = {}, 0
     T.H = hits.new{
@@ -113,6 +126,8 @@ local function setup(opts)
         ref = (not opts.noRef) and function(o) T.refs = (T.refs or 0) + 1 T.handles[T.refs] = o return T.refs end or nil,
         deref = (not opts.noRef) and function(h) local o = T.handles[h] if o and not rawget(o, "_gone") then return o end return nil end or nil,
         free = (not opts.noRef) and function(h) T.handles[h] = nil T.freed = T.freed + 1 end or nil,
+        net = opts.net, modId = "nuclearnightmare-community.difficulty", version = opts.version or "0.1.0",
+        netCompat = opts.netCompat, netMissing = opts.netMissing,
     }
     local okI, why = T.H:install()
     ok(okI, "install: the natives hook", why)
@@ -121,7 +136,8 @@ local function setup(opts)
     ok(okP and #W.later == 1 and W.later[1].loop and W.later[1].ms == 250, "startPoll: one 250 ms game-thread loop")
     T.poll = table.remove(W.later, 1).fn
     ok(T.H:startPoll() and #W.later == 0, "startPoll: a second call adds no loop")
-    T.H:onWorld(MATCH, T.host, true)
+    for _, p in ipairs(opts.missing or {}) do W.missing[p] = true end
+    T.H:onWorld(MATCH, T.host, true, opts.client == true)
     if opts.start ~= false then W.fire(GSC .. ":UpdateFriendlyFire", W.p(T.gs)) end
 end
 local function count(pat) local n = 0 for _, l in ipairs(T.lines) do if l:find(pat) then n = n + 1 end end return n end
@@ -327,7 +343,7 @@ do
     eq(seen, 101, "flip: the temporary Health in the body (standard + 1)")
     eq(picked, "s", "flip: the game's test picks survivable")
     eq(T.me._hp, 100, "flip: restored in the multicast hook")
-    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101$"), 1, "flip: GRAB line", dump())
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "flip: GRAB line", dump())
     eq(count("^RESTORE enemy=meek hp=101 %-> 100 via=multicast$"), 1, "flip: RESTORE line", dump())
     eq(W.runLater(), 1, "flip: the fallback was scheduled")
     eq(count("^RESTORE "), 1, "flip: the fallback finds nothing to do")
@@ -373,7 +389,7 @@ do -- remote victim: the game's decision; the execution floor still applies
     local picked = meekGrab(T.other)
     eq(picked, "e", "remote: the game's execution")
     eq(T.other.writes, 0, "remote: no temporary Health")
-    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=e flip=none$"), 1, "remote: GRAB line", dump())
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=e flip=none victim=client spare=no%(core%)$"), 1, "remote: GRAB line", dump())
     lockedHit(T.meek, 100)
     ok(T.other._hp <= 0, "remote execution: applied at least Health (dies)", T.other._hp)
     eq(count("kind=execution$"), 1, "remote: kind=execution")
@@ -399,7 +415,7 @@ do -- the Stalker's grab: HasPerk on the victim, no AI locked; restored in PlayD
     eq(T.me._hp, 101, "Stalker grab: the nearest Stalker names the row (E 50 < 80: survivable)")
     W.fire(FPC .. ":PlayDamageEvent", W.p(T.me), W.p(T.stalker), W.p(false))
     eq(T.me._hp, 80, "Stalker grab: restored in PlayDamageEvent")
-    ok(line("^GRAB enemy=stalker hp=80 E=50 game=e decision=s flip=101$"), "Stalker grab: GRAB line", dump())
+    ok(line("^GRAB enemy=stalker hp=80 E=50 game=e decision=s flip=101 victim=local spare=yes$"), "Stalker grab: GRAB line", dump())
 end
 
 -- ---------------------------------------------------------------- clash back-off and its reset
@@ -1015,6 +1031,341 @@ do -- a failed token write: one ERROR, every knob off
     T.locked[T.meek._path] = T.me
     lockedHit(T.meek, 50)
     eq(T.me._hp, 50, "token write fault: enemy damage backed off too")
+end
+
+-- ---------------------------------------------------------------- story 5: survivable grabs on modded clients
+local NETID = "nuclearnightmare-community.difficulty."
+local PRESENT = hits.PRESENT
+local function hv(t) local v = {} for k, x in pairs(t) do v[NETID .. k] = x end return v end
+local function present(victim, attacker) return W.fire(PRESENT, W.p(T.ctx), W.p(attacker), W.p(victim)) end
+-- Runs only the delayed callbacks of ms (the recovery: 6000), keeping the others.
+local function runDelayed(ms)
+    local keep, run = {}, {}
+    for _, e in ipairs(W.later) do if e.ms == ms then run[#run + 1] = e else keep[#keep + 1] = e end end
+    W.later = keep
+    for _, e in ipairs(run) do e.fn() end
+    return #run
+end
+local function clientSetup(values, o)
+    o = o or {}
+    local net = F.net{ role = "client", values = values, status = o.status }
+    setup{ host = false, client = true, diff = o.diff or 0, net = net, version = o.version, netCompat = o.netCompat,
+           netMissing = o.netMissing, missing = o.missing, noRef = o.noRef }
+    return net
+end
+
+-- The host publishes at the match start (I/O matrix: what a modded client reads).
+do
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25;dmg.meek=50;spread=20;cold=50;revives=8", net = net }
+    local t = {}
+    for _, kv in ipairs(net.published) do t[#t + 1] = kv[1]:sub(#NETID + 1) .. "=" .. tostring(kv[2]) end
+    eq(table.concat(t, ","), "ver=1000,compat=1000,enemyDamage=25,dmg_meek=50", "publish: ver, compat and the set grab knobs only")
+    for _, kv in ipairs(net.published) do ok(kv[1]:sub(1, #NETID) == NETID, "publish: under the mod's own id: " .. kv[1]) end
+    eq(count("^NET published ver=1000 compat=1000 enemyDamage=25 dmg_meek=50$"), 1, "publish: one NET line", dump())
+    -- A second UpdateFriendlyFire in the same world (a client can call it again): nothing published again.
+    W.fire(GSC .. ":UpdateFriendlyFire", W.p(T.gs))
+    eq(#net.published, 4, "publish: once per match")
+end
+do -- all Default: ver and compat only, so a client tells Default apart from no Difficulty
+    local net = F.net()
+    setup{ knobs = nil, net = net }
+    eq(#net.published, 2, "publish all Default: ver and compat")
+end
+do -- solo: core answers standalone; nothing published, no WARN, the match goes on
+    local net = F.net{ role = "standalone" }
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    eq(#net.published, 0, "publish standalone: nothing")
+    eq(count("WARN"), 0, "publish standalone: no WARN")
+    meekGrab(T.me)
+    eq(count("decision=s flip=101 victim=local spare=yes$"), 1, "standalone: the host's own player still spared")
+end
+do -- a raising publish: one WARN, the host's own grabs unaffected
+    local net = F.net()
+    net.publish = function() error("nucleus.net.publish: cap reached", 0) end
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    eq(count("^WARN NET publish failed: nucleus%.net%.publish: cap reached; modded clients keep the game's grab decisions this match$"), 1, "publish raises: one WARN", dump())
+    eq(count("^MATCH start "), 1, "publish raises: the match started")
+    meekGrab(T.me)
+    eq(T.me._hp, 100, "publish raises: the host's own flip and restore still run")
+    eq(count("decision=s flip=101 victim=local spare=yes$"), 1, "publish raises: GRAB line")
+end
+do -- core without Net: no publish, the host spares only its own player
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net, netMissing = "net.compatible" }
+    eq(#net.published, 0, "core without Net: nothing published")
+    meekGrab(T.me)
+    eq(count("decision=s flip=101 victim=local spare=yes$"), 1, "core without Net: the host spares itself")
+    T.now = T.now + 30
+    meekGrab(T.other)
+    eq(T.other.writes, 0, "core without Net: a client victim keeps the game's decision")
+    eq(count("victim=client spare=no%(core%)$"), 1, "core without Net: spare=no(core)", dump())
+    eq(#net.compatCalls, 0, "core without Net: compatible never called")
+end
+
+-- The host's decision for a client victim (presence).
+do -- a compatible client: spared; the host applies at most 99 (here 25)
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    net.compat[T.ps[2]] = true
+    local picked = meekGrab(T.other)
+    eq(picked, "s", "modded client: the host's own test picks survivable")
+    eq(T.other._hp, 100, "modded client: restored in the multicast hook")
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=client spare=yes$"), 1, "modded client: GRAB line", dump())
+    eq(net.compatCalls[1], "nuclearnightmare-community.difficulty", "modded client: compatible asked with the mod's own id")
+    lockedHit(T.meek, 100)
+    eq(T.other._hp, 75, "modded client: the survivable hit (<= 99)")
+    eq(count("kind=survivable$"), 1, "modded client: kind=survivable")
+end
+for _, why in ipairs({ "absent", "incompatible", "no-world" }) do
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    net.compat[T.ps[2]] = why
+    eq(meekGrab(T.other), "e", why .. " client: the game's execution")
+    eq(T.other.writes, 0, why .. " client: no temporary Health")
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=e flip=none victim=client spare=no%(" .. why:gsub("%-", "%%-") .. "%)$"), 1, why .. " client: spare=no(" .. why .. ")", dump())
+    lockedHit(T.meek, 100)
+    ok(T.other._hp <= 0, why .. " client: the execution floor still applies", T.other._hp)
+end
+do -- compatible raises: no(error), one WARN; the victim's player state gone: no(no-player-state)
+    local net = F.net()
+    net.compatible = function() error("nucleus.net.compatible: player is not a live object", 0) end
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    meekGrab(T.other)
+    eq(count("victim=client spare=no%(error%)$"), 1, "compatible raises: spare=no(error)")
+    T.now = T.now + 30
+    meekGrab(T.other)
+    eq(count("^WARN core%.net%.compatible failed"), 1, "compatible raises: one WARN", dump())
+    setup{ knobs = "enemyDamage=25", diff = 0, net = F.net() }
+    rawset(T.other, "PlayerState", nil)
+    meekGrab(T.other)
+    eq(count("victim=client spare=no%(no%-player%-state%)$"), 1, "no player state: spare=no(no-player-state)", dump())
+end
+do -- the Stalker presentation hook does nothing on the host
+    setup{ knobs = "enemyDamage=25", diff = 0, net = F.net() }
+    eq(present(T.me, T.stalker), 1, "host: the presentation hook is registered")
+    eq(T.me.writes, 0, "host: the presentation hook writes nothing")
+    eq(count("^GRAB "), 0, "host: no GRAB from the presentation hook")
+end
+
+-- A modded client: its own player only, from the host's values, read at every grab.
+do -- values in range: flip, restore, no damage of its own
+    local net = clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    eq(W.count(HASPERK), 1, "client: HasPerk hooked")
+    eq(W.count(MEEK_ATTACK), 1, "client: the grab multicast hooked")
+    eq(W.count(GSC .. ":UpdateFriendlyFire"), 0, "client: no match-start hook")
+    eq(meekGrab(T.me), "s", "client: the game's test picks survivable")
+    eq(T.me._hp, 100, "client: restored in the multicast hook")
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "client: GRAB line", dump())
+    eq(count("^RESTORE enemy=meek hp=101 %-> 100 via=multicast$"), 1, "client: RESTORE line")
+    local reads = net.reads
+    ok(reads >= 2, "client: the host's values read at the grab", reads)
+    lockedHit(T.meek, 100) -- the host's damage replicated: the client's damage hooks do nothing
+    eq(count("^HIT "), 0, "client: damage stays the host's")
+    eq(#net.published, 0, "client: publishes nothing")
+    -- Never cached: the host's value changes, the next grab follows it.
+    T.me._hp = 100
+    net.values[NETID .. "enemyDamage"] = nil
+    T.now = T.now + 30
+    eq(meekGrab(T.me), "e", "client: Default now -> the game's decision")
+    ok(net.reads > reads, "client: read again at the next grab")
+    eq(count("^GRAB "), 1, "client: no GRAB for a Default grab")
+    -- A remote player's grab on this client: never flipped.
+    T.now = T.now + 30
+    local w0 = T.other.writes
+    net.values[NETID .. "enemyDamage"] = 25
+    meekGrab(T.other)
+    eq(T.other.writes, w0, "client: a remote victim is never flipped")
+    eq(count("^GRAB "), 1, "client: no GRAB for a remote victim")
+end
+do -- the client's next-tick fallback when the multicast hook didn't come
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    meekGrab(T.me, { noMulticast = true })
+    eq(T.me._hp, 101, "client fallback: temporary value in place")
+    runDelayed(hits.RESTORE_DELAY)
+    eq(T.me._hp, 100, "client fallback: restored on the next tick")
+    eq(count("via=next tick$"), 1, "client fallback: RESTORE via=next tick")
+end
+for _, case in ipairs({ { nil, nil, "absent" }, { "no-state", nil, "no-state" }, { "version", nil, "version" },
+                        { nil, { ver = 1000 }, "absent" } }) do
+    -- no usable host values (unmodded host, no state yet, core version mismatch, compat missing): nothing changes
+    local net = clientSetup(case[2] and hv(case[2]) or {}, { status = case[1] })
+    eq(meekGrab(T.me), "e", "client, " .. case[3] .. ": the game's decision")
+    eq(T.me.writes, 0, "client, " .. case[3] .. ": no write")
+    T.now = T.now + 30
+    meekGrab(T.me)
+    eq(count("^host has no Difficulty, inactive %(" .. (case[3]:gsub("%-", "%%-")) .. "%)$"), 1, "client, " .. case[3] .. ": one inactive line for two grabs", dump())
+    eq(count("^GRAB "), 0, "client, " .. case[3] .. ": no GRAB")
+    eq(count("^RESTORE "), 0, "client, " .. case[3] .. ": no RESTORE")
+    -- A new world: the line again (once per world).
+    T.H:onWorld(MATCH .. "2", false, true, true)
+    T.world = MATCH .. "2"
+    T.now = T.now + 30
+    meekGrab(T.me)
+    eq(count("inactive"), 2, "client, " .. case[3] .. ": once more in a new world")
+end
+do -- incompatible host version: no change, inactive (incompatible)
+    clientSetup(hv{ ver = 2000, compat = 2000, enemyDamage = 25 })
+    eq(meekGrab(T.me), "e", "incompatible host: the game's decision")
+    eq(T.me.writes, 0, "incompatible host: no write")
+    eq(count("^host has no Difficulty, inactive %(incompatible%)$"), 1, "incompatible host: one inactive line", dump())
+    -- A newer patch with an older netCompat on either side is compatible.
+    clientSetup(hv{ ver = 1005, compat = 1000, enemyDamage = 25 })
+    eq(meekGrab(T.me), "s", "host 0.1.5: compatible")
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 }, { version = "0.2.0", netCompat = "0.1.0" })
+    eq(meekGrab(T.me), "s", "client 0.2.0 with netCompat 0.1.0: compatible with host 0.1.0")
+    clientSetup(hv{ ver = 1000, compat = 2000, enemyDamage = 25 })
+    eq(meekGrab(T.me), "e", "host compat above its version (broken): no change")
+    eq(count("inactive %(incompatible%)$"), 1, "host compat above its version: inactive (incompatible)")
+end
+do -- an out-of-bounds value: no change for that grab, one line per key per match
+    local net = clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25, dmg_meek = 9999 })
+    eq(meekGrab(T.me), "e", "out-of-bounds: the game's decision")
+    eq(T.me.writes, 0, "out-of-bounds: no write")
+    T.now = T.now + 30
+    meekGrab(T.me)
+    eq(count("^WARN the host's dmg_meek is outside this mod's bounds"), 1, "out-of-bounds: one line for two grabs", dump())
+    eq(count("inactive"), 0, "out-of-bounds: not the inactive line")
+    net.values[NETID .. "enemyDamage"] = 201
+    T.now = T.now + 30
+    meekGrab(T.me)
+    eq(count("^WARN the host's enemyDamage is outside"), 1, "out-of-bounds: a second key gets its own line")
+    T.now = T.now + 30
+    meekGrab(T.me)
+    eq(count("^WARN the host's "), 2, "out-of-bounds: still one line per key")
+    eq(T.me.writes, 0, "out-of-bounds: never a write")
+end
+do -- the client's attacker: GetLockedVictim unset -> the nearest grab-class AI within 10 m; none -> enemy % 100
+    clientSetup(hv{ ver = 1000, compat = 1000, dmg_meek = 50 })
+    T.locked = {}
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    eq(T.me._hp, 101, "client attacker: the nearest Meek's row (E 50 < 100: survivable)")
+    ok(line("^GRAB enemy=meek "), "client attacker: row from the nearest grab-class AI", dump())
+    clientSetup(hv{ ver = 1000, compat = 1000, dmg_meek = 200, enemyDamage = 25 })
+    T.locked = {}
+    T.meek._loc = { X = 5000, Y = 0, Z = 0 }
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    ok(line("^GRAB enemy=%? hp=100 E=25 "), "client attacker: none within 10 m -> no row (enemy % 100)", dump())
+end
+do -- the client's Stalker grab: the presentation pre-hook flips; PlayDamageEvent's hook restores
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    eq(present(T.me, T.stalker), 1, "client Stalker: the presentation hook is registered")
+    eq(T.me._hp, 101, "client Stalker: flipped before the body's Health test")
+    W.fire(FPC .. ":PlayDamageEvent", W.p(T.me), W.p(T.stalker), W.p(false))
+    eq(T.me._hp, 100, "client Stalker: restored in PlayDamageEvent")
+    ok(line("^GRAB enemy=stalker hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), "client Stalker: GRAB line", dump())
+    -- the next-tick fallback
+    T.now = T.now + 30
+    present(T.me, T.stalker)
+    eq(T.me._hp, 101, "client Stalker fallback: temporary value")
+    present(T.me, T.stalker) -- a repeated callback while pending: skipped
+    eq(count("^GRAB enemy=stalker"), 2, "client Stalker: pending victim skipped")
+    runDelayed(hits.RESTORE_DELAY)
+    eq(T.me._hp, 100, "client Stalker fallback: restored next tick")
+    -- a remote victim's presentation on this client: nothing
+    local w0 = T.other.writes
+    present(T.other, T.stalker)
+    eq(T.other.writes, w0, "client Stalker: a remote victim is never flipped")
+end
+do -- no client hook acts before ver has arrived (and nothing in the menu or a standalone world)
+    clientSetup({})
+    present(T.me, T.stalker)
+    meekGrab(T.me)
+    eq(T.me.writes, 0, "before ver: no write from any client hook")
+    setup{ host = false, client = false, diff = 0, net = F.net{ role = "standalone", values = hv{ ver = 1000, compat = 1000, enemyDamage = 25 } } }
+    meekGrab(T.me)
+    present(T.me, T.stalker)
+    eq(T.me.writes, 0, "not a client world: no flip")
+    eq(count("inactive"), 0, "not a client world: no inactive line")
+end
+do -- a client on a core without Net: no reads, no flip, no inactive line (connect's one line said why)
+    local net = clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 }, { netMissing = "net.read" })
+    meekGrab(T.me)
+    eq(T.me.writes, 0, "client without Net: no write")
+    eq(net.reads, 0, "client without Net: nothing read")
+    eq(count("inactive"), 0, "client without Net: no inactive line")
+end
+do -- the client's grab hooks when the character class wasn't loaded at the world's evaluation
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 }, { missing = { HASPERK, FPC .. ":PlayDamageEvent" } })
+    eq(W.count(HASPERK), 0, "client late class: not hooked at first")
+    for _ = 1, hits.REDISCOVER_EVERY do T.poll() end
+    eq(W.count(HASPERK), 0, "client late class: still missing")
+    W.missing = {}
+    for _ = 1, hits.REDISCOVER_EVERY do T.poll() end
+    eq(W.count(HASPERK), 1, "client late class: hooked on a later poll")
+    for _ = 1, hits.REDISCOVER_EVERY * 2 do T.poll() end
+    eq(W.count(HASPERK), 1, "client late class: once")
+    eq(meekGrab(T.me), "s", "client late class: the grab is flipped")
+    -- never loaded: one line after the last try, then no more tries
+    clientSetup(hv{ ver = 1000, compat = 1000 }, { missing = { HASPERK } })
+    for _ = 1, hits.REDISCOVER_EVERY * (hits.CLIENT_HOOK_TRIES + 3) do T.poll() end
+    eq(count("^WARN the character class never loaded on this client"), 1, "client class never loaded: one line", dump())
+end
+
+-- The recovery: every machine with the mod, its own player only.
+do -- after an execution began here, the player alive at 6 s, no newer grab: RECOVER
+    setup{ knobs = nil, diff = 0 }
+    eq(meekGrab(T.me), "e", "recovery: the game's execution (Default knobs)")
+    T.me._hp = 40 -- alive (the hit reduced, as by another mod)
+    eq(runDelayed(hits.RECOVER_DELAY), 1, "recovery: one check 6 s later")
+    eq(count("^RECOVER hp=40 montage=yes stop=true playing=true movement=true$"), 1, "recovery: RECOVER line", dump())
+    eq(T.me.stops, 1, "recovery: StopAnimMontage")
+    eq(rawget(T.me, "PlayingMontage"), false, "recovery: PlayingMontage = false")
+    eq(T.me.mode, 1, "recovery: SetMovementMode(1)")
+    eq(T.freed > 0, true, "recovery: the weak handle freed")
+end
+do -- not fired if a newer grab began (even a survivable one), nor when dead, nor for a survivable grab
+    setup{ knobs = nil, diff = 1 }
+    T.me._hp = 40
+    eq(meekGrab(T.me), "e", "newer grab: first an execution")
+    T.me._hp = 100
+    T.now = T.now + 2
+    eq(meekGrab(T.me), "s", "newer grab: then a survivable grab")
+    runDelayed(hits.RECOVER_DELAY)
+    eq(count("^RECOVER"), 0, "newer grab: no RECOVER", dump())
+    setup{ knobs = nil, diff = 0 }
+    meekGrab(T.me)
+    T.me._hp = 0
+    runDelayed(hits.RECOVER_DELAY)
+    eq(count("^RECOVER"), 0, "dead: no RECOVER")
+    setup{ knobs = nil, diff = 0, noRef = true }
+    meekGrab(T.me)
+    rawset(T.me, "_gone", true)
+    runDelayed(hits.RECOVER_DELAY)
+    eq(count("^RECOVER"), 0, "pawn gone (path lookup): no RECOVER")
+    setup{ knobs = "enemyDamage=25", diff = 0 }
+    meekGrab(T.me)
+    eq(runDelayed(hits.RECOVER_DELAY), 0, "survivable: no recovery scheduled")
+    setup{ knobs = nil, diff = 0 }
+    meekGrab(T.other)
+    eq(runDelayed(hits.RECOVER_DELAY), 0, "a remote victim: no recovery on this machine")
+end
+do -- after a back-off the recovery still runs; on a client too (an unmodded host's execution that didn't kill)
+    setup{ knobs = "enemyDamage=17", diff = 0 }
+    T.locked[T.meek._path] = T.me
+    lockedHit(T.meek, 50, { inner = function() T.me._hp = T.me._hp + 5 end }) -- a clash: backed off
+    T.me._hp = 100
+    meekGrab(T.me)
+    T.me._hp = 30
+    runDelayed(hits.RECOVER_DELAY)
+    eq(count("^RECOVER hp=30 "), 1, "backed off: the recovery still runs", dump())
+    clientSetup({})
+    meekGrab(T.me)
+    T.me._hp = 30
+    runDelayed(hits.RECOVER_DELAY)
+    eq(count("^RECOVER hp=30 "), 1, "client of an unmodded host: the recovery backstop")
+    clientSetup({})
+    meekGrab(T.me)
+    T.world = "World /Game/Maps/Other.Other"
+    runDelayed(hits.RECOVER_DELAY)
+    eq(count("^RECOVER"), 0, "another world by then: no RECOVER")
+end
+do -- a modded client's execution decision from the host's values (low Health): recovery scheduled
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    T.me._hp = 20
+    eq(meekGrab(T.me), "e", "client low Health: execution (20 - 25 <= 0)")
+    eq(count("^GRAB enemy=meek hp=20 E=25 game=e decision=e flip=none victim=local spare=yes$"), 1, "client low Health: GRAB line", dump())
+    eq(runDelayed(hits.RECOVER_DELAY), 1, "client low Health: recovery check scheduled")
 end
 
 -- ---------------------------------------------------------------- the source: rules from AGENTS.md

@@ -30,18 +30,18 @@ $ws = Join-Path $tmp 'ws'
 New-Item -ItemType Directory -Force (Join-Path $ws 'tools\run-guard'), (Join-Path $ws 'tools\vm'), (Join-Path $ws 'mods\Nucleus') | Out-Null
 Copy-Item (Join-Path $wsReal 'tools\run-guard\run-guard.ps1'), (Join-Path $wsReal 'tools\run-guard\test-mods.json') (Join-Path $ws 'tools\run-guard')
 
-# Core's deploy.ps1 stub: installs a core 0.6.0 into the instance it is given, only with -Staged.
+# Core's deploy.ps1 stub: installs a core 0.12.0 into the instance it is given, only with -Staged.
 Set-Content (Join-Path $ws 'mods\Nucleus\deploy.ps1') @'
 param([string] $Instance, [switch] $Staged)
 if (-not $Staged) { Write-Host 'core stub: not staged'; exit 1 }
 $mods = Join-Path $Instance 'NuclearNightmare\Binaries\Win64\ue4ss\Mods'
 New-Item -ItemType Directory -Force (Join-Path $mods 'Nucleus') | Out-Null
-Set-Content (Join-Path $mods 'Nucleus\mod.json') '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.6.0" }'
+Set-Content (Join-Path $mods 'Nucleus\mod.json') '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.12.0" }'
 Set-Content (Join-Path $Instance 'NuclearNightmare\Content\Paks\LogicMods\Nucleus.pak') 'pak'
 $txt = Join-Path $mods 'mods.txt'
 $lines = @(Get-Content $txt | Where-Object { $_ -notmatch '^\s*Nucleus\s*:' })
 Set-Content $txt (@('Nucleus : 1') + $lines)
-Write-Host 'core stub: Nucleus 0.6.0 staged'
+Write-Host 'core stub: Nucleus 0.12.0 staged'
 '@
 
 # vm-sp.ps1 stub: a stage like the real one, the Prepare block, a record of the call, and a log ($env:FAKE_VM_LOG).
@@ -103,7 +103,7 @@ $keptDir = Join-Path $ws 'dumps\v9.9-build1\difficulty'
 
 try {
     # A full run: the stage gets core, the driver and Difficulty; the VM run's arguments; the log judged with -Target vm.
-    $log = "[2026-11-11 10:00:00.0000001] [Lua] [Difficulty] CONNECT ok Nucleus 0.6.0 (pong)"
+    $log = "[2026-11-11 10:00:00.0000001] [Lua] [Difficulty] CONNECT ok Nucleus 0.12.0 (pong)"
     $r = Invoke-Run @('-Scenario', 'default') -log $log
     $c = $r.Call
     Ok ($c -and $c.Prepared) 'run: the Prepare block ran on the stage' $r.Out
@@ -115,11 +115,11 @@ try {
     Ok ($c.LogOut -eq (Join-Path $keptDir 'default.vm.log')) 'run: the log is kept as <scenario>.vm.log' $c.LogOut
     Ok ((@($c.ModsTxt) -join '|') -eq 'Nucleus : 1|DifficultyDriver : 1|Difficulty : 1|BPModLoaderMod : 1|Keybinds : 1') 'run: stage mods.txt order' (@($c.ModsTxt) -join '|')
     Ok ($c.ScenarioTxt -eq 'default') 'run: the driver''s scenario.txt' $c.ScenarioTxt
-    Ok ($c.Dev -match '(?m)^return \{ debug = true \}' -and $c.Dev -notmatch 'preCore =') 'run: dev.lua from deploy.ps1 -Test -PreCore (core 0.6.0: no dev core mode)' $c.Dev
+    Ok ($c.Dev -match '(?m)^return \{ debug = true \}' -and $c.Dev -notmatch 'preCore =') 'run: dev.lua from deploy.ps1 -Test -PreCore (core 0.12.0: no dev core mode)' $c.Dev
     Ok (@($c.Files) -contains 'NuclearNightmare\Binaries\Win64\ue4ss\Mods\Difficulty\Scripts\main.lua') 'run: Difficulty''s files in the stage'
     Ok ($r.Out -match "Difficulty \S+ deployed \(test, with DifficultyDriver, scenario default\)") 'run: Difficulty''s own deploy.ps1 ran' $r.Out
     Ok ($r.Out -match 'VM run: finished') 'run: the VM result is printed' $r.Out
-    Ok ($r.Out -match '--- Difficulty lines \(default\) ---' -and $r.Out -match 'CONNECT ok Nucleus 0\.6\.0') 'run: check.ps1 judged the kept log' $r.Out
+    Ok ($r.Out -match '--- Difficulty lines \(default\) ---' -and $r.Out -match 'CONNECT ok Nucleus 0.12.0') 'run: check.ps1 judged the kept log' $r.Out
     Ok ($r.Code -eq 1) 'run: a log check.ps1 fails -> exit 1' "exit $($r.Code)"
 
     # -TimeoutSec is passed through as given.

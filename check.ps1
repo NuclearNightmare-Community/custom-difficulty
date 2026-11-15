@@ -20,7 +20,7 @@
   solo hosted match). Each needs everything 'host' needs, a MATCH start line with the scenario's knobs and the
   driver's END result=PASS with no driver FAIL line:
     scaled     Hard, Enemy Damage 17: HIT enemy=meek stock=50 scaled=17 applied=17 hp=100.
-    flip       Nightmare, Enemy Damage 25: GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101, its RESTORE,
+    flip       Nightmare, Enemy Damage 25: GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes, its RESTORE,
                HIT enemy=meek stock=100 scaled=25 applied=25 kind=survivable; the driver saw the survivable montage
                and the player moving again.
     per-enemy  Normal, Stalker 200: HIT enemy=stalker stock=25 scaled=50 applied=50; no HIT for the Meek (stock 25).
@@ -121,7 +121,7 @@ $hit = { param($enemy, $via, $stock, $scaled, $applied, $hp, $kind) "\[$C\] HIT 
 $story3 = @{
     'scaled'    = @("\[$C\] MATCH start knobs=enemyDamage=17\s*$", (& $hit 'meek' 'ApplyLockedDamage' '50' '17' '17' '100' '(hit|survivable)'))
     'flip'      = @("\[$C\] MATCH start knobs=enemyDamage=25\s*$",
-                    "\[$C\] GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101\s*$",
+                    "\[$C\] GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes\s*$",
                     "\[$C\] RESTORE enemy=meek hp=101 -> 100 via=(multicast|next tick)\s*$",
                     (& $hit 'meek' 'ApplyLockedDamage' '100' '25' '25' '100' 'survivable'),
                     "!\[$C\] RESTORE .*: the victim is gone")

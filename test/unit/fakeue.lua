@@ -95,6 +95,58 @@ function F.install(W)
     _G.print = function(s) W.printed[#W.printed + 1] = (tostring(s):gsub("\n$", "")) end
 end
 
+-- A fake core.net (core stories 22 and 23) and core.has for story 5. N.values: full key -> int (what the host
+-- published, as a client reads it); N.status: a reason every read returns ("no-state", "version"); N.compat: PlayerState
+-- object -> true or a reason (what compatible() answers on the host, default "absent"); N.role: what publish sees
+-- ("host", "standalone", "client"). versionsCompatible applies core's netCompat rule (net/presence.lua).
+function F.net(o)
+    o = o or {}
+    local N = { values = o.values or {}, status = o.status, compat = o.compat or {}, role = o.role or "host",
+                published = {}, reads = 0, compatCalls = {}, features = o.features }
+    local function parse(v)
+        if type(v) ~= "string" then return nil end
+        local a, b, c = v:match("^(%d+)%.(%d+)%.(%d+)$")
+        if not a then return nil end
+        return { tonumber(a), tonumber(b), tonumber(c) }
+    end
+    local function cmp(x, y) for i = 1, 3 do if x[i] ~= y[i] then return x[i] < y[i] and -1 or 1 end end return 0 end
+    local function eff(v, nc) if nc then return parse(nc) end local p = parse(v) return p[1] == 0 and { 0, p[2], 0 } or { p[1], 0, 0 } end
+    function N.publish(key, v)
+        if N.role == "client" then error("nucleus.net.publish: only the host publishes (this machine is a client)", 0) end
+        if N.role == "standalone" then return false, "standalone" end
+        if type(key) ~= "string" or not key:match("^.+%.[A-Za-z0-9_]+$") or math.tointeger(v) == nil then error("nucleus.net.publish: bad key or value", 0) end
+        N.published[#N.published + 1] = { key, v }
+        N.values[key] = v
+        return true
+    end
+    function N.read(key, lo, hi)
+        N.reads = N.reads + 1
+        if N.status then return nil, N.status end
+        local v = N.values[key]
+        if v == nil then return nil, "absent" end
+        if v < lo or v > hi then return nil, "out-of-bounds" end
+        return v
+    end
+    function N.compatible(ps, modId)
+        if N.role == "client" then error("nucleus.net.compatible: only the host knows presence (this machine is a client)", 0) end
+        N.compatCalls[#N.compatCalls + 1] = modId
+        local r = N.compat[ps]
+        if r == true then return true end
+        return false, r or "absent"
+    end
+    function N.versionsCompatible(aV, aNC, bV, bNC)
+        local a, b = parse(aV), parse(bV)
+        if not a or not b or (aNC and not parse(aNC)) or (bNC and not parse(bNC)) then error("nucleus.net.versionsCompatible: not x.y.z", 0) end
+        if (aNC and cmp(parse(aNC), a) > 0) or (bNC and cmp(parse(bNC), b) > 0) then error("nucleus.net.versionsCompatible: netCompat above version", 0) end
+        return cmp(a, eff(bV, bNC)) >= 0 and cmp(b, eff(aV, aNC)) >= 0
+    end
+    function N.has(name)
+        if N.features then return N.features[name] == true end
+        return name:match("^net%.") ~= nil
+    end
+    return N
+end
+
 function F.harness(name)
     local H = { passed = 0, failed = 0 }
     function H.ok(cond, what, detail)

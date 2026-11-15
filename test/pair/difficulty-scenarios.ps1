@@ -11,6 +11,17 @@
                      both machines, the host's own grab watched by B, one execution on B whose recovery is observed (item 6).
     dp-grab-vanilla  host-grab-vanilla + client-observe: the same enemies, no flip for B anywhere (an unmodded B).
     dp-revive        host-revive + client-revive: the reinforcement steps (item 4).
+  Story 5 (survivable grabs on modded clients; the real Nucleus from mods/Nucleus/build/package and the real
+  Difficulty, staged with dev.lua knobs enemyDamage=25 on the host; DifficultyPair host-spawn + client-watch, which
+  never flip). Each Check FAILs on any listed miss (ScenarioReport.D5.Misses):
+    d5-grab-modded   both machines modded: decision=s for B in both logs per enemy, B's survivable montage, B alive
+                     and moving at 6 s; RECOVER lines are reported, not failed.
+    d5-grab-unmodded B has only UE4SS and the watcher: host spare=no(absent) and the game's decision, B's montage
+                     matches it, B revived after each death, two players throughout (the session outcome).
+    d5-host-vanilla  the host has no core and no Difficulty, B is modded: one inactive line on B, no GRAB, RESTORE
+                     or RECOVER there.
+  The host copy must have no Nucleus or Difficulty of its own installed (pair.ps1 refuses mods it didn't put there):
+  run their deploy.ps1 -Remove first.
   The drivers coordinate only through files: each logs "SIGNAL <name>", and AfterJoin's relay writes <name>.txt next
   to the other machine's copy (a fixed list of names; nothing from the game is turned into a path).
   Friends-only lobbies only (AGENTS.md "Networking"): pair.ps1's PairDriver creates them and stops the run if the
@@ -28,7 +39,7 @@ $script:DpSignals = @('bready', 'temp-start', 'temp-end', 'done', 's1', 's2', 's
     'b-s1', 'b-s2', 'b-s3', 'b-s3done', 'b-s4done')
 
 # A copy of DifficultyPair with Scripts\role.txt, in its own folder per role (host and VM copies differ).
-function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive')] [string] $Role) {
+function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive', 'host-spawn', 'client-watch')] [string] $Role) {
     $stage = Join-Path ([IO.Path]::GetTempPath()) "nn-dp-stage-$Role"
     Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     $dst = Join-Path $stage 'DifficultyPair'
@@ -153,5 +164,199 @@ $script:DpPairScenarios = @{
     'dp-grab-vanilla' = New-DpScenario 'Difficulty: the same enemies, no flip for B (unmodded B''s decision stands); executions on B kept alive by compensation (recovery observed)' 'host-grab-vanilla' 'client-observe'
     'dp-revive' = New-DpScenario 'Difficulty: reinforcements: B''s panel with Disable Reinforcement set from host Lua, B''s request past the limit, counts on the host, the revived and the unrevived machine' 'host-revive' 'client-revive'
 }
+
+# ------------------------------------------------------------------------------------------------ story 5
+# Survivable grabs on modded clients: the real Nucleus (its build/package) and the real Difficulty on the machines
+# that run them; DifficultyPair only spawns (host-spawn) and watches (client-watch). Never flips.
+$script:DpRepo = Split-Path $PSScriptRoot -Parent | Split-Path -Parent
+$script:DpManifest = Get-Content (Join-Path $DpRepo 'mod.json') -Raw | ConvertFrom-Json
+$script:DpName = $DpManifest.name
+$script:DpCoreName = 'Nucleus'   # core's folder name (the one place this file spells it)
+$script:DpCorePackage = Join-Path $Workspace "mods\$DpCoreName\build\package"
+$script:DpKnobs = 'enemyDamage=25'   # with the Nightmare lobby: a Meek grab at 100 HP is survivable (E 25), the game's is an execution
+
+# Core's package must exist and satisfy Difficulty's dependsOn (^ rules: 0.x, same minor, at least the patch).
+$script:DpD5Prereq = {
+    $mj = Join-Path $DpCorePackage "Mods\$DpCoreName\mod.json"
+    if (-not (Test-Path $mj)) { throw "No $DpCoreName package at $DpCorePackage; build it with its build.ps1 (not while a game runs)." }
+    if (-not (Test-Path (Join-Path $DpCorePackage "LogicMods\$DpCoreName.pak"))) { throw "No $DpCoreName.pak in $DpCorePackage\LogicMods; rebuild." }
+    $have = (Get-Content $mj -Raw | ConvertFrom-Json).version
+    $range = @($DpManifest.dependsOn)[0].version
+    $need = $range.TrimStart('^')
+    $h = $have -split '\.' | ForEach-Object { [int]$_ }; $n = $need -split '\.' | ForEach-Object { [int]$_ }
+    $okV = if ($n[0] -eq 0) { $h[0] -eq 0 -and $h[1] -eq $n[1] -and $h[2] -ge $n[2] } else { $h[0] -eq $n[0] -and ($h[1] -gt $n[1] -or ($h[1] -eq $n[1] -and $h[2] -ge $n[2])) }
+    if (-not $okV) { throw "$DpCoreName package $have does not satisfy $DpName's dependsOn $range." }
+}
+
+# Difficulty staged as deploy.ps1 -Test -Knobs installs it: mod.json, Scripts\*.lua (no dev.lua from the repo), and a
+# dev.lua with the knobs (test only, never shipped). Returns the mod folder.
+function Get-DpModStage([Parameter(Mandatory)] [ValidateSet('host', 'client')] [string] $Side, [string] $Knobs = '') {
+    $stage = Join-Path ([IO.Path]::GetTempPath()) "nn-dp-stage-mod-$Side"
+    Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+    $dst = Join-Path $stage $DpName
+    New-Item -ItemType Directory -Force (Join-Path $dst 'Scripts') | Out-Null
+    Copy-Item (Join-Path $DpRepo 'mod.json') $dst
+    Get-ChildItem (Join-Path $DpRepo 'Scripts') -Filter '*.lua' | Where-Object { $_.Name -notin 'dev.lua', 'settings.lua' } | Copy-Item -Destination (Join-Path $dst 'Scripts')
+    if ($Knobs -notmatch '^[A-Za-z0-9.=;]*$') { throw "Knobs '$Knobs' has characters dev.lua doesn't take." }
+    $knobsField = if ($Knobs) { ", knobs = `"$Knobs`"" } else { '' }
+    [IO.File]::WriteAllText((Join-Path $dst 'Scripts\dev.lua'), "-- Written by difficulty-scenarios.ps1 (story 5 pair run); dev only, never shipped.`nreturn { debug = true$knobsField }`n", [Text.UTF8Encoding]::new($false))
+    $dst
+}
+
+# For VMRestore and -Stop: placeholders named like core, its pak, Difficulty and the driver (vm-deploy -Remove uses
+# only the names).
+function Get-DpRemovePaths {
+    $r = Join-Path ([IO.Path]::GetTempPath()) 'nn-dp-remove'
+    New-Item -ItemType Directory -Force (Join-Path $r $DpCoreName), (Join-Path $r $DpName), (Join-Path $r 'DifficultyPair') | Out-Null
+    $pak = Join-Path $r "$DpCoreName.pak"
+    if (-not (Test-Path $pak)) { Set-Content $pak '' -NoNewline }
+    @((Join-Path $r 'DifficultyPair'), (Join-Path $r $DpName), (Join-Path $r $DpCoreName), $pak)
+}
+
+# The VM copy for a story 5 scenario: UE4SS on, client-watch, and with -Modded core (first in mods.txt) and Difficulty.
+function Set-DpVMModded([switch] $Modded) {
+    Restore-VMBaseline
+    Invoke-VMDeploy -Remove -Path (Get-DpRemovePaths)
+    Invoke-VMDeploy -UE4SS On
+    if ($Modded) {
+        & (Join-Path $Workspace 'tools/vm/vm-deploy.ps1') -Path $DpCorePackage -First
+        Invoke-VMDeploy -Path (Get-DpModStage -Side client)
+    }
+    Invoke-VMDeploy -Path (Get-DpStage -Role 'client-watch')
+}
+
+# Lines of one log with a tag, the prefix up to the tag cut off.
+function Get-DpTagged([string] $Log, [string] $Tag) {
+    if (-not $Log -or -not (Test-Path $Log)) { return @() }
+    $rx = '\[' + [regex]::Escape($Tag) + '\] '
+    @(Select-String -Path $Log -Pattern $rx | ForEach-Object { $_.Line -replace ('^.*' + $rx), '' })
+}
+
+$script:DpRows = [ordered]@{ Meek = 'meek'; Mimic = 'mimic'; Psycho = 'psycho'; Watcher = 'watcher'; Stalker = 'stalker' }
+$script:DpExecMontage = 'StabAndDump|SmashOnTable|EyeGouge'
+$script:DpSurvMontage = 'StabStomach|Punch|Headbutt|SmashHead'
+
+# B's driver: the grabs on B, by enemy, with the montage class (e / s / ?) and the 6 s state after each.
+function Get-DpClientGrabs([string[]] $Lines) {
+    $grabs = @()
+    foreach ($l in $Lines) {
+        if ($l -match '^GRAB #(\d+) (\S+) \S+ victim=me hpSeen=(\S+) hpNow=\S+ montage=(\S+) ') {
+            $seq, $enemy, $hpSeen, $m = [int]$Matches[1], $Matches[2], $Matches[3], $Matches[4]
+            $k = if ($m -match $DpExecMontage) { 'e' } elseif ($m -match $DpSurvMontage) { 's' } else { '?' }
+            $grabs += [pscustomobject]@{ Seq = $seq; Enemy = $enemy; Hp = $hpSeen; Montage = $m; Kind = $k; After6 = $null }
+        }
+    }
+    foreach ($l in $Lines) {
+        if ($l -match '^AFTERGRAB #(\d+) me 6 s: (.*)$') {
+            $seq = [int]$Matches[1]; $st = $Matches[2]
+            $g = $grabs | Where-Object { $_.Seq -eq $seq } | Select-Object -First 1
+            if ($g) { $g.After6 = $st }
+        }
+    }
+    $grabs
+}
+
+# The story 5 checks; Verdict PASS only when nothing listed is missed, the drivers passed and the session held.
+function Get-DpD5Report([Parameter(Mandatory)] [ValidateSet('modded', 'unmodded', 'host-vanilla')] [string] $Kind) {
+    $r = Get-DpReport
+    $hostLog = Join-Path $outDir "$Label.host.UE4SS.log"
+    $hd = Get-DpTagged $hostLog $DpName
+    $vd = Get-DpTagged $vmLogPath $DpName
+    $hp = Get-DpTagged $hostLog 'DifficultyPair'
+    $vp = Get-DpTagged $vmLogPath 'DifficultyPair'
+    $miss = [Collections.Generic.List[string]]::new()
+    function Miss([string] $m) { $miss.Add($m) }
+    $clientGrabs = @(Get-DpClientGrabs $vp)
+    $hostClient = @($hd | Where-Object { $_ -match '^GRAB .* victim=client ' })
+    switch ($Kind) {
+        'modded' {
+            foreach ($e in $DpRows.Keys) {
+                $row = $DpRows[$e]
+                if (-not ($hd | Where-Object { $_ -match "^GRAB enemy=$row hp=100 E=25 game=e decision=s flip=101 victim=client spare=yes\s*$" })) { Miss "host: no full-Health GRAB enemy=$row decision=s victim=client spare=yes" }
+                if (-not ($vd | Where-Object { $_ -match "^GRAB enemy=$row hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes\s*$" })) { Miss "B: no full-Health GRAB enemy=$row decision=s victim=local (attacker row as on the host)" }
+                $first = $clientGrabs | Where-Object { $_.Enemy -eq $e } | Select-Object -First 1
+                if (-not $first) { Miss "B's driver: no grab by the $e seen" }
+                elseif ($first.Kind -ne 's') { Miss "B's driver: the $e's first grab played $($first.Montage), not the survivable montage" }
+            }
+            foreach ($l in $hostClient) {
+                if ($l -notmatch 'spare=yes') { Miss "host: a modded B not spared: $l" }
+                if ($l -match 'hp=([\d.]+) E=([\d.]+) game=\S+ decision=(\S)') {
+                    $want = if ([double]$Matches[1] - [double]$Matches[2] -gt 0) { 's' } else { 'e' }
+                    if ($Matches[3] -ne $want) { Miss "host: decision $($Matches[3]), the expected hit says $want`: $l" }
+                }
+            }
+            # A 6 s state is logged only when no newer grab came first; each enemy needs one, and every one logged must
+            # show B alive and moving.
+            foreach ($g in ($clientGrabs | Where-Object { $_.Kind -eq 's' -and $_.After6 })) {
+                if ($g.After6 -notmatch 'hp=([\d.]+)' -or [double]$Matches[1] -lt 1) { Miss "B: below 1 HP 6 s after grab #$($g.Seq) ($($g.Enemy)): $($g.After6)" }
+                if ($g.After6 -match 'movement=(\S+)' -and $Matches[1] -in '0', 'MOVE_None', 'nil') { Miss "B: not moving 6 s after grab #$($g.Seq) ($($g.Enemy)): $($g.After6)" }
+            }
+            foreach ($e in $DpRows.Keys) {
+                if (-not ($clientGrabs | Where-Object { $_.Enemy -eq $e -and $_.Kind -eq 's' -and $_.After6 })) { Miss "B's driver: no 6 s state after a survivable $e grab" }
+            }
+            if ($vd | Where-Object { $_ -match 'host has no Difficulty, inactive' }) { Miss 'B: logged the inactive line' }
+        }
+        'unmodded' {
+            if (-not ($hostClient | Where-Object { $_ -match 'spare=no\(absent\)\s*$' })) { Miss 'host: no GRAB victim=client spare=no(absent)' }
+            foreach ($l in $hostClient) {
+                if ($l -match 'spare=yes') { Miss "host: an unmodded B spared: $l" }
+                if ($l -match 'game=(\S) decision=(\S)' -and $Matches[1] -ne $Matches[2]) { Miss "host: not the game's decision for an unmodded B: $l" }
+            }
+            if ($vd.Count) { Miss "B: $($vd.Count) $DpName lines on a machine without $DpName" }
+            foreach ($e in $DpRows.Keys) {
+                $row = $DpRows[$e]
+                $h = $hostClient | Where-Object { $_ -match "^GRAB enemy=$row " } | Select-Object -First 1
+                $first = $clientGrabs | Where-Object { $_.Enemy -eq $e } | Select-Object -First 1
+                if (-not $h -or -not $first) { Miss "the $e's grab on B not seen on both machines (host $([bool]$h), B $([bool]$first))"; continue }
+                $want = if ($h -match 'decision=(\S)') { $Matches[1] } else { '?' }
+                if ($first.Kind -ne $want) { Miss "B's montage for the $e ($($first.Montage)) doesn't match the host's decision $want" }
+            }
+            $died = @($hp | Where-Object { $_ -match '^REVIVE .* radio:Reinformant\(\)' }).Count
+            $back = @($hp | Where-Object { $_ -match '^REVIVE .* B back after ' }).Count
+            if ($died -ne $back) { Miss "host: B revived $back of $died times" }
+        }
+        'host-vanilla' {
+            $n = @($vd | Where-Object { $_ -match '^host has no Difficulty, inactive \(' }).Count
+            if ($n -ne 1) { Miss "B: $n inactive lines, want exactly 1" }
+            $acted = @($vd | Where-Object { $_ -match '^(GRAB|RESTORE|RECOVER) ' })
+            if ($acted.Count) { Miss "B: $($acted.Count) GRAB/RESTORE/RECOVER lines: $($acted[0])" }
+            if (-not ($vd | Where-Object { $_ -match '^READY ' })) { Miss "B: $DpName never got READY (core missing on B?)" }
+            if (-not $clientGrabs.Count) { Miss "B's driver: no grab on B seen" }
+            if ($hd.Count) { Miss "host: $($hd.Count) $DpName lines on a host without $DpName" }
+        }
+    }
+    $r.D5 = [ordered]@{
+        Kind = $Kind; Misses = @($miss)
+        Recover = @($vd | Where-Object { $_ -match '^RECOVER ' })
+        HostGrabs = @($hd | Where-Object { $_ -match '^GRAB ' })
+        VMGrabs = @($vd | Where-Object { $_ -match '^GRAB ' })
+        VMInactive = @($vd | Where-Object { $_ -match 'inactive' })
+        ClientMontages = @($clientGrabs | ForEach-Object { "#$($_.Seq) $($_.Enemy) hp=$($_.Hp) $($_.Montage) [$($_.Kind)] 6s: $($_.After6)" })
+        Session = $result.Outcome
+    }
+    foreach ($m in $miss) { Write-Host "FAIL $m" }
+    $r.Verdict = if ($r.Verdict -eq 'FAIL' -or $miss.Count -or $result.Outcome -ne 'PASS') { 'FAIL' } else { 'PASS' }
+    $r
+}
+
+function New-DpD5Scenario([string] $Summary, [ValidateSet('modded', 'unmodded', 'host-vanilla')] [string] $Kind) {
+    $hostMods = if ($Kind -eq 'host-vanilla') { "@(Get-DpStage -Role 'host-spawn')" }
+                else { "@(`$DpCorePackage, (Get-DpModStage -Side host -Knobs `$DpKnobs), (Get-DpStage -Role 'host-spawn'))" }
+    $vm = if ($Kind -eq 'unmodded') { 'Set-DpVMModded' } else { 'Set-DpVMModded -Modded' }
+    @{
+        Summary = $Summary
+        Prereq = $DpD5Prereq
+        HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '0' }   # Nightmare: every stock grab at 100 HP executes
+        HostModPaths = [scriptblock]::Create($hostMods)
+        VMSetup = [scriptblock]::Create($vm)
+        VMRestore = { Invoke-VMDeploy -Remove -Path (Get-DpRemovePaths); Restore-VMBaseline }
+        AfterJoin = { Invoke-DpRelay }
+        PlaySec = 20
+        Check = [scriptblock]::Create("Get-DpD5Report -Kind '$Kind'")
+    }
+}
+$DpPairScenarios['d5-grab-modded'] = New-DpD5Scenario "Difficulty story 5: host and B both run $DpCoreName and Difficulty (host Enemy Damage 25, Nightmare); Meek, Mimic, Psycho, Watcher and Stalker grab B at full Health: decision=s on both machines, B's survivable montage, B >= 1 HP and moving at 6 s" 'modded'
+$DpPairScenarios['d5-grab-unmodded'] = New-DpD5Scenario "Difficulty story 5: the host runs $DpCoreName and Difficulty, B only UE4SS and its watcher: the host keeps the game's decision (spare=no(absent)), B's montage matches it, B revived after each execution, two players throughout" 'unmodded'
+$DpPairScenarios['d5-host-vanilla'] = New-DpD5Scenario "Difficulty story 5: the host runs no Difficulty, B runs $DpCoreName and Difficulty: one inactive line on B and no GRAB, RESTORE or RECOVER" 'host-vanilla'
 
 if ($script:PairScenarios -is [hashtable]) { foreach ($k in $DpPairScenarios.Keys) { $script:PairScenarios[$k] = $DpPairScenarios[$k] } }

@@ -3,7 +3,7 @@
   Runs Difficulty's unit tests, no game needed: the Lua tests (world.lua's isHost cache and game adapter, main.lua's
   bootstrap paths against a fake core and fake UE4SS globals, mod.json's settings) and the PowerShell tests
   (deploy-lib.ps1 and deploy.ps1 against a fake instance, run.ps1's run guard, run.ps1 -Target vm against a stubbed
-  tools/vm/vm-sp.ps1, check.ps1 against synthetic logs). check.ps1 -Scenario unit
+  tools/vm/vm-sp.ps1, check.ps1 against synthetic logs, story 5's pair checks against synthetic logs; net.lua). check.ps1 -Scenario unit
   runs this too.
   Lua: the first of lua, lua5.4, lua54, lua5.3, texlua (MiKTeX's texlua.exe is Lua 5.3) found on PATH; -Lua picks one.
 .EXAMPLE
@@ -30,7 +30,7 @@ try {
         }
     }
     if ($Only -in 'all', 'ps') {
-        foreach ($t in 'deploy_test', 'check_test', 'run_guard_test', 'run_vm_test') {
+        foreach ($t in 'deploy_test', 'check_test', 'run_guard_test', 'run_vm_test', 'pair_d5_test') {
             & pwsh -NoProfile -NonInteractive -File "test/unit/$t.ps1"
             if ($LASTEXITCODE -ne 0) { $failed += $t }
         }

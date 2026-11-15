@@ -4,10 +4,11 @@ Separate difficulty options for Nuclear Nightmare. Spec: `_bmad-output/specs/spe
 
 Version 0.1.0: the skeleton (story 1) connects to Nucleus (core) and works out per world whether this machine hosts.
 Story 3 adds enemy damage on the host and survivable grabs for the host's own player; story 4 adds cold, frostbite and
-reinforcement tokens on the host (below). The knob values have
+reinforcement tokens on the host; story 5 adds survivable grabs on modded clients (below). The knob values have
 no player-facing source yet: until the rows and presets (stories 6 and 7) they come only from a dev file, so a
 normal install leaves every knob Default and changes nothing. Targets V8.2 (build 26512322) with the pinned UE4SS
-`v3.0.1-1181-g83330635`, and needs Nucleus `^0.4.0`: 0.4.0 or newer (core's rule since its story 18; 0.6.0 is fine).
+`v3.0.1-1181-g83330635`, and needs Nucleus `^0.12.0` (story 5: core's host replicated state and player presence,
+`core.net`; for 0.x the caret means 0.12.x).
 
 ## Install
 
@@ -16,8 +17,8 @@ normal install leaves every knob Default and changes nothing. Targets V8.2 (buil
 ```
 
 `deploy.ps1` refuses (exit 1, one line naming the cause) when Nucleus is missing, disabled in `mods.txt`, isn't
-Nucleus (wrong `id`), or its version doesn't satisfy `dependsOn` (`^0.4.0`). Otherwise it installs
-`Mods/Difficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua, env.lua, tokens.lua}` and
+Nucleus (wrong `id`), or its version doesn't satisfy `dependsOn` (`^0.12.0`). Otherwise it installs
+`Mods/Difficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua, env.lua, tokens.lua, net.lua}` and
 puts `Difficulty : 1`
 right below Nucleus's line in `mods.txt`, above `Keybinds : 1`. `-Force` installs anyway with a warning (the failure scenarios); `-Remove`
 deletes `Mods/Difficulty` and its `mods.txt` line. Close the game first. From a worktree, pass the main checkout's
@@ -25,7 +26,7 @@ instance path.
 
 ## Dev core mode (before Nucleus 0.4.0)
 
-Nucleus 0.4.0 (with the UI stories 18 to 23) doesn't exist yet. To test with core 0.3.0:
+Kept from before Nucleus 0.4.0 (the UI stories), for tests with core 0.3.0:
 
 ```powershell
 ./deploy.ps1 -Instance <copy> -Test -PreCore
@@ -33,8 +34,8 @@ Nucleus 0.4.0 (with the UI stories 18 to 23) doesn't exist yet. To test with cor
 
 `-PreCore` works only with `-Test`. It also accepts an installed core `^0.3.0` and, on such a core only, writes `Scripts/dev.lua`
 (`return { debug = true, preCore = true }`; git-ignored, never shipped). `main.lua` then connects with need 0.3.0 and
-logs one `WARN running on Nucleus <v> before 0.4.0 (dev only): no UI`. `-Test` alone writes
-`return { debug = true }` (DEBUG lines), as does `-Test -PreCore` on a core that already satisfies `^0.4.0`. Without `dev.lua`, the mod needs 0.4.0, so a normal deploy and a normal
+logs one `WARN running on Nucleus <v> before 0.12.0 (dev only): no UI` (the net line is then INFO, as core 0.3.0 has no `core.net`). `-Test` alone writes
+`return { debug = true }` (DEBUG lines), as does `-Test -PreCore` on a core that already satisfies `^0.12.0`. Without `dev.lua`, the mod needs 0.12.0, so a normal deploy and a normal
 runtime refuse core 0.3.0.
 
 ## Knobs acting so far (stories 3 and 4, host only)
@@ -50,8 +51,9 @@ runtime refuse core 0.3.0.
   Blueprint wrappers whose hooks run after the hit, so their hits stay stock in v1.
 - **Survivable grabs** for the host's own player: at each grab's `HasPerk(0x27)` the expected hit decides
   (`Health - E > 0` is survivable). When that differs from the game's choice, `Health` is set to standard + 1 (or 0.01)
-  for the grab's own test and put back in the grab's multicast hook (or on the next tick). Other victims keep the
-  game's choice (story 5 adds modded clients).
+  for the grab's own test and put back in the grab's multicast hook (or on the next tick). A client victim is spared
+  the same way only when core's player presence says its machine runs a compatible Difficulty (below); any other
+  victim keeps the game's choice.
 - Everything waits for the match to start (`UpdateFriendlyFire` in this world), acts only on the host, and does
   nothing at all for a knob that is Default.
 - **Cold Exposure** (`cold`, the freeze rate in % of Normal's): one 250 ms game-thread poll on the host. The match's
@@ -92,6 +94,37 @@ runtime refuse core 0.3.0.
   match`. A failing hook body or poll logs one `ERROR ...; every knob off until the next match` the same way. Any
   value already written stays, except the token count, which goes back to stock.
 
+## Modded clients (story 5)
+
+- **What the host publishes.** At the match start (`UpdateFriendlyFire`), through core's host replicated state
+  (`core.net.publish`, keys `<mod.json id>.<name>`): `ver` and `compat` (Difficulty's own version and effective
+  `netCompat` as `major*1000000 + minor*1000 + patch`; `mod.json` sets no `netCompat`, so core's default
+  `0.<minor>.0` applies), then `enemyDamage` and `dmg_meek`, `dmg_mimic`, `dmg_psycho`, `dmg_husk`, `dmg_watcher`,
+  `dmg_stalker`, only those that are set (an absent knob key is Default). One `NET published ...` line. In solo play
+  core answers `standalone` and nothing is published. The mod has no RPC, chat or replicated class of its own.
+- **The host's decision for a client victim.** Spared only when `core.net.compatible(<the victim pawn's
+  PlayerState>, <mod.json id>)` is true (core's `netCompat` rule); otherwise the game's decision stands. The GRAB line
+  says `victim=<local|client> spare=<yes|no(<reason>)>` (`absent`, `incompatible`, `no-world`, `core` without core's
+  Net, `error`). The execution floor and the survivable cap apply to every victim.
+- **A modded client** acts only on its own player and only from the host's values, read with `core.net.read` at every
+  grab (never cached) with each knob's own range: the five AI grabs at `HasPerk(0x27)`, the Stalker in a
+  `NNEnemyAttackContext:BeginStalkerPresentation` pre-hook (the first call in `PlayDamageEvent`'s body, before its
+  `Health` test; the Stalker's `HasPerk(0x27)` runs on the host only), restored in the grab multicast's hook or on the
+  next tick. Its attacker: the AI whose locked victim it is, else the nearest grab-class AI within 10 m, else none
+  (enemy % 100). Damage, the roll, cold, frostbite and tokens stay host-only. Without `ver` (an unmodded host, no
+  state yet, a core version mismatch) or with a host version that core's `versionsCompatible` rejects, it changes
+  nothing and logs `host has no Difficulty, inactive (<reason>)` once per world, at the first grab on its player. A
+  value out of range: no change for that grab, one `WARN the host's <key> is outside this mod's bounds ...` per key
+  per match.
+- **Recovery** (every machine with the mod, own player only, also after a back-off): 6 s after an execution began on
+  this machine, if the player is alive and no other grab on it began since, `StopAnimMontage`, `PlayingMontage =
+  false`, `SetMovementMode(1)` and one `RECOVER hp= montage= stop= playing= movement=` line. Expected never to fire.
+- **Core without Net** (`core.has` lacks `net.publish`, `net.read`, `net.presence`, `net.compatible` or
+  `net.versionsCompatible`, or `mod.json` has no usable id): one `WARN Nucleus <v> has no <feature>: ...` line; the
+  host spares only its own player and a client stays inactive.
+- **Not covered:** a third player watching the grab keeps the game's choice for the victim (it may see an execution
+  and then the victim stand up); the token display on clients; unmodded victims.
+
 ### Dev value source (until stories 6 and 7)
 
 ```powershell
@@ -114,13 +147,17 @@ one `WARN knobs: ...`. A deploy without `-Test` writes no `dev.lua`, so a releas
 - Without a compatible core: exactly one `[Difficulty]` line naming the cause, and no hook registered.
 - Story 3, on the host: `MATCH start knobs=<values|all Default>` at each match start;
   `HIT enemy=<row|?> via=<site> stock= scaled= rolled= applied= hp=<before> kind=<hit|execution|survivable>` per
-  scaled hit; `GRAB enemy= hp= E= game=<s|e> decision=<s|e> flip=<value|none>` per grab;
+  scaled hit; `GRAB enemy= hp= E= game=<s|e> decision=<s|e> flip=<value|none> victim=<local|client>
+  spare=<yes|no(<reason>)>` per grab;
   `RESTORE enemy= hp=<temp> -> <saved> via=<multicast|next tick>` per restore; `WARN clash: ...` when backing off.
 - Story 4, on the host: `HIT enemy=frostbite via=frostbite stock=<1|2> scaled= rolled= applied= hp= kind=hit` per
   frostbite tick; every 10 s while Cold Exposure acts, `COLD raw=<game's rises> applied=<written rises> factor=
   polls= writes= players= avg_ms=<poll cost> clock=<core|os>` (sums since the match start); `TOKENS start limit= N=
   count=`, `TOKENS used= left= count= via=` per change, `TOKENS disabled at used= N= via=`, `TOKENS minimum changed
   ...`, and one line when the knob does nothing (imposter, the lobby's own Disable).
+- Story 5: `NET published ver= compat= ...` on the host at the match start; on a modded client `GRAB ... victim=local
+  spare=yes` and its `RESTORE`, or once per world `host has no Difficulty, inactive (<reason>)`; `RECOVER ...` on any
+  machine when the recovery acted.
 
 ## Scenarios (`check.ps1`)
 
@@ -129,8 +166,8 @@ Run the scenario, then `./check.ps1 -Instance <copy> -Scenario <s>` (or `-Log <f
 
 | Scenario | Set-up | Expected |
 |---|---|---|
-| `ready` | `deploy.ps1 -Test -PreCore` on core 0.3.0, launch to the main menu, quit | `CONNECT ok`, one pre-core WARN (none on core 0.4.x), `WORLD host=false standalone=true` for the menu, `READY` |
-| `old-core` | core 0.3.0, `deploy.ps1 -Force`, launch to the menu | exactly one line: `ERROR Nucleus 0.3.0 is not compatible; Difficulty needs 0.4.0 (^ rules). Update Nucleus. Difficulty will not run.` |
+| `ready` | `deploy.ps1 -Test -PreCore` on core 0.3.0, launch to the main menu, quit | `CONNECT ok`, one pre-core WARN (none on core 0.12.x), `WORLD host=false standalone=true` for the menu, `READY` |
+| `old-core` | core 0.3.0, `deploy.ps1 -Force`, launch to the menu | exactly one line: `ERROR Nucleus 0.3.0 is not compatible; Difficulty needs 0.12.0 (^ rules). Update Nucleus. Difficulty will not run.` |
 | `no-core` | Nucleus removed (its own `deploy.ps1 -Remove`), `deploy.ps1 -Force`, launch to the menu; reinstall Nucleus afterwards | exactly one line: `Nucleus is not installed. Difficulty will not run.` |
 | `host` | as `ready`, then host a solo match | as `ready`, plus `WORLD host=true standalone=false map=<map>` |
 | `hand` | any run by hand | connected, `READY`, at least one `WORLD`, no error |
@@ -210,8 +247,9 @@ shown.
 - `./test.ps1`: the unit tests, no game needed (Lua: `world.lua`'s cache and adapter, `main.lua`'s bootstrap paths,
   `mod.json`'s settings, `knobs.lua`'s parser, `damage.lua`'s math including the 200-hit distribution and the
   survivable cap, `hits.lua` against fake hooks (the cold poll, the frostbite native and tokens included), `env.lua`'s
-  cold and frostbite math and poll, `tokens.lua`'s math and adapter; PowerShell: `deploy.ps1` against a fake instance, `check.ps1`
-  against synthetic logs).
+  cold and frostbite math and poll, `tokens.lua`'s math and adapter, `net.lua`'s keys, encode and decode, story 5's
+  host and client grab paths and the recovery in `hits_test.lua`; PowerShell: `deploy.ps1` against a fake instance,
+  `check.ps1` against synthetic logs, story 5's pair checks against synthetic logs).
   Lua is the first of `lua`, `lua5.4`, `lua54`, `lua5.3`, `texlua` on PATH.
 
 ### Story 2 (test-only, never shipped)
@@ -223,6 +261,23 @@ shown.
   Verdict REVIEW: no FAIL line, and the panel and counts were read by hand (`knob-mechanics.md`, Reinforcement
   tokens). The first scenario after each VM boot failed to join (the VM's Steam wasn't ready yet); run that one
   again, or list it twice.
+
+### Story 5 pair scenarios
+
+`test/run-pair.ps1 -Workspace <workspace> -Scenarios d5-grab-modded,d5-grab-unmodded,d5-host-vanilla`: the real
+Nucleus (`mods/Nucleus/build/package`, which must satisfy `dependsOn`) and the real Difficulty (staged with a test
+`dev.lua`, host knobs `enemyDamage=25`) on the machines that run them, in a Nightmare friends-only lobby;
+`DifficultyPair` only spawns a Meek, Mimic, Psycho, Watcher and Stalker in front of B (`host-spawn`, no Husk: a
+survivable Husk grab infects by design) and watches (`client-watch`), never flips.
+- `d5-grab-modded`: both machines modded. FAILs unless both logs show `decision=s` for B per enemy at full Health,
+  B's driver sees the survivable montage and B is alive and moving 6 s later. `RECOVER` lines are reported.
+- `d5-grab-unmodded`: B has only UE4SS and the watcher. FAILs unless the host logs `spare=no(absent)` and the game's
+  decision, B's montage matches it, B is revived after each death and the session keeps two players.
+- `d5-host-vanilla`: the host has neither core nor Difficulty, B is modded. FAILs unless B logs exactly one
+  `host has no Difficulty, inactive` line and no `GRAB`, `RESTORE` or `RECOVER`.
+The verdict is in `dumps/<copy>/pair/<label>.json` (`ScenarioReport.Verdict`, misses in `ScenarioReport.D5.Misses`).
+The host copy must have no Nucleus or Difficulty of its own installed (`pair.ps1` refuses mods it didn't put there):
+run their `deploy.ps1 -Remove` first. Not run yet (story 5's pair runs are pending: the host PC was off-limits).
 
 ## Settings
 

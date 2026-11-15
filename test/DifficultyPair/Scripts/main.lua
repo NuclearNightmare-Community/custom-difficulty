@@ -7,6 +7,12 @@
 --   client-grab        (B, VM) flips the decision for its own player (not while a Psycho is alive: that case is the
 --                      execution whose recovery is observed); logs what it sees of both players.
 --   client-observe     (B, VM) logs only (an unmodded B as far as the grab decision goes).
+--   host-spawn         (A, host; story 5) spawns a Meek, Mimic, Psycho, Watcher and Stalker in front of B, one at a
+--                      time (no Husk: a survivable Husk grab infects by design). Never flips and never touches damage:
+--                      the real Difficulty does both. Refills B to 100 HP between cases, only outside a grab window,
+--                      and revives B through the radio (Reinformant) when it died.
+--   client-watch       (B, VM; story 5) logs only: each grab on B with its montage, and B's montage, PlayingMontage,
+--                      movement mode and Health 6 s and 12 s later (AFTERGRAB). The real Difficulty (or none) decides.
 --   host-revive        (A, host) reinforcement steps (item 4): dies three times; sets TimesUsedReinforcements and
 --                      Disable Reinforcement from Lua; revives B through the radio; logs every count.
 --   client-revive      (B, VM) opens the military computer through its own ServerInteract, logs the reinforcement
@@ -24,7 +30,7 @@ do
     if f then ROLE = (f:read("*l") or ""):match("^%s*([%a-]+)%s*$") f:close() end
 end
 local ROLES = { ["host-grab"] = true, ["host-grab-vanilla"] = true, ["client-grab"] = true, ["client-observe"] = true,
-                ["host-revive"] = true, ["client-revive"] = true }
+                ["host-revive"] = true, ["client-revive"] = true, ["host-spawn"] = true, ["client-watch"] = true }
 if not ROLES[ROLE] then say("END result=FAIL reason=no role (role.txt: %s)", tostring(ROLE)) return end
 local IS_HOST = ROLE:sub(1, 4) == "host"
 -- Stale signal files from an earlier run.
@@ -234,6 +240,15 @@ for _, c in ipairs(CASES) do c.wanted = c.wanted or 2 end
 local ENEMY_OF = {}
 for _, c in ipairs(CASES) do ENEMY_OF[c.path:match("%.([^.]+)$")] = c.name end
 for _, n in ipairs({ "Stalker_AI_C", "SlugQueen_AI_C", "ApexPredatorAI_C", "Worm_AI_C", "BabyWorm_AI_C", "BP_BatEnemy_C", "Dog_Infected_AI_C" }) do ENEMY_OF[n] = n end
+-- Story 5 (host-spawn): every grab-class enemy but the Husk, each on B, never flipped here.
+local SPAWN_CASES = {
+    { name = "Meek", path = "/Game/AI/SCP_AI.SCP_AI_C", target = "other", flip = false, wanted = 1 },
+    { name = "Mimic", path = "/Game/AI/Mimic_AI.Mimic_AI_C", target = "other", flip = false, wanted = 1 },
+    { name = "Psycho", path = "/Game/AI/MadPatent_AI.MadPatent_AI_C", target = "other", flip = false, wanted = 1 },
+    { name = "Watcher", path = "/Game/AI/EyeMonster_AI.EyeMonster_AI_C", target = "other", flip = false, wanted = 1 },
+    { name = "Stalker", path = "/Game/AI/Stalker_AI.Stalker_AI_C", target = "other", flip = false, wanted = 1 },
+}
+ENEMY_OF["Stalker_AI_C"] = "Stalker"
 local function enemyName(o) return valid(o) and (ENEMY_OF[classOf(o)] or classOf(o)) or "none" end
 local GRABS = {
     { fn = "/Game/AI/SCP_AI.SCP_AI_C:Attack", victim = 2 },
@@ -297,8 +312,9 @@ local function infectionTick()
     end
 end
 
-local function installGrabHooks()
-    installInfectionHook()
+-- noInfect (story 5's roles): no infection hook, which clears an infection timer (story 2's probe only).
+local function installGrabHooks(noInfect)
+    if not noInfect then installInfectionHook() end
     hook(FPC_PATH .. ":HasPerk", function(self, perk)
         local v, k = get(self), num(get(perk))
         if k ~= 39 then return end
@@ -533,9 +549,93 @@ local function buildHostGrab()
     end)
 end
 
+-- Story 5: the host spawns, the real Difficulty decides. B dead -> the radio's Reinformant, then the next case.
+local function reviveB(tag)
+    step(tag .. ": B alive", function()
+        if other() then return end
+        whereAre(tag .. " B dead")
+        local r = radio()
+        local ok, err = false, "no radio"
+        if r then ok, err = pcall(function() r:Reinformant() end) end
+        say("REVIVE %s radio:Reinformant() ok=%s %s", tag, tostring(ok), ok and "" or tostring(err))
+        local t0 = os.clock()
+        return function()
+            if other() then say("REVIVE %s B back after %.0f s", tag, os.clock() - t0) return true end
+            return false
+        end, 120, tag .. ": B revived"
+    end)
+end
+local function buildHostSpawn()
+    waitMatch()
+    step("other present", function() return function() return other() ~= nil end, 600, "the other player's character" end)
+    waitFile("bready", 600)
+    step("hooks", function() installGrabHooks(true) S.guard = true end)
+    for _, c in ipairs(SPAWN_CASES) do
+        local label = c.name .. " on B"
+        reviveB("before " .. c.name)
+        step("spawn " .. label, function()
+            local target = other()
+            if not target then check(false, "CASE %s: no target", label) whereAre("no target") return end
+            local h = hpOf(target)
+            if h and h < 100 then pcall(function() target.Health = 100 end) say("REFILL other hp %.2f -> 100 (between cases)", h) end
+            local cls = loadClass(c.path)
+            if not check(cls ~= nil, "CLASS %s", c.path) then return end
+            c.grabs = 0
+            S.case = c
+            local okS, x, ctl = pcall(spawnInFront, cls, target)
+            if not check(okS and valid(x), "SPAWN %s %s controller=%s", label, okS and pathOf(x) or tostring(x), tostring(ctl)) then S.case = nil return end
+            c.actor = pathOf(x)
+            say("CASE start %s", label)
+            local t0 = os.clock()
+            return function()
+                local tg = other()
+                if not tg then say("CASE %s: B died (grabs=%d)", label, c.grabs or 0) c.died = true return true end
+                if os.clock() - (c.clearAt or 0) >= 2 then c.clearAt = os.clock() clearNatural(c.actor) end
+                if os.clock() - (c.seeAt or 0) >= 10 and (c.grabs or 0) == 0 then
+                    c.seeAt = os.clock()
+                    local x2 = StaticFindObject(c.actor)
+                    if valid(x2) then
+                        for _, fn in ipairs({ "SeePlayerServer", "SeeCharacter", "SeePlayer" }) do
+                            if pcall(function() x2[fn](x2, tg) end) then break end
+                        end
+                    end
+                end
+                -- B logs its own 6 s state (AFTERGRAB); end 9 s after the first grab.
+                if (c.grabs or 0) >= c.wanted then
+                    c.tEnough = c.tEnough or os.clock()
+                    if os.clock() - c.tEnough >= 9 then return true end
+                end
+                if os.clock() - t0 > 120 then say("TIMEOUT %s grabs=%d", label, c.grabs or 0) return true end
+                return false
+            end, 130, label
+        end)
+        step("despawn " .. label, function()
+            say("CASE end %s grabs=%d died=%s", label, c.grabs or 0, tostring(c.died == true))
+            check((c.grabs or 0) >= 1, "CASE %s: at least one grab on B (%d)", label, c.grabs or 0)
+            S.case = nil
+            local x = c.actor and StaticFindObject(c.actor)
+            if valid(x) then pcall(function() x:K2_DestroyActor() end) end
+            -- Refill only outside a grab window: 8 s after the last grab on B.
+            return function() return not c.lastGrab or os.clock() - c.lastGrab >= 8 end, 20, "the grab window over"
+        end)
+        step("refill after " .. label, function()
+            local o = other()
+            local h = o and hpOf(o)
+            if o and h and h < 100 then pcall(function() o.Health = 100 end) say("REFILL other hp %.2f -> 100 (after the case)", h) end
+        end)
+    end
+    reviveB("final")
+    step("done", function()
+        local o = other()
+        say("FINAL other %s", o and stateOf(o) or "gone")
+        signal("done")
+        return after(8), 12
+    end)
+end
+
 local function buildClientGrab()
     waitMatch()
-    step("ready", function() installGrabHooks() signal("bready") end)
+    step("ready", function() installGrabHooks(ROLE == "client-watch") signal("bready") end)
     step("until done", function()
         return function() return has("done") end, 1500, "the host's done signal"
     end)
@@ -784,7 +884,8 @@ local function buildClientRevive()
 end
 
 if ROLE == "host-grab" or ROLE == "host-grab-vanilla" then buildHostGrab()
-elseif ROLE == "client-grab" or ROLE == "client-observe" then buildClientGrab()
+elseif ROLE == "host-spawn" then buildHostSpawn()
+elseif ROLE == "client-grab" or ROLE == "client-observe" or ROLE == "client-watch" then buildClientGrab()
 elseif ROLE == "host-revive" then buildHostRevive()
 else buildClientRevive() end
 

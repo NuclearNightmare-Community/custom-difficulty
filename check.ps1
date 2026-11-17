@@ -55,6 +55,13 @@
                     unmatched "index=? name=?" doesn't count), and "PRESETS select index=<i> name=DT6-A knobs=all
                     Default" and "PRESETS select none (rows unchanged)"; a "PRESETS open ... changed=true" after the
                     driver's STALE line; no ERROR and no WARN (the stale line is well-formed: no problem WARN).
+  Story 7 (run.ps1 -Scenario screen -Target vm, the main menu only, real input):
+    screen          everything 'ready' needs, the driver's END result=PASS with no driver FAIL line and its SCTEN line
+                    (ten opens, the rows in order); exactly one "ROWS declared 19"; Enemy Damage's "ROWS change" lines
+                    in the order dragged value (the driver's SCDRAG), 57, 200, default, 17, 40, with the model text
+                    "rows=enemyDamage=57" after 57 (what a capture would encode); "ROWS change cold=150"; a ROWS follow
+                    line for Nightmare (enemyDamage=100 cold=200) and one for Hard (50, 133); the DT7-A save and select
+                    with enemyDamage=17, a None select; no MATCH start, no ERROR and no WARN.
   When the driver reports NOTSHOWN (it couldn't make the case happen: an enemy didn't attack in time, the player
   wasn't outdoors, no frostbite tick came), or a cold run's game never cooled (raw=0), the run is not shown: exit 2,
   never "passed".
@@ -70,7 +77,7 @@ param(
     [string] $Instance,
     [string] $Log,
     [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit', 'scaled', 'flip', 'per-enemy', 'default', 'clash',
-                 'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets')]
+                 'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen')]
     [string] $Scenario = 'ready',
     [ValidateSet('host', 'vm')] [string] $Target = 'host'
 )
@@ -186,6 +193,25 @@ $expect['presets'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ 
     "\[$C\] PRESETS open presets=\d+ entries=\d+ changed=(true|false)\s*$"
     "!\[$C\] MATCH start "
 ) })
+# Story 7: menu only, VM; the rows declared once, the model lines judged below.
+$screenNotShown = ($Scenario -eq 'screen') -and @($lines | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
+    @($lines | Where-Object { $_ -match "\[$D\] FAIL " }).Count -eq 0
+$expect['screen'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ -notmatch 'WHITEOUT' }) + @(
+    "#1|\[$C\] ROWS declared 19\s*$"
+    "!\[$C\] MATCH start "
+    "\[$D\] OK SCTEN "
+) + $(if ($screenNotShown) { @() } else { @(
+    "\[$C\] ROWS change enemyDamage=57 rows=enemyDamage=57\s*$"
+    "\[$C\] ROWS change enemyDamage=200 rows=enemyDamage=200\s*$"
+    "\[$C\] ROWS change enemyDamage=default rows=\s*$"
+    "\[$C\] ROWS change cold=150 rows=cold=150\s*$"
+    "\[$C\] ROWS follow difficulty=0 classified=\d enemyDamage=100 cold=200 revives=\d+\s*$"
+    "\[$C\] ROWS follow difficulty=1 classified=\d enemyDamage=50 cold=133 revives=\d+\s*$"
+    "\[$C\] PRESETS save index=\d+ name=DT7-A knobs=enemyDamage=17( \S+)*\s*$"
+    "\[$C\] PRESETS select none \(rows unchanged\)\s*$"
+    "\[$C\] PRESETS select index=\d+ name=DT7-A knobs=enemyDamage=17( \S+)*\s*$"
+    "\[$D\] OK SCPRESET "
+) })
 
 $failed = 0
 $warned = 0
@@ -210,7 +236,7 @@ foreach ($pattern in ($always + $expect[$Scenario])) {
 
 function IndexOf([string] $p) { for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match $p) { return $i } } return -1 }
 
-if ($Scenario -in @('ready', 'host', 'hand', 'presets') + @($story3.Keys)) {
+if ($Scenario -in @('ready', 'host', 'hand', 'presets', 'screen') + @($story3.Keys)) {
     $ic, $ir = (IndexOf "\[$C\] CONNECT ok "), (IndexOf "\[$C\] READY ")
     if ($ic -ge 0 -and $ir -gt $ic) { Pass 'READY comes after CONNECT ok' } else { Fail "READY comes after CONNECT ok (CONNECT at line $ic, READY at line $ir)" }
     # Dev core mode: connected to a core dependsOn doesn't accept -> exactly one pre-core WARN; otherwise none.
@@ -265,6 +291,19 @@ if ($Scenario -eq 'presets' -and -not $presetsNotShown) {
     $is = IndexOf "\[$D\] STALE appended "
     $reopen = @(for ($i = [Math]::Max($is + 1, 0); $i -lt $lines.Count; $i++) { if ($is -ge 0 -and $lines[$i] -match "\[$C\] PRESETS open .* changed=true\s*$") { $i } })
     if ($is -ge 0 -and $reopen.Count -ge 1) { Pass 'PRESETS open changed=true after the stale line' } else { Fail "PRESETS open changed=true after the stale line (STALE at line $is, such opens after it: $($reopen.Count))" }
+}
+
+# Story 7: Enemy Damage's model lines in order: the dragged value (the driver's SCDRAG), 57, 200 (999 clamped), Default,
+# then 17 and 40 (the preset part).
+if ($Scenario -eq 'screen' -and -not $screenNotShown) {
+    $drag = @($lines | Where-Object { $_ -match "\[$D\] OK SCDRAG value=(\d+) " } | ForEach-Object { $null = $_ -match "\[$D\] OK SCDRAG value=(\d+) "; $Matches[1] })
+    $seq = @($lines | Where-Object { $_ -match "\[$C\] ROWS change enemyDamage=(\S+) " } | ForEach-Object { $null = $_ -match "\[$C\] ROWS change enemyDamage=(\S+) "; $Matches[1] })
+    if (-not $drag.Count) { Fail 'the driver''s OK SCDRAG line (the dragged value)' }
+    else {
+        $want = @($drag[0], '57', '200', 'default', '17', '40')
+        if (($seq -join ',') -eq ($want -join ',')) { Pass "ROWS change enemyDamage in order: $($seq -join ', ')" }
+        else { Fail "ROWS change enemyDamage in order: got $($seq -join ', '), want $($want -join ', ')" }
+    }
 }
 
 # Story 4, cold: the last COLD summary (sums since the match start). raw = 0 means the game never cooled the player

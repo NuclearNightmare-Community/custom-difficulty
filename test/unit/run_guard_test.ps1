@@ -89,6 +89,14 @@ try {
     $r = Invoke-Run $inst @('-AllowOtherDrivers')
     Ok ($r.Out -notmatch 'refused: other test mods' -and $r.Out -match "warning: other test mods are enabled \($Foreign\); running anyway \(-AllowOtherDrivers\)") '-AllowOtherDrivers: warning, no refusal' $r.Out
 
+    # Story 7: screen needs real mouse input, served only in the VM: on the host it is refused before anything.
+    $inst = New-Copy @('Nucleus : 1')
+    $before = Get-State $inst
+    $out = & pwsh -NoProfile -NonInteractive -File (Join-Path $repo 'run.ps1') -Instance $inst -Scenario screen 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    Ok ($code -eq 1 -and $out -match "(?m)^refused: scenario 'screen' needs real clicks, a drag and typing, which only the VM runner serves; pass -Target vm\.") 'screen on the host: refused, naming -Target vm' $out
+    Ok ((Get-State $inst) -join "`n" -eq ($before -join "`n")) 'screen on the host: the copy is left as it was'
+
     # Static: the guard uses this repo's group, comes before the host run's first game step, and (VM) runs on the
     # stage before anything is deployed into it.
     $text = Get-Content (Join-Path $repo 'run.ps1') -Raw

@@ -5,12 +5,12 @@ Separate difficulty options for Nuclear Nightmare. Spec: `_bmad-output/specs/spe
 Version 0.1.0: the skeleton (story 1) connects to Nucleus (core) and works out per world whether this machine hosts.
 Story 3 adds enemy damage on the host and survivable grabs for the host's own player; story 4 adds cold, frostbite and
 reinforcement tokens on the host; story 5 adds survivable grabs on modded clients (below); story 6 keeps the knob
-values with the game's own world presets in a sidecar file (below, "World presets"). The rows that show and edit
-the values come in story 7: until then the mod itself writes only Default values, so a normal install leaves every
-knob Default and changes nothing, except the soft-lock recovery (story 5, every machine with the mod, own player
-only). Targets V8.2 (build 26512322) with the pinned UE4SS
-`v3.0.1-1181-g83330635`, and needs Nucleus `^0.12.0` (story 5: core's host replicated state and player presence,
-`core.net`): Nucleus 0.12.0 or later (core reads the caret as a minimum).
+values with the game's own world presets in a sidecar file (below, "World presets"); story 7 shows and edits the
+values in 19 rows on the create-world screen (below, "Rows"). A row left empty is Default, so a host who never
+touches the rows plays the stock game, except the soft-lock recovery (story 5, every machine with the mod, own player
+only). Targets V8.2.3 (build 26601774) with the pinned UE4SS
+`v3.0.1-1181-g83330635`, and needs Nucleus `^0.15.0` (story 7: core's game-style rows and sliders on the
+create-world screen; story 5: `core.net`): Nucleus 0.15.0 or later (core reads the caret as a minimum).
 
 ## Install
 
@@ -19,8 +19,8 @@ only). Targets V8.2 (build 26512322) with the pinned UE4SS
 ```
 
 `deploy.ps1` refuses (exit 1, one line naming the cause) when Nucleus is missing, disabled in `mods.txt`, isn't
-Nucleus (wrong `id`), or its version doesn't satisfy `dependsOn` (`^0.12.0`). Otherwise it installs
-`Mods/Difficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua, env.lua, tokens.lua, net.lua}` and
+Nucleus (wrong `id`), or its version doesn't satisfy `dependsOn` (`^0.15.0`). Otherwise it installs
+`Mods/Difficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua, env.lua, tokens.lua, net.lua, presets.lua, sidecar.lua, rows.lua}` and
 puts `Difficulty : 1`
 right below Nucleus's line in `mods.txt`, above `Keybinds : 1`. `-Force` installs anyway with a warning (the failure scenarios); `-Remove`
 deletes `Mods/Difficulty` and its `mods.txt` line. Close the game first. From a worktree, pass the main checkout's
@@ -166,6 +166,35 @@ next to the game's `WorldPresets_Sav.sav`:
   every hook); after each change the entries are matched to the game's names again. The `CreateServer_C` hooks are
   registered once the class is loaded and retried after each LoadMap (3 times, 3 s apart).
 
+## Rows (story 7)
+
+On the create-world screen (START GAME, then CONFIGURE) the mod adds 19 rows that look like the game's own (core
+0.15.0's game-style rows, `like = "Overlay_28"`), each with a slider and a number box:
+
+- **Knob rows**, right after Difficulty: Enemy Damage (0-200), Damage Spread (0-50), Reinforcement Tokens (0-20),
+  Cold Exposure (0-400), Frostbite Damage (0-20, step 0.5).
+- **Per-enemy rows**, right after the enemy slots (`Overlay_738`): Damage: Meek, Mimic, Psycho, Husk, Watcher,
+  Stalker, Slug Queen, Apex Predator, Worm, Leech, Bat, Infected Dog, Infected Player, Playable Monster (0-500 %,
+  step 5). If `Overlay_738` is missing from the screen, they follow the knob rows instead, with one WARN.
+- **Default** is an empty box. Its hint (and the slider) shows the value the screen's own Difficulty gives:
+  Enemy Damage 100 / 50 / 25 / 17 and Cold Exposure 200 / 133 / 100 / 50 for Nightmare / Hard / Normal / Easy,
+  Reinforcement Tokens 2 / 4 / 6 / 8 by Classified Minimum, Damage Spread 0, Frostbite Damage 1, every enemy 100.
+  A Default row follows the Difficulty and Classified Minimum pickers, a preset select and the screen's first state;
+  a row with a value keeps it. Dragging or typing makes a row custom; clearing its box makes it Default again.
+- **The "?"** shows the game's own tooltip: what the knob does, its defaults per difficulty, its range, and
+  "Empty = follow Difficulty" (per-enemy rows: "Empty = 100").
+- **Values** live in the presets model (story 6): a slider change writes it (`ROWS change <key>=<value|default>
+  rows=<what a capture would encode>`), and every change from outside (an open: all Default; a preset select) is
+  pushed back into the sliders. Save, update and the session capture read the model as before; a slider change
+  never writes the sidecar.
+- **How:** `Scripts/rows.lua` is the only file that calls `core.ui`. It declares the rows and sliders once per Lua
+  state at ready (`ROWS declared 19`) through `core.ui.row`, `core.ui.slider` and `core.ui.place`, and watches the
+  screen with `core.ui.game.watch("createServer")`; core rebuilds the rows on every open. The pickers are followed
+  through post-hooks on `MultipleSelectBox_6`'s and `MultipleSelectBox`'s `OnSelectionChanged` handlers
+  (`presets.lua`), reading `Diffculty` and `Minium Classified` from the hook's context; an index outside 0..3 uses
+  Normal with one WARN. No UObject is kept, every callback runs under `pcall`, and the dev core mode (`-PreCore`) adds
+  no rows.
+
 ### Dev value source
 
 ```powershell
@@ -287,6 +316,28 @@ WHITEOUT line), after `BASELINE` exactly two `PRESETS save`, one `PRESETS update
 `PRESETS select ... name=DT6-A knobs=all Default`, `PRESETS select none`, a `PRESETS open ... changed=true` after the
 stale line, and no ERROR or WARN.
 
+### Story 7 scenario (`run.ps1 -Scenario screen -Target vm`, the main menu only)
+
+`screen` needs real mouse input, so it runs only in the VM (`run.ps1` refuses it without `-Target vm`, before
+anything is deployed), under `dumps\vm.lock`. The driver presses Enter at the startup screen, then opens the
+create-world screen ten times by real clicks on START GAME and Back. On each open it checks `VerticalBox_202`
+against the game's own order read in a `Construct` hook (`SCSNAP`, before core attaches anything): the five knob
+rows at children 2-6 right after `Overlay_28`, the fourteen per-enemy rows right after `Overlay_738`, every game row
+in its stock order, one widget per row, a new row widget, Enemy Damage empty with the hint 25 (`SCORDER`, `SCSTOCK`,
+`SCONE`, `SCNEW`; `SCTEN` sums the ten). An eleventh open: leftover `DT7-*` presets deleted, CONFIGURE, screenshot
+`screen-rows`, a real drag on Enemy Damage (`SCDRAG`), 57 / 999 / empty typed into its box (57, 200, Default with the
+hint 25), Cold 150, Nightmare through the Difficulty picker's own handler (Enemy Damage's hint 100 and slider at 100,
+Cold still 150; screenshot `screen-nightmare`), a real click on the picker's previous arrow (Hard, hint 50), then
+Enemy Damage 17 saved as `DT7-A`, 40 typed, None (still 40), `DT7-A` (17; screenshot `screen-preset`), `DT7-A`
+deleted, Back. `check.ps1 -Scenario screen -Target vm` needs the running checks, the driver's PASS and `SCTEN`, one
+`ROWS declared 19`, Enemy Damage's `ROWS change` lines in the order dragged value, 57, 200, default, 17, 40 (with
+`rows=enemyDamage=57` after 57: what a capture would encode), `ROWS change cold=150`, the Nightmare and Hard
+`ROWS follow` lines, the `DT7-A` save and select with `enemyDamage=17`, a None select, and no ERROR or WARN.
+**Status 2026-11-17:** passed in the VM at 1280x720 on V8.2.3 build 26601774 with Nucleus 0.15.0 (`END result=PASS`,
+113 checks; `check.ps1` all passed, the one soft check a `hud slow tick` WARN); screenshots
+`dumps/v8.2.3-build26601774/vm/sp-screen-rows.png`, `sp-screen-nightmare.png`, `sp-screen-preset.png`. `presets` re-run
+the same day on Nucleus 0.15.0: PASS (36 checks).
+
 Every match scenario sets `BP_GameInstance_C.DisableWhiteOuts` before the match and logs one
 `WHITEOUT disabled=<GameState value> director=<n> phase=<Phase>`; `check.ps1` requires `disabled=true` in every
 scenario but `cold-whiteout`.
@@ -312,7 +363,10 @@ shown.
   cold and frostbite math and poll, `tokens.lua`'s math and adapter, `net.lua`'s keys, encode and decode, story 5's
   host and client grab paths and the recovery in `hits_test.lua`; story 6's `sidecar.lua` (encoding, the bounded
   parse, reconcile) and `presets.lua` (the hook flows on a fake create-world screen, the knob source order, retried
-  hooks, the atomic write with failures injected, in memory and on a real temp directory); PowerShell: `deploy.ps1` against a fake instance,
+  hooks, the atomic write with failures injected, in memory and on a real temp directory, story 7's `onRows` callback
+  and picker hooks); story 7's `rows.lua` in `rows_test.lua` (labels and ranges against `mod.json`, the tooltips'
+  limits, the defaults per difficulty and an unknown index, every row of the story's I/O matrix on a fake `core.ui`
+  wired to the real `presets.lua`, a missing anchor, throwing callbacks and failing core calls); PowerShell: `deploy.ps1` against a fake instance,
   `check.ps1` against synthetic logs, story 5's pair checks against synthetic logs).
   Lua is the first of `lua`, `lua5.4`, `lua54`, `lua5.3`, `texlua` on PATH.
 

@@ -120,7 +120,7 @@ do
     S:select(2)
     eq(last("^PRESETS select"), "PRESETS select index=1 name=DT6-A knobs=all Default", "select A")
     ok(next(P.rows) == nil, "rows all Default")
-    -- Story 7 sets the rows; here a test sets them to prove update writes the rows.
+    -- Story 7's sliders set the rows (rows_test.lua); here the test sets them to prove update writes the rows.
     P.rows = { enemyDamage = 17 }
     S:update()
     eq(last("^PRESETS update"), "PRESETS update index=1 name=DT6-A knobs=enemyDamage=17", "update A")
@@ -184,6 +184,59 @@ do -- a long name: not written, one WARN at save
     eq(D.files[FILE], HDR .. "1\tB\t\n", "the next preset keeps its index")
     S:open()
     eq(count("^WARN"), 1, "reopen: no new WARN for the long name")
+end
+
+-- ---------------------------------------------------------------- story 7: onRows and the two pickers
+do
+    setup()
+    local calls = {}
+    P.o.onRows = function(d, cm) calls[#calls + 1] = tostring(d) .. "/" .. tostring(cm) end
+    eq(W.count(presets.PATHS.difficulty), 1, "the Difficulty picker's handler hooked")
+    eq(W.count(presets.PATHS.classified), 1, "the Classified Minimum picker's handler hooked")
+    ok(presets.PATHS.difficulty:find("MultipleSelectBox_6_K2Node_ComponentBoundEvent_5_OnSelectionChanged", 1, true), "Difficulty: MultipleSelectBox_6's handler")
+    ok(presets.PATHS.classified:find("CreateServer_MultipleSelectBox_K2Node_ComponentBoundEvent_16_OnSelectionChanged", 1, true), "Classified: MultipleSelectBox's handler")
+    D.files[FILE] = HDR .. "0\tA\tenemyDamage=17\n"
+    local S = F.screen(W, { "A" })
+    S.levels[1] = { 0, 3 }
+    S:open()
+    eq(table.concat(calls, ","), "2/2", "open: onRows once, with the screen's Normal / Normal")
+    S:select(1)
+    eq(calls[#calls], "0/3", "select A: onRows with the preset's Difficulty and Classified")
+    eq(P.rows.enemyDamage, 17, "select A: rows set before onRows")
+    local n = #calls
+    S:select(0)
+    eq(#calls, n, "select None: no onRows (rows unchanged)")
+    S:pick(1)
+    eq(calls[#calls], "1/3", "Difficulty picker: onRows with the new Difficulty")
+    S:pickClassified(0)
+    eq(calls[#calls], "1/0", "Classified picker: onRows with the new Classified Minimum")
+    S.Diffculty = "x"
+    S:pick("x")
+    eq(calls[#calls], "nil/0", "unreadable Diffculty: nil (rows.lua uses Normal)")
+    eq(count("^ERROR"), 0, "onRows flow: no ERROR")
+    -- the sidecar can't be synced: the rows still start Default and onRows still runs
+    W.savedDir = ""
+    P.rows = { cold = 5 }
+    n = #calls
+    S:open()
+    eq(#calls, n + 1, "open without a sidecar: onRows still runs")
+    ok(next(P.rows) == nil, "open without a sidecar: rows Default")
+    -- onOpen throwing: rows Default, onRows runs, one ERROR from the hook
+    W.savedDir = "C:/nn/copy/_userdir/Saved/"
+    S.countFails = true
+    D.files[FILE] = nil
+    P.rows = { cold = 5 }
+    local realOpen = P.onOpen
+    P.onOpen = function() error("open broke") end
+    S:open()
+    P.onOpen = realOpen
+    ok(next(P.rows) == nil, "onOpen throws: rows Default")
+    eq(#calls, n + 2, "onOpen throws: onRows still runs")
+    eq(count("^ERROR PRESETS construct hook failed: .*open broke$"), 1, "onOpen throws: one ERROR")
+    eq(select(1, presets.levels({ Diffculty = 3, ["Minium Classified"] = 1 })), 3, "levels: Diffculty")
+    eq(select(2, presets.levels({ Diffculty = 3, ["Minium Classified"] = 1 })), 1, "levels: Minium Classified")
+    eq(select(1, presets.levels(setmetatable({}, { __index = function() error("gone") end }))), nil, "levels: unreadable -> nil")
+    eq(select(1, presets.levels({ Diffculty = 1.5 })), nil, "levels: not an integer -> nil")
 end
 
 -- ---------------------------------------------------------------- failures

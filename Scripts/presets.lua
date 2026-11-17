@@ -1,7 +1,9 @@
 -- Difficulty: world-preset sync (spec-difficulty-v1 story 6, presets-and-ui.md "Preset lifecycle" and "The sidecar").
--- The UE4SS adapter around sidecar.lua: a Lua "rows" model (every knob Default on each open; story 7 shows and edits
--- it), hooks on the create-world screen CreateServer_C (open, select, save, update, delete) and on
--- BP_GameInstance_C:CreateSteamSession (the capture), and atomic writes of the sidecar file.
+-- The UE4SS adapter around sidecar.lua: a Lua "rows" model (every knob Default on each open; story 7's rows.lua shows
+-- and edits it), hooks on the create-world screen CreateServer_C (open, select, save, update, delete, and story 7's
+-- Difficulty and Classified Minimum pickers) and on BP_GameInstance_C:CreateSteamSession (the capture), and atomic
+-- writes of the sidecar file. Story 7: opts.onRows(diff, cm) runs after an open, a preset select (index > 0) and a
+-- picker change, with the screen's Diffculty and Minium Classified read from the hook's context.
 --
 -- UE4SS hooks on Blueprint functions are post-only (docs/blueprint-mods.md Q2): each callback runs after the
 -- function's body. So the "before" state of a save or delete isn't read in a pre-hook; it is this model's own: the
@@ -25,8 +27,11 @@ M.PATHS = {
     update = M.CS .. ":BndEvt__CreateServer_Create_2_K2Node_ComponentBoundEvent_34_OnButtonClickedEvent__DelegateSignature",
     delete = M.CS .. ":BndEvt__CreateServer_Create_4_K2Node_ComponentBoundEvent_35_OnButtonClickedEvent__DelegateSignature",
     capture = M.GI .. ":CreateSteamSession",
+    -- Story 7: the Difficulty picker (MultipleSelectBox_6) and the Classified Minimum picker (MultipleSelectBox).
+    difficulty = M.CS .. ":BndEvt__CreateServer_MultipleSelectBox_6_K2Node_ComponentBoundEvent_5_OnSelectionChanged__DelegateSignature",
+    classified = M.CS .. ":BndEvt__CreateServer_MultipleSelectBox_K2Node_ComponentBoundEvent_16_OnSelectionChanged__DelegateSignature",
 }
-M.ORDER = { "construct", "select", "save", "update", "delete", "capture" }
+M.ORDER = { "construct", "select", "save", "update", "delete", "capture", "difficulty", "classified" }
 M.PATHS_LIB = "/Script/Engine.Default__BlueprintPathsLibrary"
 M.HOOK_RETRY_MS, M.HOOK_RETRIES = 3000, 3
 M.MAX_DIR = 1024  -- bytes of ProjectSavedDir
@@ -88,6 +93,15 @@ local function str(v)
     return nil
 end
 local function selector(screen) return screen.MultipleSelectBox_11 end
+-- Story 7: the screen's Diffculty or Minium Classified (EDiffculty 0..3, as the game stores it), nil when unreadable.
+local function enumOf(screen, prop)
+    local ok, v = pcall(function() return screen[prop] end)
+    if not ok then return nil end
+    if type(v) ~= "number" then v = tonumber(tostring(v)) end
+    if v == nil or v ~= math.floor(v) then return nil end
+    return math.tointeger(v)
+end
+function M.levels(screen) return enumOf(screen, "Diffculty"), enumOf(screen, "Minium Classified") end
 local function selIndex(screen)
     local ok, i = pcall(function() local s = selector(screen) return s:GetSelectedIndex() end)
     if ok and math.type(i) == "integer" then return i end
@@ -119,7 +133,8 @@ local A = {}
 A.__index = A
 
 -- opts: say(level, fmt, ...), warnOnce(key, fmt, ...), name (the mod's name constant), fs (FS's shape, optional),
--- savedDir (a function returning ProjectSavedDir, optional: the engine's by default).
+-- savedDir (a function returning ProjectSavedDir, optional: the engine's by default), onRows (story 7, optional:
+-- fn(diff, cm) after self.rows or the screen's Difficulty changed).
 function M.new(opts)
     local self = setmetatable({ o = opts, fs = opts.fs or FS, rows = {}, session = nil, entries = nil, path = nil,
                                 sel = nil, hooked = {} }, A)
@@ -127,6 +142,14 @@ function M.new(opts)
 end
 
 function A:say(level, fmt, ...) self.o.say(level, fmt, ...) end
+
+-- Story 7: tells the rows that self.rows or the screen's Difficulty changed (opts.onRows; under pcall, one line).
+function A:rowsChanged(screen)
+    if not self.o.onRows then return end
+    local diff, cm = M.levels(screen)
+    local ok, err = pcall(self.o.onRows, diff, cm)
+    if not ok then self:say("error", "PRESETS rows update failed: %s", tostring(err)) end
+end
 
 -- The engine's ProjectSavedDir (follows -userdir), as text, or nil and why.
 function A:savedDir()
@@ -237,6 +260,7 @@ function A:onSelect(screen)
     self.rows = sidecar.copy(e and e.values)
     if not e then self:say("debug", "PRESETS select index=%d has no entry (not synced); rows Default", idx - 1) end
     self:say("info", "PRESETS select index=%d name=%s knobs=%s", idx - 1, e and enc(e.name) or "?", knobs.describe(self.rows))
+    self:rowsChanged(screen)
 end
 
 -- Save (after the body): when the game's count grew by one, append an entry with the rows' values and PresetName.
@@ -322,12 +346,22 @@ function A:sessionText() return self.session end
 
 -- ---------------------------------------------------------------- hooks
 local BODY = {
-    construct = function(self, ctx) self:onOpen(get(ctx)) end,
+    -- The rows start Default on every open, also when the sidecar can't be synced (onOpen failed or returned early).
+    construct = function(self, ctx)
+        local s = get(ctx)
+        local ok, err = pcall(self.onOpen, self, s)
+        if not ok then self.rows = {} end
+        self:rowsChanged(s)
+        if not ok then error(err, 0) end
+    end,
     select = function(self, ctx) self:onSelect(get(ctx)) end,
     save = function(self, ctx) self:onSave(get(ctx)) end,
     update = function(self, ctx) self:onUpdate(get(ctx)) end,
     delete = function(self, ctx) self:onDelete(get(ctx)) end,
     capture = function(self) self:onCapture() end,
+    -- Story 7: a picker changed Diffculty or Minium Classified (after the handler's body).
+    difficulty = function(self, ctx) self:rowsChanged(get(ctx)) end,
+    classified = function(self, ctx) self:rowsChanged(get(ctx)) end,
 }
 
 -- Registers the hooks not yet registered; returns how many are still missing. A failed RegisterHook costs a full

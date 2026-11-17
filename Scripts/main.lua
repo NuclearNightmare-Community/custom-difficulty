@@ -1,14 +1,15 @@
--- Difficulty 0.1.0 (spec-difficulty-v1, stories 1 and 3 to 6). Connects to Nucleus (core) through the dependent
+-- Difficulty 0.1.0 (spec-difficulty-v1, stories 1 and 3 to 7). Connects to Nucleus (core) through the dependent
 -- bootstrap (core's api-contract.md) and caches isHost per world. Story 3: enemy damage on the host and survivable
 -- grabs for the host's own player (hits.lua). Story 4: cold, frostbite and reinforcement tokens on the host (env.lua,
 -- tokens.lua, wired in hits.lua; one host poll started here). Story 6: the knob values a match starts with come from
 -- dev.lua (deploy.ps1 -Test -Knobs) when it sets them, else from the rows captured at CreateSteamSession (presets.lua,
--- kept with the game's world presets in the sidecar file, sidecar.lua), else every knob Default. Until story 7 shows
--- the rows, the mod itself writes only Default values, so a release changes nothing.
+-- kept with the game's world presets in the sidecar file, sidecar.lua), else every knob Default. Story 7: the rows on
+-- the create-world screen (rows.lua, core 0.15.0's game-style rows and sliders) show and edit those values; declared
+-- once here, at ready.
 -- Holds no UObject between callbacks (AGENTS.md): world.lua keeps only world names and booleans. Every hook body and
 -- every call into core runs under pcall, with one log line per failure. Story 5: survivable grabs on modded clients
 -- through core.net (core 0.12.0: host replicated state and player presence); the mod's own id comes from mod.json.
-local ME, CORE, NEED = "Difficulty", "Nucleus", "0.12.0"
+local ME, CORE, NEED = "Difficulty", "Nucleus", "0.15.0"
 local VERSION = "0.1.0"
 local PRE_NEED = "0.3.0" -- dev only (deploy.ps1 -Test -PreCore writes Scripts/dev.lua): core before 0.4.0, no UI
 local UI_CORE = "0.4.0" -- the first core with the UI (the dev core mode's WARN names it)
@@ -26,6 +27,7 @@ local world = require("world")
 local hits = require("hits")
 local net = require("net")
 local presets = require("presets")
+local rows = require("rows")
 
 -- ---------------------------------------------------------------- mod.json (the id for core.net; never hard-coded)
 -- Read once, bounded; data only. A problem is remembered and logged once connected (the host then spares only its own
@@ -103,7 +105,23 @@ local function start(core)
     end
 
     -- Story 6: the create-world screen's presets and the session capture (hooks registered now and after LoadMaps).
-    local P = presets.new{ say = say, warnOnce = warnOnce, name = ME }
+    -- Story 7: the rows follow the model and the screen's Difficulty (R is set below, unless in the dev core mode).
+    local R
+    local P = presets.new{ say = say, warnOnce = warnOnce, name = ME,
+                           onRows = function(diff, cm) if R then R:sync(diff, cm) end end }
+    if not dev.preCore then
+        local okU, ui = pcall(function() return core.ui end)
+        if not okU or type(ui) ~= "table" then
+            say("warn", "%s %s has no ui: the rows are not shown", CORE, tostring(core.version))
+        else
+            R = rows.new{ ui = ui, model = P, say = say, warnOnce = warnOnce, levels = presets.levels }
+            -- Both log their own failures; the pcall only guards against a bug in them.
+            local okD, errD = pcall(R.declare, R)
+            if not okD then say("error", "the rows could not be declared: %s", tostring(errD)) end
+            local okW, errW = pcall(R.watch, R)
+            if not okW then say("error", "the create-world screen could not be watched: %s", tostring(errW)) end
+        end
+    end
 
     local W = world.new()
     local currentName -- the full name of the world evaluated last (hits.lua asks W:isHost(currentName))

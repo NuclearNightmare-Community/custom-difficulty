@@ -6,7 +6,7 @@
   mod.json has id nucleus, and its version satisfies Difficulty's dependsOn (^ rules, deploy-lib.ps1). -Force installs
   anyway with a warning, for the failure scenarios (Difficulty's own runtime check then has to catch it).
   Installs ue4ss/Mods/Difficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua, env.lua,
-  tokens.lua, net.lua, presets.lua, sidecar.lua} and writes "Difficulty : 1" into mods.txt right below Nucleus's line and above "Keybinds : 1", moving
+  tokens.lua, net.lua, presets.lua, sidecar.lua, rows.lua} and writes "Difficulty : 1" into mods.txt right below Nucleus's line and above "Keybinds : 1", moving
   it there if it was elsewhere. Never writes outside Mods/Difficulty, Mods/DifficultyDriver and their mods.txt lines,
   and never bundles any of core's files. Story 2's test drivers (DifficultyProbe, DifficultyPair) are left alone.
   -Test writes Scripts/dev.lua (return { debug = true }): Difficulty's DEBUG lines, which check.ps1 reads.
@@ -19,8 +19,8 @@
   is given, the scenario's knobs: scaled and clash "enemyDamage=17", flip "enemyDamage=25", per-enemy
   "dmg.stalker=200", default none; story 4: cold "cold=50", cold-zero "cold=0", frostbite "frostbite=3",
   frostbite-zero "frostbite=0", tokens-more "revives=4", tokens-fewer "revives=2"; cold-whiteout "cold=50" (opt-in);
-  story 6: presets none (the menu-only preset scenario). A deploy without -Scenario removes
-  the driver. Neither the driver nor dev.lua is ever shipped: a deploy without -Test installs no knob source at all.
+  story 6: presets none (the menu-only preset scenario); story 7: screen none (the rows, real input in the VM). A
+  deploy without -Scenario removes the driver. Neither the driver nor dev.lua is ever shipped: a deploy without -Test installs no knob source at all.
   -PreCore (only with -Test) is the dev core mode: it also accepts an installed core ^0.3.0 (before core 0.4.0, which
   brings the UI) and writes dev.lua with preCore = true, so main.lua connects with need 0.3.0 and logs one WARN. On a
   core that already satisfies dependsOn, -PreCore changes nothing: dev.lua is { debug = true } and need stays dependsOn's minimum.
@@ -45,7 +45,7 @@ param(
     [switch] $PreCore,
     [string] $Knobs,
     [ValidateSet('', 'scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite', 'frostbite-zero',
-                 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets')] [string] $Scenario = '',
+                 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen')] [string] $Scenario = '',
     [switch] $Force,
     [switch] $Remove,
     [switch] $Staged
@@ -60,12 +60,12 @@ $here     = $PSScriptRoot
 $manifest = Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json
 $name     = $manifest.name
 if ("$name" -notmatch '^[A-Za-z][A-Za-z0-9_-]*$') { throw "mod.json's name '$name' is not a plain name; refusing to deploy" }
-$files    = 'main.lua', 'world.lua', 'knobs.lua', 'damage.lua', 'hits.lua', 'env.lua', 'tokens.lua', 'net.lua', 'presets.lua', 'sidecar.lua'
+$files    = 'main.lua', 'world.lua', 'knobs.lua', 'damage.lua', 'hits.lua', 'env.lua', 'tokens.lua', 'net.lua', 'presets.lua', 'sidecar.lua', 'rows.lua'
 $driver   = "${name}Driver"
 # The knobs each driver scenario needs (test/DifficultyDriver); -Knobs overrides them.
 $ScenarioKnobs = @{ 'scaled' = 'enemyDamage=17'; 'flip' = 'enemyDamage=25'; 'per-enemy' = 'dmg.stalker=200'; 'default' = ''; 'clash' = 'enemyDamage=17'
                    'cold' = 'cold=50'; 'cold-zero' = 'cold=0'; 'frostbite' = 'frostbite=3'; 'frostbite-zero' = 'frostbite=0'
-                   'tokens-more' = 'revives=4'; 'tokens-fewer' = 'revives=2'; 'cold-whiteout' = 'cold=50'; 'presets' = '' }
+                   'tokens-more' = 'revives=4'; 'tokens-fewer' = 'revives=2'; 'cold-whiteout' = 'cold=50'; 'presets' = ''; 'screen' = '' }
 
 function Stop-Deploy([string] $why) { Write-Host "$name not deployed: $why"; exit 1 }
 

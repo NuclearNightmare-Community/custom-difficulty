@@ -39,7 +39,7 @@ local function boot(opts)
     W = F.new()
     F.install(W)
     S = { dev = opts.dev, connects = {} }
-    for _, m in ipairs({ "world", "hits", "damage", "knobs", "env", "tokens", "net", "nucleus.client" }) do package.loaded[m] = nil end
+    for _, m in ipairs({ "world", "hits", "damage", "knobs", "env", "tokens", "net", "presets", "sidecar", "nucleus.client" }) do package.loaded[m] = nil end
     package.preload["nucleus.client"] = nil
     if opts.client ~= false then
         package.preload["nucleus.client"] = function()
@@ -290,6 +290,64 @@ do -- A failed connect with a broken dev.lua stays one line (the dev problem is 
     boot{ dev = "return {" }
     S.connects[1].onFail("x")
     eq(#W.printed, 0, "failed connect: the dev.lua problem is not logged")
+end
+
+-- ---------------------------------------------------------------- story 6: presets wired in, the knob source
+do
+    local UFF = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameState.BP_FirstPersonGameState_C:UpdateFriendlyFire"
+    local P = require("presets")
+    -- io.open is boot's fake: the sidecar path isn't dev.lua or mod.json, so it goes to the real io.open, which can't
+    -- open C:/nn/...; a missing directory only makes the write fail with one WARN. Point the saved dir at a temp dir.
+    local base = os.tmpname()
+    os.remove(base)
+    local dir = base .. "_nnmain"
+    local isWin = package.config:sub(1, 1) == "\\"
+    if isWin then os.execute('mkdir "' .. (dir .. "/SaveGames"):gsub("/", "\\") .. '" >NUL 2>NUL') else os.execute('mkdir -p "' .. dir .. '/SaveGames"') end
+
+    boot() -- a release (no dev.lua)
+    W.savedDir = dir .. "/"
+    ready(newCore())
+    for _, k in ipairs(P.ORDER) do eq(W.count(P.PATHS[k]), 1, "ready: preset hook registered: " .. k) end
+    local S = F.screen(W, { "A" })
+    S:open()
+    eq(count("^%[Difficulty%] PRESETS open presets=1 entries=0 changed=true$"), 1, "open through main.lua")
+    S:capture()
+    eq(count("^%[Difficulty%] PRESETS capture knobs=all Default$"), 1, "no preset selected: capture all Default")
+    W.loadMapHooks[1](nil, W.param(W.match))
+    W.fire(UFF, W.p(nil))
+    eq(count("^%[Difficulty%] MATCH start knobs=all Default$"), 1, "release, no preset selected: MATCH start all Default")
+    eq(W.count(P.PATHS.construct), 1, "LoadMap: preset hooks not registered twice")
+    eq(count("WARN"), 0, "presets wiring: no WARN")
+    eq(count("ERROR"), 0, "presets wiring: no ERROR")
+
+    -- A preset whose sidecar entry has values (a hand-edited file before story 7): select, capture, match start.
+    local f = io.open(dir .. "/SaveGames/Difficulty_WorldPresets.txt", "wb")
+    f:write("# Difficulty world presets, format 2\n0\tA\tenemyDamage=17\n")
+    f:close()
+    boot()
+    W.savedDir = dir .. "/"
+    ready(newCore())
+    S = F.screen(W, { "A" })
+    S:open()
+    S:select(1)
+    S:capture()
+    eq(count("^%[Difficulty%] PRESETS capture knobs=enemyDamage=17$"), 1, "the selected preset's values captured")
+    W.loadMapHooks[1](nil, W.param(W.match))
+    W.fire(UFF, W.p(nil))
+    eq(count("^%[Difficulty%] MATCH start knobs=enemyDamage=17$"), 1, "the capture reaches the match start")
+
+    -- dev.lua knobs win over the capture.
+    boot{ dev = 'return { knobs = "cold=50" }' }
+    W.savedDir = dir .. "/"
+    ready(newCore())
+    S = F.screen(W, { "A" })
+    S:open()
+    S:select(1)
+    S:capture()
+    W.loadMapHooks[1](nil, W.param(W.match))
+    W.fire(UFF, W.p(nil))
+    eq(count("^%[Difficulty%] MATCH start knobs=cold=50$"), 1, "dev.lua knobs win over the capture")
+    if isWin then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" >NUL 2>NUL') else os.execute('rm -rf "' .. dir .. '"') end
 end
 
 -- ---------------------------------------------------------------- story 3: hits wired in, dev.lua knobs

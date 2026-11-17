@@ -252,6 +252,33 @@ Expect ($fewer + @(& $tok 'minimum changed limit=8 -> 6 used=1 count=5')) 'token
 Expect (Without $fewer 'TERMINAL open') 'tokens-fewer' 1 'tokens-fewer: terminal never opened -> fails' 'TERMINAL open'
 Expect ($fewer -replace 'TERMINAL open active=true', 'TERMINAL open active=false') 'tokens-fewer' 1 'tokens-fewer: terminal not active -> fails' 'TERMINAL open'
 
+# ---------------------------------------------------------------- story 6: presets (menu only)
+$presets = @((D 'CONNECT ok Nucleus 0.12.1 (pong 0.12.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.12.1 need=0.12.0'),
+    (DR 'SCENARIO presets'), (DR 'DRIVE open #1'), (D 'PRESETS open presets=2 entries=2 changed=false'),
+    (DR 'DRIVE select DT6-X for delete'), (D 'PRESETS select index=1 name=DT6-X knobs=all Default'), (D 'PRESETS delete index=1 name=DT6-X'),
+    (DR 'CLEANUP deleted 1 leftover DT6- preset(s)'), (DR 'BASELINE presets=1 entries=0:Mine:cold=70'),
+    (D 'PRESETS save index=1 name=DT6-A knobs=all Default'), (DR 'OK 2 save A: DT6 entries 1:DT6-A:Default (want 1:DT6-A:Default)'),
+    (D 'PRESETS save index=2 name=DT6-B knobs=all Default'),
+    (D 'PRESETS select index=1 name=DT6-A knobs=all Default'), (D 'PRESETS update index=1 name=DT6-A knobs=all Default'),
+    (D 'PRESETS select none (rows unchanged)'), (D 'PRESETS select index=1 name=DT6-A knobs=all Default'), (D 'PRESETS delete index=1 name=DT6-A'),
+    (DR 'STALE appended 99 DT6-gone cold=50 (test only)'), (D 'PRESETS open presets=2 entries=3 changed=true'),
+    (D 'PRESETS select index=1 name=DT6-B knobs=all Default'), (D 'PRESETS delete index=1 name=DT6-B'),
+    (DR 'END result=PASS checks=30 failures=0 notshown=0 dead=false'))
+Expect $presets 'presets' 0 'presets: passes as written (no WHITEOUT, no match)' 'All checks passed'
+Expect (Without $presets 'PRESETS update') 'presets' 1 'presets: no update line -> fails' 'PRESETS update after BASELINE'
+Expect (Without $presets 'PRESETS save index=2') 'presets' 1 'presets: one save -> fails' 'PRESETS save after BASELINE: found 1'
+Expect (Without $presets 'PRESETS delete index=1 name=DT6-B') 'presets' 1 'presets: one delete after BASELINE -> fails' 'PRESETS delete after BASELINE: found 1'
+Expect (Without $presets 'BASELINE') 'presets' 1 'presets: no BASELINE -> fails' 'BASELINE'
+Expect ($presets -replace 'entries=3 changed=true', 'entries=3 changed=false') 'presets' 1 'presets: reopen not rewritten -> fails' 'after the stale line'
+Expect (Without $presets 'select none') 'presets' 1 'presets: no None select -> fails' 'select none'
+Expect ($presets -replace 'select index=1 name=DT6-A knobs=all Default', 'select index=1 name=DT6-A knobs=cold=50') 'presets' 1 'presets: A not Default -> fails' 'DT6-A knobs=all Default'
+Expect ($presets + @(D 'WARN sidecar C:/x: 1 problem(s), every one Default; first: line 3: index ''x'' is not a number; Default')) 'presets' 1 'presets: a sidecar WARN -> fails' 'WARN'
+Expect ($presets + @(D 'ERROR PRESETS save hook failed: boom')) 'presets' 1 'presets: an ERROR -> fails' 'ERROR'
+Expect ($presets + @(DR 'FAIL 4 delete A: DT6 entries - (want 1:DT6-B:Default)')) 'presets' 1 'presets: a driver FAIL -> fails' 'FAIL'
+Expect ($presets + @(D 'MATCH start knobs=all Default')) 'presets' 1 'presets: a match -> fails' 'MATCH start'
+$presetsNs = @(Without $presets 'END result|PRESETS (save|update|delete|select)|STALE') + @((DR 'NOTSHOWN save DT6-A: the game''s preset count didn''t grow'), (DR 'END result=NOTSHOWN checks=3 failures=0 notshown=1 dead=false'))
+Expect $presetsNs 'presets' 2 'presets: a handler not driven -> not shown' 'NOT SHOWN'
+
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)
 exit $(if ($script:failed) { 1 } else { 0 })

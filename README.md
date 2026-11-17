@@ -4,10 +4,11 @@ Separate difficulty options for Nuclear Nightmare. Spec: `_bmad-output/specs/spe
 
 Version 0.1.0: the skeleton (story 1) connects to Nucleus (core) and works out per world whether this machine hosts.
 Story 3 adds enemy damage on the host and survivable grabs for the host's own player; story 4 adds cold, frostbite and
-reinforcement tokens on the host; story 5 adds survivable grabs on modded clients (below). The knob values have
-no player-facing source yet: until the rows and presets (stories 6 and 7) they come only from a dev file, so a
-normal install leaves every knob Default and changes nothing, except the soft-lock recovery (story 5, every machine
-with the mod, own player only). Targets V8.2 (build 26512322) with the pinned UE4SS
+reinforcement tokens on the host; story 5 adds survivable grabs on modded clients (below); story 6 keeps the knob
+values with the game's own world presets in a sidecar file (below, "World presets"). The rows that show and edit
+the values come in story 7: until then the mod itself writes only Default values, so a normal install leaves every
+knob Default and changes nothing, except the soft-lock recovery (story 5, every machine with the mod, own player
+only). Targets V8.2 (build 26512322) with the pinned UE4SS
 `v3.0.1-1181-g83330635`, and needs Nucleus `^0.12.0` (story 5: core's host replicated state and player presence,
 `core.net`): Nucleus 0.12.0 or later (core reads the caret as a minimum).
 
@@ -129,7 +130,38 @@ runtime refuse core 0.3.0.
 - **Not covered:** a third player watching the grab keeps the game's choice for the victim (it may see an execution
   and then the victim stand up); the token display on clients; unmodded victims.
 
-### Dev value source (until stories 6 and 7)
+## World presets (story 6)
+
+The knob values are saved, loaded, updated and deleted together with the game's own world presets on the
+create-world screen (`CreateServer_C`). The game's preset struct can't hold them, so they live in a sidecar file
+next to the game's `WorldPresets_Sav.sav`:
+
+- **Where:** `<ProjectSavedDir>SaveGames/Difficulty_WorldPresets.txt`. The directory comes from the engine
+  (`BlueprintPathsLibrary:ProjectSavedDir()`), so a dev copy launched with `-userdir` keeps it under its own
+  `_userdir/Saved/`, never under `%LOCALAPPDATA%`. If the directory can't be read: one WARN, no sync for that open.
+- **Format:** a header `# Difficulty world presets, format 2`, then one `<index>\t<name>\t<values>` line per preset:
+  the preset's 0-based position in the game's list, its name percent-encoded (`%`, tab, CR, LF and every byte below
+  0x20), and the values in the knob syntax (only non-Default keys; empty when every knob is Default). Parsed with
+  string patterns only (never executed), at most 256 KiB, 256 entries and 1024-byte lines. A bad line, an unknown
+  key or a value out of range is Default, with one WARN per read (the problem count and the first problem); a header
+  naming another format makes every entry Default. A name over 128 bytes encoded isn't written (one WARN at save).
+- **Written** whole, only on save, update, delete and an open that changed the text: to `<file>.tmp`, the old file to
+  `<file>.bak`, `.tmp` to the file, `.bak` removed. On a failure the previous file is restored or kept (one WARN).
+- **Open** (every `Construct`): the rows start at Default, and each game preset takes the entry with its index and
+  name, else the first unused entry with its name, else Default. Entries of deleted presets are dropped; presets made
+  without the mod get Default. The file is rewritten in the game's order when that changed its text.
+- **Select** a preset: the rows take its entry; **None** leaves them as they are. **Save** appends an entry with the
+  rows' values, **Update** replaces the selected one's, **Delete** removes it. The game's own preset bugs (duplicate
+  names resolve to the first, a preset named "None") are left alone; the entries follow the game.
+- **Session:** `BP_GameInstance_C:CreateSteamSession` copies the rows into the session's values (`PRESETS capture`).
+  A match starts with `dev.lua`'s knobs when it sets them (tests), else the captured values, else every knob Default.
+  A replay (no `CreateSteamSession`) keeps the last capture.
+- **Hooks:** UE4SS hooks on Blueprint functions run after the function's body, so the state before a save or a
+  delete is the mod's own (its entries match the game's presets since the open, and it re-reads the selector after
+  every hook); after each change the entries are matched to the game's names again. The `CreateServer_C` hooks are
+  registered once the class is loaded and retried after each LoadMap (3 times, 3 s apart).
+
+### Dev value source
 
 ```powershell
 ./deploy.ps1 -Instance <copy> -Test -PreCore -Knobs "enemyDamage=17;spread=20;dmg.stalker=200"
@@ -138,7 +170,8 @@ runtime refuse core 0.3.0.
 `-Knobs` (only with `-Test`) writes `knobs = "<text>"` into `Scripts/dev.lua`, in the sidecar's syntax
 (`key=value;...`, a value is a number or `default`). Difficulty parses it at every match start: at most 1024 bytes,
 known keys only, numbers within the knob's range, rounded to its step; anything else leaves that knob Default with
-one `WARN knobs: ...`. A deploy without `-Test` writes no `dev.lua`, so a release has no knob source.
+one `WARN knobs: ...`. They win over the preset values captured at `CreateSteamSession`. A deploy without `-Test`
+writes no `dev.lua`, so a release takes the knobs only from the presets.
 
 ## What it logs
 
@@ -159,6 +192,12 @@ one `WARN knobs: ...`. A deploy without `-Test` writes no `dev.lua`, so a releas
   polls= writes= players= avg_ms=<poll cost> clock=<core|os>` (sums since the match start); `TOKENS start limit= N=
   count=`, `TOKENS used= left= count= via=` per change, `TOKENS disabled at used= N= via=`, `TOKENS minimum changed
   ...`, and one line when the knob does nothing (imposter, the lobby's own Disable).
+- Story 6, on the create-world screen (names percent-encoded, as in the file; `index` is the preset's 0-based
+  position): `PRESETS open presets=<n> entries=<m> changed=<true|false>` (m: entries read from the file),
+  `PRESETS save|update index=<i> name=<n> knobs=<values>`, `PRESETS delete index=<i> name=<n>`,
+  `PRESETS select index=<i> name=<n> knobs=<values>`, `PRESETS select none (rows unchanged)`; at the session
+  `PRESETS capture knobs=<values>`. WARN `sidecar ...` for a file with problems, a directory or presets that can't be
+  read, a long name, or a failed write.
 - Story 5: `NET published ver= compat= ...` on the host at the match start; on a modded client `GRAB ... victim=local
   spare=yes` and its `RESTORE`, or once per world `host has no Difficulty, inactive (<reason>)`; `RECOVER ...` on any
   machine when the recovery acted.
@@ -229,7 +268,21 @@ $inst = 'C:\...\nuclear-nightmare\game-instances\v8.2-build26512322'   # the hos
 - Verified 2026-11-11 on V8.2.1 (VM copy `v8.2-build26512322`, Nucleus 0.6.0 from `build/package`): `default` ran in
   93 s, driver `END result=PASS checks=3`, and `check.ps1 -Target vm` passed all checks. The VM copy was put back as it was.
 
-Every scenario sets `BP_GameInstance_C.DisableWhiteOuts` before the match and logs one
+### Story 6 scenario (`run.ps1 -Scenario presets`, the main menu only)
+
+`presets` plays no match and creates no session; run it in the VM (`-Target vm`, under `dumps\vm.lock`). The driver
+opens the create-world screen (`WidgetBlueprintLibrary:Create` and `AddToViewport`), deletes leftover `DT6-*` presets
+through the game's own handlers, records the other presets' sidecar entries (`BASELINE`), saves `DT6-A` and `DT6-B`
+(`PresetName`, then the save button's handler), selects A (`SetSelectedOption`, then the selector's handler), updates
+A, selects None, deletes A, removes the screen, appends a stale line `99<tab>DT6-gone<tab>cold=50` to the sidecar
+(`STALE`), reopens the screen and deletes B. After each step it reads the sidecar: the DT6 entries by index and name,
+all Default, and the baseline entries unchanged (`OK`/`FAIL`); a handler it can't drive is `NOTSHOWN`. It leaves no
+DT6 preset behind. `check.ps1 -Scenario presets` needs the running checks, the menu world, the driver's PASS (no
+WHITEOUT line), after `BASELINE` exactly two `PRESETS save`, one `PRESETS update` and two `PRESETS delete` lines,
+`PRESETS select ... name=DT6-A knobs=all Default`, `PRESETS select none`, a `PRESETS open ... changed=true` after the
+stale line, and no ERROR or WARN.
+
+Every match scenario sets `BP_GameInstance_C.DisableWhiteOuts` before the match and logs one
 `WHITEOUT disabled=<GameState value> director=<n> phase=<Phase>`; `check.ps1` requires `disabled=true` in every
 scenario but `cold-whiteout`.
 
@@ -252,7 +305,9 @@ shown.
   `mod.json`'s settings, `knobs.lua`'s parser, `damage.lua`'s math including the 200-hit distribution and the
   survivable cap, `hits.lua` against fake hooks (the cold poll, the frostbite native and tokens included), `env.lua`'s
   cold and frostbite math and poll, `tokens.lua`'s math and adapter, `net.lua`'s keys, encode and decode, story 5's
-  host and client grab paths and the recovery in `hits_test.lua`; PowerShell: `deploy.ps1` against a fake instance,
+  host and client grab paths and the recovery in `hits_test.lua`; story 6's `sidecar.lua` (encoding, the bounded
+  parse, reconcile) and `presets.lua` (the hook flows on a fake create-world screen, the knob source order, retried
+  hooks, the atomic write with failures injected, in memory and on a real temp directory); PowerShell: `deploy.ps1` against a fake instance,
   `check.ps1` against synthetic logs, story 5's pair checks against synthetic logs).
   Lua is the first of `lua`, `lua5.4`, `lua54`, `lua5.3`, `texlua` on PATH.
 

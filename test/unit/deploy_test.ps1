@@ -141,7 +141,7 @@ try {
     Ok ($d.Code -eq 0) 'deploy: core 0.12.2 -> installed' $d.Out
     Eq (Txt) ("Nucleus : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy: Difficulty below Nucleus, above Keybinds; DifficultyProbe line kept'
     $files = @(Get-ChildItem $dest -Recurse -File | ForEach-Object { $_.FullName.Substring($dest.Length + 1) } | Sort-Object)
-    Eq ($files -join ',') 'mod.json,Scripts\damage.lua,Scripts\env.lua,Scripts\hits.lua,Scripts\knobs.lua,Scripts\main.lua,Scripts\net.lua,Scripts\tokens.lua,Scripts\world.lua' 'deploy: exactly the Difficulty files (no dev.lua, no settings.lua)'
+    Eq ($files -join ',') 'mod.json,Scripts\damage.lua,Scripts\env.lua,Scripts\hits.lua,Scripts\knobs.lua,Scripts\main.lua,Scripts\net.lua,Scripts\presets.lua,Scripts\sidecar.lua,Scripts\tokens.lua,Scripts\world.lua' 'deploy: exactly the Difficulty files (no dev.lua, no settings.lua)'
     Ok (-not (Test-Path (Join-Path $mods 'DifficultyDriver'))) 'deploy: no driver without -Scenario'
     Ok (Test-Path (Join-Path $mods 'DifficultyProbe')) 'deploy: story 2''s driver folder untouched'
 
@@ -184,6 +184,11 @@ try {
         Ok ($d.Code -eq 0 -and $dev -match "(?m)^return \{ debug = true, knobs = `"$([regex]::Escape($s4[1]))`" \}$") "deploy -Scenario $($s4[0]): knobs $($s4[1])" "$($d.Out) $dev"
         Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) $s4[0] "deploy -Scenario $($s4[0]): scenario.txt"
     }
+    # Story 6: presets, no knobs (the menu-only preset scenario).
+    $d = Deploy @('-Test', '-Scenario', 'presets')
+    $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+    Ok ($d.Code -eq 0 -and $dev -match '(?m)^return \{ debug = true \}$') 'deploy -Scenario presets: no knobs' "$($d.Out) $dev"
+    Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) 'presets' 'deploy -Scenario presets: scenario.txt'
     $d = Deploy @('-Test', '-Scenario', 'scaled', '-Knobs', '"spread=5"')
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($dev -match 'knobs = "spread=5"') '-Knobs overrides the scenario''s knobs' $dev

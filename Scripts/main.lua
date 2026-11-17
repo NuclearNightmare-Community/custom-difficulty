@@ -1,8 +1,10 @@
--- Difficulty 0.1.0 (spec-difficulty-v1, stories 1, 3 and 4). Connects to Nucleus (core) through the dependent
+-- Difficulty 0.1.0 (spec-difficulty-v1, stories 1 and 3 to 6). Connects to Nucleus (core) through the dependent
 -- bootstrap (core's api-contract.md) and caches isHost per world. Story 3: enemy damage on the host and survivable
 -- grabs for the host's own player (hits.lua). Story 4: cold, frostbite and reinforcement tokens on the host (env.lua,
--- tokens.lua, wired in hits.lua; one host poll started here). Until stories 6 and 7, the knob values come only from
--- dev.lua (deploy.ps1 -Test -Knobs), so a release (no dev.lua) leaves every knob Default and changes nothing.
+-- tokens.lua, wired in hits.lua; one host poll started here). Story 6: the knob values a match starts with come from
+-- dev.lua (deploy.ps1 -Test -Knobs) when it sets them, else from the rows captured at CreateSteamSession (presets.lua,
+-- kept with the game's world presets in the sidecar file, sidecar.lua), else every knob Default. Until story 7 shows
+-- the rows, the mod itself writes only Default values, so a release changes nothing.
 -- Holds no UObject between callbacks (AGENTS.md): world.lua keeps only world names and booleans. Every hook body and
 -- every call into core runs under pcall, with one log line per failure. Story 5: survivable grabs on modded clients
 -- through core.net (core 0.12.0: host replicated state and player presence); the mod's own id comes from mod.json.
@@ -23,6 +25,7 @@ if not ok then print(("[%s] %s is not installed. %s will not run.\n"):format(ME,
 local world = require("world")
 local hits = require("hits")
 local net = require("net")
+local presets = require("presets")
 
 -- ---------------------------------------------------------------- mod.json (the id for core.net; never hard-coded)
 -- Read once, bounded; data only. A problem is remembered and logged once connected (the host then spares only its own
@@ -99,6 +102,9 @@ local function start(core)
             tostring(core.version), netMissing, manifestProblem and (" (" .. manifestProblem .. ")") or "")
     end
 
+    -- Story 6: the create-world screen's presets and the session capture (hooks registered now and after LoadMaps).
+    local P = presets.new{ say = say, warnOnce = warnOnce, name = ME }
+
     local W = world.new()
     local currentName -- the full name of the world evaluated last (hits.lua asks W:isHost(currentName))
     -- core's microsecond clock (the poll's cost), when this core has it; os.clock otherwise.
@@ -109,7 +115,7 @@ local function start(core)
         say = say, warnOnce = warnOnce, alive = world.alive,
         world = function() return currentName end,
         isHost = function() return W:isHost(currentName) end,
-        knobs = function() return dev.knobs end,
+        knobs = function() return presets.source(dev.knobs, P:sessionText()) end,
         micros = micros,
         -- core's weak handles (the match's game state, re-found each poll without a scan), when this core has them.
         ref = type(core.ref) == "function" and core.ref or nil,
@@ -141,6 +147,8 @@ local function start(core)
     local okH, errH = pcall(RegisterLoadMapPostHook, function(_, w)
         local okB, errB = pcall(evaluate, world.unwrap(w), "LoadMap")
         if not okB then say("error", "LoadMap hook failed: %s", tostring(errB)) end
+        local okP, errP = pcall(P.onLoadMap, P)
+        if not okP then say("error", "preset hooks failed: %s", tostring(errP)) end
     end)
     if not okH then say("error", "could not register the LoadMap hook: %s. %s will not run.", tostring(errH), ME) return end
 
@@ -152,6 +160,10 @@ local function start(core)
     local okP, okS, errS = pcall(H.startPoll, H)
     if not okP then say("error", "the host poll failed to start: %s; cold stays stock", tostring(okS))
     elseif not okS then say("error", "the host poll could not start (%s); cold stays stock", tostring(errS)) end
+
+    -- The preset hooks whose classes are already loaded (the rest after the next LoadMaps).
+    local okPH, errPH = pcall(P.onLoadMap, P)
+    if not okPH then say("error", "preset hooks failed: %s", tostring(errPH)) end
 
     -- The world already loaded when connect succeeded (its LoadMap ran before this hook existed).
     local current = world.currentWorld()

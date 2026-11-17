@@ -7,6 +7,7 @@
 -- class). W.later holds the delayed game-thread callbacks; W.runLater() runs them.
 local F = {}
 
+local function fstrW(s) return { ToString = function() return s end } end
 local Obj = {}
 Obj.__index = Obj
 function Obj:IsValid() return not self._gone end
@@ -40,6 +41,13 @@ function F.new()
     end
     W.ksl = K
     W.byPath["/Script/Engine.Default__KismetSystemLibrary"] = K
+    -- Story 6: ProjectSavedDir (W.savedDir; under -userdir in a dev copy).
+    W.savedDir = "C:/nn/copy/_userdir/Saved/"
+    W.byPath["/Script/Engine.Default__BlueprintPathsLibrary"] = setmetatable({ _full = "BlueprintPathsLibrary /Script/Engine.Default__BlueprintPathsLibrary" }, {
+        __index = function(t, k)
+            if k == "ProjectSavedDir" then return function() if W.savedDirFails then error("ProjectSavedDir: boom") end return fstrW(W.savedDir) end end
+            return Obj[k]
+        end })
     W.byPath["/Script/Engine.KismetSystemLibrary:IsValid"] = setmetatable({}, {
         __call = function(_, cdo, o) return not (o._gone or o._garbage) end,
         __index = { IsValid = function() return true end } })
@@ -145,6 +153,98 @@ function F.net(o)
         return name:match("^net%.") ~= nil
     end
     return N
+end
+
+-- Story 6: a fake create-world screen (CreateServer_C) whose handlers behave like the game's (CreateServer_C.cpp,
+-- V8.2.3). FString values are tables with ToString; a TArray has GetArrayNum and 1-based [i]. Fields:
+-- S.names (the game's presets), S.selected (the selector's SelectedOption), S.PresetName. Handlers, each followed by
+-- the hook callbacks (UE4SS hooks on Blueprint functions run after the body): S:open(), S:select(i) (SetSelectedOption
+-- (i), then OnSelectionChanged), S:save(name), S:update(), S:delete(); S:setOption(i) changes the selection without
+-- the handler (as SetSelectedOption alone does).
+local function fstr(s) return { ToString = function() return s end } end
+F.fstr = fstr
+function F.screen(W, names)
+    local P = require("presets")
+    local S = { names = {}, selected = "None", PresetName = fstr("") }
+    for i, n in ipairs(names or {}) do S.names[i] = n end
+    local function items()
+        local list = { "None" }
+        for _, n in ipairs(S.names) do list[#list + 1] = n end
+        local arr = { GetArrayNum = function() return #list end }
+        return setmetatable(arr, { __index = function(_, i) return list[i] and fstr(list[i]) or nil end })
+    end
+    local box = {}
+    setmetatable(box, { __index = function(_, k)
+        if k == "Items" then return items() end
+        if k == "GetSelectedIndex" then
+            return function()
+                if S.selectFails then error("GetSelectedIndex: boom") end
+                if S.selected == "None" then return 0 end
+                for i, n in ipairs(S.names) do if n == S.selected then return i end end -- first match, as Array_Find
+                return -1
+            end
+        end
+    end })
+    S.MultipleSelectBox_11 = box
+    S.PresetsSavObj = setmetatable({}, { __index = function(_, k)
+        if k == "Presets" then
+            if S.countFails then error("Presets: boom") end
+            return { GetArrayNum = function() return #S.names end }
+        end
+    end })
+    local ctx = W.p(S)
+    local function fire(key) W.fire(P.PATHS[key], ctx, W.p(nil)) end
+    function S:open() S.selected = "None" fire("construct") end
+    function S:setOption(i) S.selected = i == 0 and "None" or S.names[i] end
+    function S:select(i) S:setOption(i) fire("select") end
+    function S:save(name)
+        if name ~= nil then S.PresetName = fstr(name) end
+        local n = S.PresetName:ToString()
+        if n ~= "" then S.names[#S.names + 1] = n S.selected = n end -- Presets.Add, ReloadPresets(PresetName)
+        fire("save")
+    end
+    function S:update() fire("update") end
+    function S:delete()
+        local i = box.GetSelectedIndex()
+        if i > 0 then table.remove(S.names, i) end -- Presets.Remove(idx - 1) (a no-op at -1)
+        S.selected = "None" -- ResetToDefault
+        fire("delete")
+    end
+    function S:capture() W.fire(P.PATHS.capture, W.p({}), W.p(nil)) end
+    return S
+end
+
+-- Story 6: an in-memory file system in presets.lua's fs shape. D.files: path -> text. D.fail[op] = path pattern
+-- (Lua) whose calls fail. D.log: the calls in order ("write <path>", "rename <a> <b>", ...).
+function F.fs()
+    local D = { files = {}, fail = {}, log = {} }
+    local function failing(op, p) local pat = D.fail[op] return pat ~= nil and tostring(p):find(pat) ~= nil end
+    D.read = function(p, max)
+        D.log[#D.log + 1] = "read " .. p
+        local t = D.files[p]
+        if t == nil then return nil, p .. ": No such file or directory" end
+        return t:sub(1, max)
+    end
+    D.write = function(p, text)
+        D.log[#D.log + 1] = "write " .. p
+        if failing("write", p) then return nil, p .. ": Permission denied" end
+        D.files[p] = text
+        return true
+    end
+    D.exists = function(p) return D.files[p] ~= nil end
+    D.rename = function(a, b)
+        D.log[#D.log + 1] = "rename " .. a .. " " .. b
+        if failing("rename", a) or D.files[a] == nil then return nil, a .. ": rename failed" end
+        D.files[b], D.files[a] = D.files[a], nil
+        return true
+    end
+    D.remove = function(p)
+        D.log[#D.log + 1] = "remove " .. p
+        if D.files[p] == nil then return nil, "no file" end
+        D.files[p] = nil
+        return true
+    end
+    return D
 end
 
 function F.harness(name)

@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-  Runs one Difficulty story 3 or 4 scenario end to end, on the host or (-Target vm) in VM NNB: deploy (with the test
+  Runs one Difficulty story 3, 4 or 6 scenario end to end, on the host or (-Target vm) in VM NNB: deploy (with the test
   driver), launch, serve key requests, wait, close, check.
 .DESCRIPTION
   Deploys with deploy.ps1 -Test -PreCore -Scenario <s> (the dev core mode: on a core that already satisfies
   dependsOn, -PreCore changes nothing), so Difficulty gets the scenario's knobs in dev.lua and the driver
-  test/DifficultyDriver plays one solo hosted match. Launches only through the workspace's tools/launch.ps1 (which
+  test/DifficultyDriver plays one solo hosted match (story 6's presets: the main menu only, no match). Launches only through the workspace's tools/launch.ps1 (which
   passes -userdir). Stops when the driver logs its END line, the game exits (crash), or -TimeoutSec runs out (hang);
   then closes the game, force-killing it (and any crash reporter) after 15 s. Only ever stops the Shipping exe under
   this instance, never the real install or another copy.
@@ -37,7 +37,7 @@
 param(
     [Parameter(Mandatory)] [string] $Instance,
     [Parameter(Mandatory)] [ValidateSet('scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite',
-                 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout')] [string] $Scenario,
+                 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets')] [string] $Scenario,
     [int] $TimeoutSec = 0, # 0: 900 on the host, x1.5 in the VM
     [ValidateSet('host', 'vm')] [string] $Target = 'host',
     [switch] $AllowOtherDrivers # run even when another runner's test mod is enabled in the copy (tools/run-guard)

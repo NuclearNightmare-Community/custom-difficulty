@@ -88,4 +88,12 @@ do -- describe
     eq(knobs.describe({ ["dmg.stalker"] = 200, enemyDamage = 17, frostbite = 2.5 }), "enemyDamage=17 frostbite=2.5 dmg.stalker=200", "describe: KNOBS order")
 end
 
+-- ---------------------------------------------------------------- encode (story 6): the inverse of parse
+do
+    eq(knobs.encode({}), "", "encode: all Default is empty")
+    eq(knobs.encode({ ["dmg.stalker"] = 200, enemyDamage = 17, frostbite = 2.5 }), "enemyDamage=17;frostbite=2.5;dmg.stalker=200", "encode: KNOBS order")
+    local v = { cold = 50, spread = 20, revives = 0, frostbite = 0.5, ["dmg.apex"] = 0 }
+    eq(knobs.describe((knobs.parse(knobs.encode(v)))), knobs.describe(v), "encode then parse round-trips")
+end
+
 H.done()

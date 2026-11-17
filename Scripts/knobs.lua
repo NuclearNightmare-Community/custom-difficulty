@@ -1,7 +1,8 @@
 -- Difficulty: the knob table and the parser for knob values (spec-difficulty-v1, presets-and-ui.md "Our rows" and
 -- "The sidecar"). Pure Lua, no UE4SS: unit-tested without the game.
 -- The values use the sidecar's syntax: "key=value;key=value", a value being "default" or a decimal number. Story 3
--- reads them from dev.lua (deploy.ps1 -Test -Knobs); story 6 replaces the source, this parser stays. A value is
+-- reads them from dev.lua (deploy.ps1 -Test -Knobs); story 6 adds the sidecar (sidecar.lua) and the text captured at
+-- CreateSteamSession (presets.lua), both written with encode and read back with this parser. A value is
 -- Default (nil) unless it is a known key with a number within the knob's range; it is then rounded to the knob's step.
 -- Anything else is Default, with one problem line per bad entry for the caller to log.
 local M = {}
@@ -84,14 +85,27 @@ function M.parse(text)
     return values, problems
 end
 
--- describe(values) -> "enemyDamage=17 dmg.stalker=200" in KNOBS order, or "all Default".
-function M.describe(values)
+-- A value as text: at most two decimals, no trailing zeros ("17", "0.5").
+local function num(v) return (string.format("%.2f", v):gsub("%.?0+$", "")) end
+
+-- Only known keys with a number, in KNOBS order (anything else in values is skipped).
+local function pairsOf(values, sep)
     local t = {}
     for _, k in ipairs(M.KNOBS) do
         local v = values and values[k.key]
-        if v ~= nil then t[#t + 1] = ("%s=%s"):format(k.key, (string.format("%.2f", v):gsub("%.?0+$", ""))) end
+        if type(v) == "number" and v == v then t[#t + 1] = ("%s=%s"):format(k.key, num(v)) end
     end
-    return #t > 0 and table.concat(t, " ") or "all Default"
+    return table.concat(t, sep)
 end
+
+-- describe(values) -> "enemyDamage=17 dmg.stalker=200" in KNOBS order, or "all Default".
+function M.describe(values)
+    local s = pairsOf(values, " ")
+    return s ~= "" and s or "all Default"
+end
+
+-- encode(values) -> "enemyDamage=17;dmg.stalker=200" in KNOBS order, "" when every knob is Default: the inverse of
+-- parse (story 6: the sidecar's values field and the text captured at CreateSteamSession).
+function M.encode(values) return pairsOf(values, ";") end
 
 return M

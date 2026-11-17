@@ -15,7 +15,7 @@ New-Item -ItemType Directory -Force $tmp | Out-Null
 # pair.ps1's scope, stubbed.
 $Workspace = Join-Path $tmp 'ws'
 New-Item -ItemType Directory -Force (Join-Path $Workspace 'mods\Nucleus\build\package\Mods\Nucleus'), (Join-Path $Workspace 'mods\Nucleus\build\package\LogicMods') | Out-Null
-Set-Content (Join-Path $Workspace 'mods\Nucleus\build\package\Mods\Nucleus\mod.json') '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.12.0" }'
+Set-Content (Join-Path $Workspace 'mods\Nucleus\build\package\Mods\Nucleus\mod.json') '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.15.0" }'
 Set-Content (Join-Path $Workspace 'mods\Nucleus\build\package\LogicMods\Nucleus.pak') 'pak'
 $PairScenarios = @{}
 $outDir = $tmp; $Label = 't'
@@ -34,7 +34,7 @@ try {
         Ok ($sc.HostFiles['PairDriver\Scripts\difficulty.txt'] -eq '0') "$k runs a Nightmare lobby"
     }
     & $DpD5Prereq
-    Ok $true 'prereq: core 0.12.0 satisfies ^0.12.0'
+    Ok $true 'prereq: core 0.15.0 satisfies ^0.15.0'
 
     # Host mods: core, Difficulty with the knobs, the driver as host-spawn; vanilla host: the driver only.
     $paths = @(& $PairScenarios['d5-grab-modded'].HostModPaths)
@@ -62,7 +62,7 @@ try {
     $ends = @('[DifficultyPair] END result=PASS checks=5 failures=0 role=host-spawn')
     $vEnds = @('[DifficultyPair] END result=PASS checks=1 failures=0 role=client-watch')
     function ModdedLogs([string] $skipRow, [string] $badMontage, [string] $after) {
-        $h = @(); $v = @('[Difficulty] READY version=0.1.0 Nucleus=0.12.0 need=0.12.0'); $i = 0
+        $h = @(); $v = @('[Difficulty] READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'); $i = 0
         foreach ($e in $rows.Keys) {
             $r = $rows[$e]; $i++
             if ($r -ne $skipRow) {
@@ -114,7 +114,7 @@ try {
 
     # Story 11: the checker is unchanged, so the new lines must keep its contract.
     # The driver's Watcher GRAB line ends with target/attacked; Difficulty's WATCHER line is its own line.
-    $hw = @(); $vw = @('[Difficulty] READY version=0.1.0 Nucleus=0.12.0 need=0.12.0'); $i = 0
+    $hw = @(); $vw = @('[Difficulty] READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'); $i = 0
     foreach ($e in $rows.Keys) {
         $r0 = $rows[$e]; $i++
         $hw += "[Difficulty] GRAB enemy=$r0 hp=100 E=25 game=e decision=s flip=101 victim=client spare=yes"
@@ -141,7 +141,7 @@ try {
     Ok ((($r.D5.Misses -join ';') -match 'revived 0 of 1')) 'story 11: a B death without its back line still fails' (($r.D5.Misses) -join '; ')
 
     # vanilla host
-    Logs ($ends) (@('[Difficulty] READY version=0.1.0 Nucleus=0.12.0 need=0.12.0', '[Difficulty] host has no Difficulty, inactive (no-state)',
+    Logs ($ends) (@('[Difficulty] READY version=0.1.0 Nucleus=0.15.0 need=0.15.0', '[Difficulty] host has no Difficulty, inactive (no-state)',
                    '[DifficultyPair] GRAB #1 Meek Attack victim=me hpSeen=100.00 hpNow=100.00 montage=AM_StabAndDump diff=0 (start 0)') + $vEnds)
     $r = Get-DpD5Report -Kind host-vanilla
     Ok ($r.Verdict -eq 'PASS') 'host-vanilla: a clean run passes' (($r.D5.Misses) -join '; ')

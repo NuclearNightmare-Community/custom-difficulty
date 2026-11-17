@@ -56,11 +56,11 @@ $order = $coreStart + @((D 'READY version=0.1.0 Nucleus=0.3.0 need=0.3.0'), (D '
 Expect $order 'ready' 1 'ready: READY before CONNECT -> fails' 'READY comes after CONNECT'
 
 # ready on core 0.4.x: no pre-core WARN allowed.
-$ready4 = @((D 'CONNECT ok Nucleus 0.12.1 (pong 0.12.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.12.1 need=0.12.0'))
-Expect $ready4 'ready' 0 'ready on 0.12.1: passes without the pre-core WARN' 'no pre-core WARN'
-Expect ($ready4 + @(D 'WARN running on Nucleus 0.12.1 before 0.4.0 (dev only): no UI')) 'ready' 1 'ready on 0.12.1: a pre-core WARN -> fails' 'pre-core WARN'
-Expect $ready4 'ready' 0 'ready on 0.12.1: READY need=0.12.0 is dependsOn''s minimum' 'need=0\.12\.0 is dependsOn'
-Expect ($ready4 -replace 'need=0\.12\.0', 'need=0.3.0') 'ready' 1 'ready on 0.12.1: need=0.3.0 without the pre-core WARN -> fails' 'READY need=0\.3\.0'
+$ready4 = @((D 'CONNECT ok Nucleus 0.15.1 (pong 0.15.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.15.1 need=0.15.0'))
+Expect $ready4 'ready' 0 'ready on 0.15.1: passes without the pre-core WARN' 'no pre-core WARN'
+Expect ($ready4 + @(D 'WARN running on Nucleus 0.15.1 before 0.4.0 (dev only): no UI')) 'ready' 1 'ready on 0.15.1: a pre-core WARN -> fails' 'pre-core WARN'
+Expect $ready4 'ready' 0 'ready on 0.15.1: READY need=0.15.0 is dependsOn''s minimum' 'need=0.15.0 is dependsOn'
+Expect ($ready4 -replace 'need=0.15.0', 'need=0.3.0') 'ready' 1 'ready on 0.15.1: need=0.3.0 without the pre-core WARN -> fails' 'READY need=0\.3\.0'
 
 # ---------------------------------------------------------------- host
 $hostLog = $ready + @((U 'LoadMap /Game/Maps/SmallLoweIsland/SmallMap'), (D 'WORLD host=true standalone=false map=SmallMap'))
@@ -73,14 +73,14 @@ Expect $ready4 'hand' 0 'hand: passes' 'All checks passed'
 Expect (Without $ready4 'WORLD') 'hand' 1 'hand: no WORLD line -> fails' 'WORLD'
 
 # ---------------------------------------------------------------- old-core, no-core
-$oldCore = $coreStart + @((D 'ERROR Nucleus 0.3.0 is not compatible; Difficulty needs 0.12.0 (^ rules). Update Nucleus. Difficulty will not run.'))
+$oldCore = $coreStart + @((D 'ERROR Nucleus 0.3.0 is not compatible; Difficulty needs 0.15.0 (^ rules). Update Nucleus. Difficulty will not run.'))
 Expect $oldCore 'old-core' 0 'old-core: passes as written' 'All checks passed'
-Expect ($oldCore -replace 'needs 0\.12\.0', 'needs 0.3.0') 'old-core' 1 'old-core: the need must be dependsOn''s minimum' 'not compatible'
+Expect ($oldCore -replace 'needs 0.15.0', 'needs 0.3.0') 'old-core' 1 'old-core: the need must be dependsOn''s minimum' 'not compatible'
 Expect ($oldCore + @($menu)) 'old-core' 1 'old-core: a second Difficulty line -> fails' '#1'
 Expect (Without $oldCore 'not compatible') 'old-core' 1 'old-core: no line -> fails' '#1'
 $noCore = @((U "Starting Lua mod 'Difficulty'"), (D 'Nucleus is not installed. Difficulty will not run.'))
 Expect $noCore 'no-core' 0 'no-core: passes as written' 'All checks passed'
-Expect ($noCore + @(D 'READY version=0.1.0 Nucleus=0.12.0 need=0.12.0')) 'no-core' 1 'no-core: a second Difficulty line -> fails' '#1'
+Expect ($noCore + @(D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0')) 'no-core' 1 'no-core: a second Difficulty line -> fails' '#1'
 Expect ($noCore -replace 'not installed', 'missing') 'no-core' 1 'no-core: another wording -> fails' 'not installed'
 
 # ---------------------------------------------------------------- story 3 scenarios (driver + Difficulty's lines)
@@ -253,7 +253,7 @@ Expect (Without $fewer 'TERMINAL open') 'tokens-fewer' 1 'tokens-fewer: terminal
 Expect ($fewer -replace 'TERMINAL open active=true', 'TERMINAL open active=false') 'tokens-fewer' 1 'tokens-fewer: terminal not active -> fails' 'TERMINAL open'
 
 # ---------------------------------------------------------------- story 6: presets (menu only)
-$presets = @((D 'CONNECT ok Nucleus 0.12.1 (pong 0.12.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.12.1 need=0.12.0'),
+$presets = @((D 'CONNECT ok Nucleus 0.15.1 (pong 0.15.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.15.1 need=0.15.0'),
     (DR 'SCENARIO presets'), (DR 'DRIVE open #1'), (D 'PRESETS open presets=2 entries=2 changed=false'),
     (DR 'DRIVE select DT6-X for delete'), (D 'PRESETS select index=1 name=DT6-X knobs=all Default'), (D 'PRESETS delete index=1 name=DT6-X'),
     (DR 'CLEANUP deleted 1 leftover DT6- preset(s)'), (DR 'BASELINE presets=1 entries=0:Mine:cold=70'),
@@ -283,6 +283,44 @@ $preOnly = @($preOnly[0..4]) + @((D 'PRESETS select index=1 name=DT6-A knobs=all
 Expect $preOnly 'presets' 1 'presets: the DT6-A and None selects only before BASELINE -> fails' 'after BASELINE'
 $presetsNs = @(Without $presets 'END result|PRESETS (save|update|delete|select)|STALE') + @((DR 'NOTSHOWN save DT6-A: the game''s preset count didn''t grow'), (DR 'END result=NOTSHOWN checks=3 failures=0 notshown=1 dead=false'))
 Expect $presetsNs 'presets' 2 'presets: a handler not driven -> not shown' 'NOT SHOWN'
+
+# ---------------------------------------------------------------- story 7: screen (menu only, VM)
+$screen = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 19'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
+    (DR 'SCENARIO screen'), (D 'PRESETS open presets=1 entries=1 changed=false'),
+    (D 'ROWS follow difficulty=2 classified=2 enemyDamage=25 cold=100 revives=6'),
+    (DR 'OK SCORDER open 1: the knob rows at children 2-6 after Overlay_28, the per-enemy rows right after Overlay_738 (enemyDamage at 2)'),
+    (DR 'OK SCTEN 10 opens by real clicks: every row once, in order, the game rows in stock order; 10 distinct row widgets, 11 Construct snapshots'),
+    (DR 'OK SCDRAG value=80 bar=80 (the box followed the drag)'),
+    (D 'ROWS change enemyDamage=80 rows=enemyDamage=80'), (D 'ROWS change enemyDamage=57 rows=enemyDamage=57'),
+    (D 'ROWS change enemyDamage=200 rows=enemyDamage=200'), (D 'ROWS change enemyDamage=default rows='),
+    (D 'ROWS change cold=150 rows=cold=150'),
+    (D 'ROWS follow difficulty=0 classified=2 enemyDamage=100 cold=200 revives=6'),
+    (D 'ROWS follow difficulty=1 classified=2 enemyDamage=50 cold=133 revives=6'),
+    (D 'ROWS change enemyDamage=17 rows=enemyDamage=17;cold=150'),
+    (D 'PRESETS save index=1 name=DT7-A knobs=enemyDamage=17 cold=150'),
+    (D 'ROWS change enemyDamage=40 rows=enemyDamage=40;cold=150'),
+    (D 'PRESETS select none (rows unchanged)'),
+    (D 'PRESETS select index=1 name=DT7-A knobs=enemyDamage=17 cold=150'),
+    (DR 'OK SCPRESET DT7-A shows Enemy Damage 17: box ''17'' bar 17'),
+    (D 'PRESETS delete index=1 name=DT7-A'),
+    (DR 'END result=PASS checks=60 failures=0 notshown=0 dead=false'))
+Expect $screen 'screen' 0 'screen: passes as written (no WHITEOUT, no match)' 'All checks passed'
+Expect ($screen + @(D 'ROWS declared 19')) 'screen' 1 'screen: rows declared twice -> fails' 'ROWS declared'
+Expect (Without $screen 'SCTEN') 'screen' 1 'screen: no ten-open line -> fails' 'SCTEN'
+Expect (Without $screen 'enemyDamage=57 rows') 'screen' 1 'screen: no 57 -> fails' 'enemyDamage=57'
+Expect ($screen -replace 'enemyDamage=57 rows=enemyDamage=57', 'enemyDamage=57 rows=') 'screen' 1 'screen: 57 not in the model text -> fails' 'rows=enemyDamage=57'
+Expect ($screen -replace 'SCDRAG value=80', 'SCDRAG value=81') 'screen' 1 'screen: the first change is not the dragged value -> fails' 'in order'
+Expect (Without $screen 'enemyDamage=default') 'screen' 1 'screen: no Default after clearing -> fails' 'default'
+Expect (Without $screen 'difficulty=0 classified') 'screen' 1 'screen: no Nightmare follow -> fails' 'difficulty=0'
+Expect ($screen -replace 'difficulty=1 classified=2 enemyDamage=50', 'difficulty=1 classified=2 enemyDamage=25') 'screen' 1 'screen: Hard follow with the wrong default -> fails' 'difficulty=1'
+Expect (Without $screen 'select none') 'screen' 1 'screen: no None select -> fails' 'select none'
+Expect ($screen -replace 'select index=1 name=DT7-A knobs=enemyDamage=17', 'select index=1 name=DT7-A knobs=all') 'screen' 1 'screen: DT7-A not 17 -> fails' 'DT7-A'
+Expect ($screen + @(D 'WARN ROWS Overlay_738 is missing from the create-world screen; the per-enemy rows follow the knob rows')) 'screen' 1 'screen: the anchor WARN -> fails' 'WARN'
+Expect ($screen + @(D 'ERROR ROWS enemyDamage change failed: x; not written')) 'screen' 1 'screen: an ERROR -> fails' 'ERROR'
+Expect ($screen + @(DR 'FAIL SCORDER open 3: ...')) 'screen' 1 'screen: a driver FAIL -> fails' 'FAIL'
+Expect ($screen + @(D 'MATCH start knobs=all Default')) 'screen' 1 'screen: a match -> fails' 'MATCH start'
+$screenNs = @(Without $screen 'END result|ROWS change|ROWS follow difficulty=[01]|PRESETS (save|select|delete)|SCPRESET|SCDRAG') + @((DR 'NOTSHOWN save DT7-A: the game''s preset count didn''t grow'), (DR 'END result=NOTSHOWN checks=40 failures=0 notshown=1 dead=false'))
+Expect $screenNs 'screen' 2 'screen: a handler not driven -> not shown' 'NOT SHOWN'
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)

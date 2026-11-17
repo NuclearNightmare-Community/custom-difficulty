@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Runs one Difficulty story 3, 4 or 6 scenario end to end, on the host or (-Target vm) in VM NNB: deploy (with the test
+  Runs one Difficulty story 3, 4, 6 or 7 scenario end to end, on the host or (-Target vm) in VM NNB: deploy (with the test
   driver), launch, serve key requests, wait, close, check.
 .DESCRIPTION
   Deploys with deploy.ps1 -Test -PreCore -Scenario <s> (the dev core mode: on a core that already satisfies
@@ -27,7 +27,9 @@
   tools/vm/vm-key.ps1, and the VM copy is put back as it was afterwards (so no redeploy without the driver is needed).
   It never builds and never touches the host's game copy or a host game, so it can run while someone plays on the
   host. The log is kept as <scenario>.vm.log and judged with check.ps1 -Target vm (the cold poll's timing is soft
-  there). Every scenario runs in the VM too. The time limit defaults to the host's 900 s times 1.5. It doesn't take
+  there). Every scenario runs in the VM too, and story 7's screen runs only there (its real clicks, drag and typing
+  are served by vm-sp.ps1; the host side serves only Enter), so -Scenario screen without -Target vm is refused before
+  anything is deployed. The time limit defaults to the host's 900 s times 1.5. It doesn't take
   the workspace's dumps\vm.lock: whoever starts it takes the lock around it (tools/vm/README.md, "The VM lock").
   test/run-pair.ps1 (the pair scenarios) is separate and unchanged.
 .EXAMPLE
@@ -37,12 +39,17 @@
 param(
     [Parameter(Mandatory)] [string] $Instance,
     [Parameter(Mandatory)] [ValidateSet('scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite',
-                 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets')] [string] $Scenario,
+                 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen')] [string] $Scenario,
     [int] $TimeoutSec = 0, # 0: 900 on the host, x1.5 in the VM
     [ValidateSet('host', 'vm')] [string] $Target = 'host',
     [switch] $AllowOtherDrivers # run even when another runner's test mod is enabled in the copy (tools/run-guard)
 )
 $ErrorActionPreference = 'Stop'
+# Story 7's screen needs real mouse input (click, drag, type), which only the VM runner serves.
+if ($Scenario -eq 'screen' -and $Target -ne 'vm') {
+    Write-Host "refused: scenario 'screen' needs real clicks, a drag and typing, which only the VM runner serves; pass -Target vm."
+    exit 1
+}
 $hostTimeout = 900
 if ($TimeoutSec -le 0 -and $Target -eq 'host') { $TimeoutSec = $hostTimeout }
 $CoreName = 'Nucleus'

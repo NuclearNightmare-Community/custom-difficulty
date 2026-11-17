@@ -26,7 +26,7 @@ eq(m.game and m.game.build, "26601774", "game.build")
 eq(m.ue4ss, "v3.0.1-1181-g83330635", "ue4ss pinned")
 ok(type(m.dependsOn) == "table" and #m.dependsOn == 1, "one dependency")
 eq(m.dependsOn[1].id, "nuclearnightmare-community.nucleus", "dependsOn nuclearnightmare-community.nucleus")
-eq(m.dependsOn[1].version, "^0.12.0", "dependsOn ^0.12.0 (core story 23: core.net presence)")
+eq(m.dependsOn[1].version, "^0.15.0", "dependsOn ^0.15.0 (core story 33: game-style rows for story 7)")
 ok(not text:lower():find("infection", 1, true), "no Infection Chance anywhere in mod.json (v2)")
 
 -- key, label, min, max, step, scope (presets-and-ui.md; Decisions: 'all' for the survivable-grab inputs)

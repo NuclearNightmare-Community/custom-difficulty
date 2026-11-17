@@ -47,6 +47,14 @@
 --                   removes the screen, appends a stale line "99<tab>DT6-gone<tab>cold=50" to the sidecar, reopens,
 --                   deletes B. After each step it reads Difficulty's sidecar: the DT6 entries by index and name, all
 --                   Default, the baseline entries unchanged. A handler that can't be driven is NOTSHOWN.
+-- Story 7 (menu only, no match; VM only: real clicks, a drag and typing through run.ps1 -Target vm):
+--   screen          ten opens of the create-world screen by real clicks on START GAME and Back: the 19 rows in
+--                   VerticalBox_202 (knob rows at children 2-6 after Overlay_28, per-enemy rows right after
+--                   Overlay_738, the game rows in the order read at Construct, one widget each); an eleventh open with
+--                   CONFIGURE: a drag on Enemy Damage, 57 / 999 / empty typed, Cold 150, Nightmare through the
+--                   Difficulty picker's handler (Default hints follow, Cold kept), a real click on the picker's arrow,
+--                   a preset DT7-A with Enemy Damage 17, None (rows kept), DT7-A (17), DT7-A deleted. Screenshots
+--                   screen-rows, screen-nightmare, screen-preset.
 -- White Outs: every scenario sets the game instance's DisableWhiteOuts before the match (cold-whiteout clears it) and
 -- logs one WHITEOUT line after the start; check.ps1 requires disabled=true, or disabled=false for cold-whiteout.
 -- Lines: OK / FAIL <check>; NOTSHOWN <case> (the driver couldn't make the case happen: not a pass);
@@ -82,6 +90,8 @@ local SCENARIOS = {
     ["tokens-fewer"] = { diff = 2, special = "tokens", cm = 3, limit = 8, n = 2, cases = {} },
     -- Story 6: the main menu only (no match, no WHITEOUT line).
     ["presets"] = { diff = 2, special = "presets", cases = {} },
+    -- Story 7: the rows on the create-world screen (the main menu only; real input, VM only).
+    ["screen"] = { diff = 2, special = "screen", cases = {} },
 }
 local SC = SCENARIOS[SCENARIO or ""]
 say("SCENARIO %s", tostring(SCENARIO))
@@ -1006,6 +1016,386 @@ if SC.special == "presets" then
     pstep("5 after reopen", function() judge("5 reopen:", { PREFIX .. "B" }) end)
     pstep("6 delete B", function() if deleteName(PREFIX .. "B") then judge("6 delete B:", {}) end return after(1), 3 end)
     step("6 close", function()
+        local cs = screen()
+        if cs then pcall(function() cs:RemoveFromParent() end) say("CLOSE the screen removed") end
+        return after(1), 3
+    end)
+end
+
+-- ---------------------------------------------------------------- story 7: the rows on the screen (menu only, VM)
+-- Real input through run.ps1 -Target vm (tools/vm/vm-sp.ps1: click, drag, type, key, shot). Ten opens by real clicks on
+-- START GAME and Back: the 19 rows in VerticalBox_202 in the wanted order against the game's own order (read in a
+-- Construct hook, before core attaches anything): the knob rows at children 2-6 right after Overlay_28, the per-enemy
+-- rows right after Overlay_738, the game rows in their stock order, one widget per row. An eleventh open: CONFIGURE,
+-- a screenshot, a drag on Enemy Damage, 57 / 999 / empty typed into its box, a custom Cold, Nightmare through the
+-- Difficulty picker's own handler (Default hints follow, Cold keeps its value), a real click on that picker's prev arrow
+-- (it still works and the rows follow), then a preset: Enemy Damage 17 saved as DT7-A, 40 typed, None (rows unchanged),
+-- DT7-A (17 again), DT7-A deleted. Difficulty's own ROWS lines are judged by check.ps1. Never clicks Create.
+if SC.special == "screen" then
+    steps = {}
+    local CS_CLASS = "/Game/Graphics/MainMenu/CreateServer.CreateServer_C"
+    local CS_SHORT, MENU_SHORT, START = "CreateServer_C", "MainMenu_C", "UI_Button_Master"
+    local VB, CORE_NAME, OPENS, PREFIX = "VerticalBox_202", "Nucleus", 10, "DT7-"
+    local ROW_SHORT, SLIDER_SHORT = "WBP_" .. CORE_NAME .. "Row_C", "WBP_" .. CORE_NAME .. "Slider_C"
+    local TAG = CORE_NAME:lower() .. ":" .. ME:gsub("Driver$", "") .. ":"
+    local ACTOR_CDO = "/Game/Mods/" .. CORE_NAME .. "/ModActor.Default__ModActor_C"
+    local H_SELECT = "BndEvt__CreateServer_MultipleSelectBox_11_K2Node_ComponentBoundEvent_31_OnSelectionChanged__DelegateSignature"
+    local H_SAVE = "BndEvt__CreateServer_Create_1_K2Node_ComponentBoundEvent_33_OnButtonClickedEvent__DelegateSignature"
+    local H_DELETE = "BndEvt__CreateServer_Create_4_K2Node_ComponentBoundEvent_35_OnButtonClickedEvent__DelegateSignature"
+    local H_TEXT = "BndEvt__CreateServer_EditableText_K2Node_ComponentBoundEvent_32_OnEditableTextChangedEvent__DelegateSignature"
+    local H_DIFF = "BndEvt__CreateServer_MultipleSelectBox_6_K2Node_ComponentBoundEvent_5_OnSelectionChanged__DelegateSignature"
+    local KNOBS = { "enemyDamage", "spread", "revives", "cold", "frostbite" }
+    local ENEMY = { "meek", "mimic", "psycho", "husk", "watcher", "stalker", "slugQueen", "apex", "worm", "leech", "bat",
+                    "infectedDog", "infectedPlayer", "monster" }
+    local Z = { snap = nil, snaps = 0, snapOurs = nil, paths = {}, abort = false, allOk = true }
+    local function try(f) local ok, r = pcall(f) if ok then return r end return nil end
+    local function prop(o, k) local r = try(function() return o[k] end) return valid(r) and r or nil end
+    local function str(x) if type(x) == "string" then return x end return try(function() return x:ToString() end) end
+    local function liveOf(short)
+        for _, w in ipairs(FindAllOf(short) or {}) do
+            if notDefault(w) and try(function() return w:IsInViewport() end) then return w end
+        end
+        return nil
+    end
+    local function screen() return liveOf(CS_SHORT) end
+    local function nchild(w) return try(function() return w:GetChildrenCount() end) or 0 end
+    local function child(w, i) local c = try(function() return w:GetChildAt(i) end) return valid(c) and c or nil end
+    local function findIn(root, name)
+        local stack, seen = { root }, 0
+        while #stack > 0 and seen < 4096 do
+            local w = table.remove(stack)
+            seen = seen + 1
+            if nameOf(w) == name then return w end
+            for i = nchild(w) - 1, 0, -1 do local c = child(w, i) if c then stack[#stack + 1] = c end end
+        end
+        return nil
+    end
+    local function rootOf(s) local t = prop(s, "WidgetTree") return t and prop(t, "RootWidget") or nil end
+    local function vbOf(s) s = s or screen() local r = s and rootOf(s) return r and findIn(r, VB) or nil end
+    local function tagOf(w) return try(function() return w.CoreTag:ToString() end) end
+    -- The box's children: { name (a game row's widget name, or our row's id), ours, w }.
+    local function listOf(vb)
+        local l = {}
+        for i = 0, nchild(vb) - 1 do
+            local c = child(vb, i)
+            local t = c and classOf(c) == ROW_SHORT and tagOf(c)
+            local id = type(t) == "string" and t:sub(1, #TAG) == TAG and t:sub(#TAG + 1) or nil
+            l[#l + 1] = { name = id or (c and nameOf(c) or "?"), ours = id ~= nil, w = c }
+        end
+        return l
+    end
+    local function names(l) local t = {} for _, e in ipairs(l) do t[#t + 1] = e.name end return table.concat(t, ",") end
+    local function rowW(key) local vb = vbOf() for _, e in ipairs(vb and listOf(vb) or {}) do if e.name == "r-" .. key then return e.w end end return nil end
+    -- Our slider widget inside a row (tagged s-<key>), searched in the row's own widget tree.
+    local function sliderW(key)
+        local r = rowW(key)
+        if not r then return nil end
+        -- The row is a UserWidget: its tree starts at its own HBox (a UserWidget has no GetChildAt).
+        local stack, seen = { prop(r, "HBox") }, 0
+        while #stack > 0 and seen < 256 do
+            local w = table.remove(stack)
+            seen = seen + 1
+            if classOf(w) == SLIDER_SHORT and tagOf(w) == TAG .. "s-" .. key then return w end
+            for i = nchild(w) - 1, 0, -1 do local c = child(w, i) if c then stack[#stack + 1] = c end end
+        end
+        return nil
+    end
+    -- A slider's bar value, box text and hint text.
+    local function sstate(key)
+        local w = sliderW(key)
+        if not w then return nil, "?", "?" end
+        local bar, box = prop(w, "Bar"), prop(w, "Box")
+        return bar and try(function() return bar:GetValue() end), box and str(try(function() return box:GetText() end)) or "?",
+            box and str(try(function() return box:GetHintText() end)) or "?"
+    end
+    -- A widget's rectangle in desktop pixels, from core's ModActor helpers (as core's own scenarios do).
+    local function absR(w)
+        local cdo = StaticFindObject(ACTOR_CDO)
+        if not (valid(cdo) and valid(w)) then return nil end
+        local ok, r = pcall(function()
+            local a, b = cdo[CORE_NAME .. "_AbsTopLeft"](cdo, w), cdo[CORE_NAME .. "_AbsBottomRight"](cdo, w)
+            return { l = a.X, t = a.Y, r = b.X, b = b.Y }
+        end)
+        return ok and r or nil
+    end
+    local function pointOf(w, fx, fy)
+        local r = w and absR(w)
+        if not (r and r.r > r.l and r.b > r.t) then return nil end
+        return math.floor(r.l + (r.r - r.l) * fx + 0.5), math.floor(r.t + (r.b - r.t) * fy + 0.5)
+    end
+    local function sstep(name, fn) step(name, function() if Z.abort then return end return fn() end) end
+    local function req(label, cmdOf, settle)
+        sstep("sc: " .. label, function()
+            local cmd = cmdOf()
+            if not check(cmd ~= nil, "SCPOINT %s has a point on screen", label) then Z.abort = true return end
+            say("SCREQ %s: %s", label, cmd)
+            return request(cmd), 40, label
+        end)
+        sstep("sc: settle " .. label, function() return after(settle or 1.2), (settle or 1.2) + 3 end)
+    end
+    local function click(label, finder, fx, fy)
+        req(label, function() local x, y = pointOf(finder(), fx or 0.5, fy or 0.5) if x then return string.format("click %d %d", x, y) end end)
+    end
+    -- A click on the box (it selects its text), then the text (or Backspace to empty it), then Enter.
+    local function typeInto(label, key, text)
+        click(label .. " focus", function() return prop(sliderW(key), "Box") end, 0.85, 0.5)
+        if text == "" then req(label .. " back", function() return "key BACK" end, 0.8)
+        else req(label .. " type", function() return "type " .. text end, 0.8) end
+        req(label .. " enter", function() return "key ENTER" end)
+    end
+    local function shot(label) sstep("sc: shot " .. label, function() return request("shot " .. label), 30, "screenshot " .. label end) end
+    local function fmtv(x) return x == nil and "nil" or string.format("%g", x) end
+    local function near(a, b) return a ~= nil and b ~= nil and math.abs(a - b) < 0.01 end
+    -- The game's preset names (selector items 2..n; item 1 is "None").
+    local function presetNames(cs)
+        local r = {}
+        pcall(function()
+            local items = cs.MultipleSelectBox_11.Items
+            for i = 2, math.min(items:GetArrayNum(), 300) do r[#r + 1] = str(items[i]) or "?" end
+        end)
+        return r
+    end
+    local function selectAt(cs, i, option) cs.MultipleSelectBox_11:SetSelectedOption(i) cs[H_SELECT](cs, option, i) end
+    local function drive(what, fn)
+        local cs = screen()
+        if not cs then Z.abort = true S.notShown = S.notShown + 1 say("NOTSHOWN %s: no create-world screen in the viewport", what) return false end
+        local ok, err = pcall(fn, cs)
+        if not ok then Z.abort = true S.notShown = S.notShown + 1 say("NOTSHOWN %s: %s", what, tostring(err)) return false end
+        say("DRIVE %s", what)
+        return true
+    end
+    local function deletePreset(cs, name)
+        local pos
+        for i, n in ipairs(presetNames(cs)) do if n == name then pos = i break end end
+        if not pos then return false end
+        selectAt(cs, pos, name)
+        cs[H_DELETE](cs)
+        return true
+    end
+    -- The wanted order: the game's own rows (Z.snap) with the knob rows after Overlay_28 and the per-enemy rows after
+    -- Overlay_738.
+    local function wanted()
+        local t = {}
+        for _, n in ipairs(Z.snap or {}) do
+            t[#t + 1] = n
+            if n == "Overlay_28" then for _, k in ipairs(KNOBS) do t[#t + 1] = "r-" .. k end end
+            if n == "Overlay_738" then for _, e in ipairs(ENEMY) do t[#t + 1] = "r-dmg." .. e end end
+        end
+        return table.concat(t, ",")
+    end
+    local function ours(vb) local k = 0 for _, e in ipairs(listOf(vb)) do if e.ours then k = k + 1 end end return k end
+
+    step("menu", function() return function() return worldName():find("NewMainMenu", 1, true) ~= nil end, 240, "menu world" end)
+    step("sc: class and the Construct snapshot", function()
+        local cls = loadClass(CS_CLASS)
+        if not check(cls ~= nil, "CLASS CreateServer_C loaded") then Z.abort = true return end
+        -- The game's own rows, read right after Construct (core attaches our rows about a second later).
+        hook(CS_CLASS .. ":Construct", function(ctx)
+            local s = get(ctx)
+            local vb = s and vbOf(s)
+            if not vb then return end
+            local t, k = {}, 0
+            for _, e in ipairs(listOf(vb)) do if e.ours then k = k + 1 else t[#t + 1] = e.name end end
+            Z.snap, Z.snaps, Z.snapOurs = t, Z.snaps + 1, k
+            say("SCSNAP %d game rows, %d of ours at Construct: %s", #t, k, table.concat(t, ","))
+        end)
+        return after(12), 15 -- Difficulty's preset hooks (and core's poll) settle after the menu's LoadMap
+    end)
+    sstep("sc: startup", function()
+        if liveOf(MENU_SHORT) then return end
+        local done = request("key ENTER")
+        local deadline, tries = os.clock() + 15, 1
+        return function()
+            if liveOf(MENU_SHORT) then return true end
+            if os.clock() > deadline and done() and tries < 4 then
+                tries, deadline = tries + 1, os.clock() + 15
+                say("STARTUP no menu yet; Enter again (%d)", tries)
+                done = request("key ENTER")
+            end
+            return false
+        end, 70, "menu after Enter"
+    end)
+    sstep("sc: settle menu", function() return after(3), 6 end)
+
+    local function openOnce(n)
+        click("START GAME " .. n, function() return prop(liveOf(MENU_SHORT), START) end)
+        sstep("sc: rows attached " .. n, function()
+            return function() local vb = vbOf() return vb ~= nil and ours(vb) >= 19 end, 12, "open " .. n .. ": the 19 rows attached"
+        end)
+        sstep("sc: settle attach " .. n, function() return after(1), 4 end) -- the insert pass runs on the opened tick
+        sstep("sc: order " .. n, function()
+            local vb = vbOf()
+            if not check(vb ~= nil, "SCLIST open %d: %s found", n, VB) then Z.allOk = false return end
+            local l = listOf(vb)
+            local got, want = names(l), wanted()
+            local seen, games = {}, {}
+            for _, e in ipairs(l) do if e.ours then seen[e.name] = (seen[e.name] or 0) + 1 else games[#games + 1] = e.name end end
+            local one = true
+            for _, k in ipairs(KNOBS) do if seen["r-" .. k] ~= 1 then one = false end end
+            for _, e in ipairs(ENEMY) do if seen["r-dmg." .. e] ~= 1 then one = false end end
+            local kIdx
+            for i, e in ipairs(l) do if e.name == "r-enemyDamage" then kIdx = i - 1 break end end
+            local stock = #games > 0 and table.concat(games, ",") == table.concat(Z.snap or {}, ",") and Z.snapOurs == 0
+            local okOrder = got == want and kIdx == 2
+            check(okOrder, "SCORDER open %d: the knob rows at children 2-6 after Overlay_28, the per-enemy rows right after Overlay_738 (enemyDamage at %s)%s",
+                n, tostring(kIdx), okOrder and "" or (": got " .. got .. " want " .. want))
+            check(stock, "SCSTOCK open %d: the %d game rows in their stock order (as read at Construct, none of ours there yet)", n, #games)
+            check(one, "SCONE open %d: one widget per row (19 ids)", n)
+            local w = rowW("enemyDamage")
+            local p = w and pathOf(w)
+            local new = p ~= nil and not Z.paths[p]
+            if p then Z.paths[p] = true end
+            local _, box, hint = sstate("enemyDamage")
+            check(new and box == "" and hint == "25", "SCNEW open %d: a new row widget, Enemy Damage empty with the hint 25 (box '%s', hint %s)", n, tostring(box), tostring(hint))
+            if n == 1 or not okOrder then say("SCROWS open %d: %s", n, got) end
+            Z.allOk = Z.allOk and okOrder and stock and one and new
+        end)
+    end
+    for n = 1, OPENS do
+        openOnce(n)
+        click("Back " .. n, function() return prop(screen(), "Back") end)
+        sstep("sc: closed " .. n, function() return function() return screen() == nil end, 10, "screen closed " .. n end)
+    end
+    sstep("sc: ten opens", function()
+        local k = 0
+        for _ in pairs(Z.paths) do k = k + 1 end
+        check(Z.allOk and k == OPENS and Z.snaps >= OPENS, "SCTEN %d opens by real clicks: every row once, in order, the game rows in stock order; %d distinct row widgets, %d Construct snapshots", OPENS, k, Z.snaps)
+    end)
+
+    -- The eleventh open: the settings shown, then the real input.
+    openOnce(OPENS + 1)
+    sstep("sc: delete leftovers", function()
+        local n = 0
+        drive("delete leftover " .. PREFIX .. " presets", function(cs)
+            for _ = 1, 20 do
+                local left
+                for _, nm in ipairs(presetNames(cs)) do if nm:sub(1, #PREFIX) == PREFIX then left = nm break end end
+                if not left or not deletePreset(cs, left) then break end
+                n = n + 1
+            end
+        end)
+        say("CLEANUP deleted %d leftover %s preset(s)", n, PREFIX)
+        return after(1), 3
+    end)
+    click("CONFIGURE", function() return prop(screen(), "Button_216") end)
+    sstep("sc: configure", function()
+        local s = screen()
+        local sb = s and rootOf(s) and findIn(rootOf(s), "ScrollBox_54")
+        if sb then pcall(function() sb:ScrollToStart() end) end
+        local vis = try(function() return prop(s, "Overlay_0"):GetVisibility() end)
+        check(vis ~= nil and vis ~= 1 and vis ~= 2, "SCCONFIG CONFIGURE shows the world settings (Overlay_0 visibility %s)", tostring(vis))
+        return after(1.5), 4
+    end)
+    shot("screen-rows")
+
+    -- Enemy Damage: a drag, then 57, 999 and empty typed into its box. Difficulty's ROWS change lines are check.ps1's.
+    req("drag Enemy Damage", function()
+        local bar = prop(sliderW("enemyDamage"), "Bar")
+        local x1, y = pointOf(bar, 25 / 200, 0.5)
+        local x2 = pointOf(bar, 0.4, 0.5)
+        if x1 then return string.format("drag %d %d %d %d", x1, y, x2, y) end
+    end, 1.5)
+    sstep("sc: dragged", function()
+        local val, box = sstate("enemyDamage")
+        local v = tonumber(box)
+        check(v ~= nil and v ~= 25 and v >= 40 and v <= 120 and math.floor(v) == v and near(val, v), "SCDRAG value=%s bar=%s (the box followed the drag)", tostring(box), fmtv(val))
+    end)
+    typeInto("ed 57", "enemyDamage", "57")
+    sstep("sc: ed 57", function()
+        local val, box = sstate("enemyDamage")
+        check(box == "57" and near(val, 57), "SCTYPE 57: box '%s' bar %s", tostring(box), fmtv(val))
+    end)
+    typeInto("ed 999", "enemyDamage", "999")
+    sstep("sc: ed 999", function()
+        local val, box = sstate("enemyDamage")
+        check(box == "200" and near(val, 200), "SCTYPE 999: clamped, box '%s' bar %s", tostring(box), fmtv(val))
+    end)
+    typeInto("ed empty", "enemyDamage", "")
+    sstep("sc: ed empty", function()
+        local val, box, hint = sstate("enemyDamage")
+        check(box == "" and hint == "25" and near(val, 25), "SCTYPE empty: Default, box '%s' hint %s bar %s", tostring(box), tostring(hint), fmtv(val))
+    end)
+    typeInto("cold 150", "cold", "150")
+    sstep("sc: cold 150", function()
+        local val, box = sstate("cold")
+        check(box == "150" and near(val, 150), "SCTYPE cold 150: box '%s' bar %s", tostring(box), fmtv(val))
+    end)
+
+    -- Nightmare through the Difficulty picker's own handler: the Default rows follow, the custom Cold stays.
+    sstep("sc: Nightmare", function()
+        drive("Difficulty Nightmare (handler)", function(cs)
+            local msb = cs.MultipleSelectBox_6
+            local idx
+            local items = msb.Items
+            for i = 1, math.min(items:GetArrayNum(), 16) do if str(items[i]) == "Nightmare" then idx = i - 1 end end
+            if not idx then error("no Nightmare option") end
+            msb:SetSelectedOption(idx)
+            cs[H_DIFF](cs, "Nightmare", idx)
+        end)
+        return after(1), 3
+    end)
+    sstep("sc: Nightmare check", function()
+        local cs = screen()
+        local d = cs and num(try(function() return cs.Diffculty end))
+        local val, box, hint = sstate("enemyDamage")
+        local cv, cb, ch = sstate("cold")
+        check(d == 0, "SCDIFF the screen's Diffculty is 0 (Nightmare): %s", tostring(d))
+        check(box == "" and hint == "100" and near(val, 100), "SCNIGHTMARE Enemy Damage Default: hint %s, slider at %s, box '%s'", tostring(hint), fmtv(val), tostring(box))
+        check(cb == "150" and near(cv, 150) and ch == "200", "SCNIGHTMARE Cold keeps 150 (box '%s', bar %s, hint %s)", tostring(cb), fmtv(cv), tostring(ch))
+    end)
+    shot("screen-nightmare")
+    -- The game's own picker still works: a real click on its previous arrow (Nightmare -> Hard).
+    click("Difficulty prev arrow", function() return prop(prop(screen(), "MultipleSelectBox_6"), "Button_60") end)
+    sstep("sc: picker check", function()
+        local cs = screen()
+        local d = cs and num(try(function() return cs.Diffculty end))
+        local opt = cs and str(try(function() return cs.MultipleSelectBox_6.SelectedOption end))
+        local _, _, hint = sstate("enemyDamage")
+        check(d == 1 and opt == "Hard", "SCPICKER a real click on the Difficulty picker's arrow: Diffculty %s, shown %s (want 1, Hard)", tostring(d), tostring(opt))
+        check(hint == "50", "SCPICKER the Default Enemy Damage row follows the picker: hint %s (want 50)", tostring(hint))
+    end)
+
+    -- A preset: Enemy Damage 17 saved as DT7-A; 40 typed; None leaves the rows; DT7-A brings 17 back.
+    typeInto("ed 17", "enemyDamage", "17")
+    sstep("sc: save", function()
+        drive("save " .. PREFIX .. "A", function(cs)
+            local before = #presetNames(cs)
+            local okN = pcall(function() cs.PresetName = PREFIX .. "A" end)
+            if not okN or str(cs.PresetName) ~= PREFIX .. "A" then cs[H_TEXT](cs, FText(PREFIX .. "A")) say("NAME set through the text-changed handler") end
+            cs[H_SAVE](cs)
+            if #presetNames(cs) ~= before + 1 then error("the game's preset count didn't grow") end
+        end)
+        return after(1), 3
+    end)
+    typeInto("ed 40", "enemyDamage", "40")
+    sstep("sc: None", function()
+        drive("select None", function(cs) selectAt(cs, 0, "None") end)
+        return after(1), 3
+    end)
+    sstep("sc: None check", function()
+        local val, box = sstate("enemyDamage")
+        check(box == "40" and near(val, 40), "SCNONE None leaves the rows: Enemy Damage box '%s' bar %s (want 40)", tostring(box), fmtv(val))
+    end)
+    sstep("sc: select A", function()
+        drive("select " .. PREFIX .. "A", function(cs)
+            local pos
+            for i, n in ipairs(presetNames(cs)) do if n == PREFIX .. "A" then pos = i end end
+            if not pos then error("no preset " .. PREFIX .. "A") end
+            selectAt(cs, pos, PREFIX .. "A")
+        end)
+        return after(1), 3
+    end)
+    sstep("sc: select A check", function()
+        local val, box = sstate("enemyDamage")
+        check(box == "17" and near(val, 17), "SCPRESET DT7-A shows Enemy Damage 17: box '%s' bar %s", tostring(box), fmtv(val))
+    end)
+    shot("screen-preset")
+    sstep("sc: delete A", function()
+        drive("delete " .. PREFIX .. "A", function(cs) if not deletePreset(cs, PREFIX .. "A") then error("no preset " .. PREFIX .. "A") end end)
+        return after(1), 3
+    end)
+    click("Back final", function() return prop(screen(), "Back") end)
+    step("sc: close", function()
         local cs = screen()
         if cs then pcall(function() cs:RemoveFromParent() end) say("CLOSE the screen removed") end
         return after(1), 3

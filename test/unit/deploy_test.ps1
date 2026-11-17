@@ -48,10 +48,10 @@ Eq (Get-ModsTxtState -Lines $stock -Name 'Nucleus') 'absent' 'state: absent'
 # ---------------------------------------------------------------- mod.json and main.lua agree
 $m = Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json
 Ok ($m.id -eq 'nuclearnightmare-community.difficulty' -and $m.name -eq 'Difficulty' -and $m.version -eq '0.1.0' -and $m.scope -eq 'all') 'mod.json: id, name, version, scope'
-Ok ($m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '^0.12.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus ^0.12.0'
+Ok ($m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '^0.15.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus ^0.15.0'
 Ok ($m.ue4ss -eq 'v3.0.1-1181-g83330635' -and $m.game.version -eq 'V8.2.3' -and $m.game.build -eq '26601774') 'mod.json: ue4ss and game build'
 $mainLua = Get-Content (Join-Path $repo 'Scripts\main.lua') -Raw
-Ok ($mainLua -match 'local ME, CORE, NEED = "Difficulty", "Nucleus", "0\.12\.0"') 'main.lua: NEED = dependsOn minimum (0.12.0)'
+Ok ($mainLua -match 'local ME, CORE, NEED = "Difficulty", "Nucleus", "0.15.0"') 'main.lua: NEED = dependsOn minimum (0.15.0)'
 Ok ($mainLua -match 'local VERSION = "0\.1\.0"') 'main.lua: VERSION = mod.json version'
 Ok ($mainLua -match 'local PRE_NEED = "0\.3\.0"') 'main.lua: PRE_NEED = deploy.ps1''s -PreCore range minimum'
 Ok ((Get-Content (Join-Path $repo 'deploy.ps1') -Raw) -match "\`$PreCoreRange = '\^0\.3\.0'") 'deploy.ps1: -PreCore accepts ^0.3.0'
@@ -104,20 +104,20 @@ try {
     [IO.File]::WriteAllText($modsTxt, $coreTxt)
     Set-Core '0.3.0'
     $d = Deploy @()
-    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.3\.0 is installed, but Difficulty needs \^0\.12\.0; update Nucleus\.') 'deploy: core 0.3.0 -> refused, naming both versions' $d.Out
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.3\.0 is installed, but Difficulty needs \^0.15.0; update Nucleus\.') 'deploy: core 0.3.0 -> refused, naming both versions' $d.Out
     Ok (OneLine $d) 'deploy: old core refusal is one line' $d.Out
     $d = Deploy @('-Test')
-    Ok ($d.Code -eq 1 -and $d.Out -match 'needs \^0\.12\.0;') 'deploy -Test without -PreCore: core 0.3.0 still refused' $d.Out
+    Ok ($d.Code -eq 1 -and $d.Out -match 'needs \^0.15.0;') 'deploy -Test without -PreCore: core 0.3.0 still refused' $d.Out
     $d = Deploy @('-PreCore')
     Ok ($d.Code -eq 1 -and $d.Out -match '-PreCore is a dev mode and needs -Test') 'deploy -PreCore without -Test: refused' $d.Out
     Ok (-not (Test-Path $dest)) 'deploy -PreCore without -Test: nothing installed'
     Set-Core '0.2.9'
     $d = Deploy @('-Test', '-PreCore')
-    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.2\.9 is installed, but Difficulty needs \^0\.12\.0 \(or \^0\.3\.0 with -PreCore\)') 'deploy -Test -PreCore: core 0.2.9 refused, naming both ranges' $d.Out
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.2\.9 is installed, but Difficulty needs \^0.15.0 \(or \^0\.3\.0 with -PreCore\)') 'deploy -Test -PreCore: core 0.2.9 refused, naming both ranges' $d.Out
     Set-Core '0.2.0'
     $d = Deploy @('-Test', '-PreCore')
     Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.2\.0 is installed') 'deploy -Test -PreCore: core 0.2.0 refused' $d.Out
-    Set-Core '0.12.0' 'markers'
+    Set-Core '0.15.0' 'markers'
     $d = Deploy @()
     Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest \(id 'markers', expected 'nuclearnightmare-community\.nucleus'\)") 'deploy: wrong id -> refused' $d.Out
     Set-Content $coreJson 'not json'
@@ -125,7 +125,7 @@ try {
     Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest") 'deploy: unreadable core mod.json -> refused' $d.Out
 
     # Core disabled, absent from mods.txt.
-    Set-Core '0.12.0'
+    Set-Core '0.15.0'
     [IO.File]::WriteAllText($modsTxt, "Nucleus : 0`r`n" + $stockTxt)
     $d = Deploy @()
     Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus is installed but disabled in mods\.txt') 'deploy: core disabled -> refused' $d.Out
@@ -136,12 +136,12 @@ try {
 
     # Good core: installed below Nucleus, above Keybinds; no dev.lua; story 2's drivers left alone.
     [IO.File]::WriteAllText($modsTxt, "Difficulty : 1`r`nNucleus : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt)
-    Set-Core '0.12.2'
+    Set-Core '0.15.2'
     $d = Deploy @()
-    Ok ($d.Code -eq 0) 'deploy: core 0.12.2 -> installed' $d.Out
+    Ok ($d.Code -eq 0) 'deploy: core 0.15.2 -> installed' $d.Out
     Eq (Txt) ("Nucleus : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy: Difficulty below Nucleus, above Keybinds; DifficultyProbe line kept'
     $files = @(Get-ChildItem $dest -Recurse -File | ForEach-Object { $_.FullName.Substring($dest.Length + 1) } | Sort-Object)
-    Eq ($files -join ',') 'mod.json,Scripts\damage.lua,Scripts\env.lua,Scripts\hits.lua,Scripts\knobs.lua,Scripts\main.lua,Scripts\net.lua,Scripts\presets.lua,Scripts\sidecar.lua,Scripts\tokens.lua,Scripts\world.lua' 'deploy: exactly the Difficulty files (no dev.lua, no settings.lua)'
+    Eq ($files -join ',') 'mod.json,Scripts\damage.lua,Scripts\env.lua,Scripts\hits.lua,Scripts\knobs.lua,Scripts\main.lua,Scripts\net.lua,Scripts\presets.lua,Scripts\rows.lua,Scripts\sidecar.lua,Scripts\tokens.lua,Scripts\world.lua' 'deploy: exactly the Difficulty files (no dev.lua, no settings.lua)'
     Ok (-not (Test-Path (Join-Path $mods 'DifficultyDriver'))) 'deploy: no driver without -Scenario'
     Ok (Test-Path (Join-Path $mods 'DifficultyProbe')) 'deploy: story 2''s driver folder untouched'
 
@@ -205,18 +205,18 @@ try {
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($dev -match '(?m)^return \{ debug = true, preCore = true \}$') 'deploy -Test -PreCore: dev.lua has preCore = true' $dev
     Eq (Txt) ("Nucleus : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy -Test -PreCore: one Difficulty line'
-    Set-Core '0.12.0'
+    Set-Core '0.15.0'
     $d = Deploy @('-Test', '-PreCore')
-    Ok ($d.Code -eq 0) 'deploy -Test -PreCore: core 0.12.0 also accepted' $d.Out
+    Ok ($d.Code -eq 0) 'deploy -Test -PreCore: core 0.15.0 also accepted' $d.Out
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
-    Ok ($dev -match '(?m)^return \{ debug = true \}$' -and $dev -cnotmatch 'preCore =') 'deploy -Test -PreCore on core 0.12.0: dev.lua without preCore (need stays 0.12.0)' $dev
-    Ok ($d.Out -match '-PreCore not needed: Nucleus 0\.12\.0 satisfies \^0\.12\.0' -and $d.Out -notmatch 'dev core mode') 'deploy -Test -PreCore on core 0.12.0: says -PreCore is not needed' $d.Out
-    # Core 0.13.0 (newer than dependsOn's minimum; core's rule since its story 18): accepted, no dev core mode.
-    Set-Core '0.13.0'
+    Ok ($dev -match '(?m)^return \{ debug = true \}$' -and $dev -cnotmatch 'preCore =') 'deploy -Test -PreCore on core 0.15.0: dev.lua without preCore (need stays 0.15.0)' $dev
+    Ok ($d.Out -match '-PreCore not needed: Nucleus 0.15.0 satisfies \^0.15.0' -and $d.Out -notmatch 'dev core mode') 'deploy -Test -PreCore on core 0.15.0: says -PreCore is not needed' $d.Out
+    # Core 0.16.0 (newer than dependsOn's minimum; core's rule since its story 18): accepted, no dev core mode.
+    Set-Core '0.16.0'
     $d = Deploy @('-Test', '-PreCore', '-Scenario', 'flip')
-    Ok ($d.Code -eq 0 -and $d.Out -match '-PreCore not needed: Nucleus 0\.13\.0 satisfies \^0\.12\.0') 'deploy -Test -PreCore -Scenario: core 0.13.0 accepted' $d.Out
+    Ok ($d.Code -eq 0 -and $d.Out -match '-PreCore not needed: Nucleus 0.16.0 satisfies \^0.15.0') 'deploy -Test -PreCore -Scenario: core 0.16.0 accepted' $d.Out
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
-    Ok ($dev -cnotmatch 'preCore =') 'deploy on core 0.13.0: dev.lua without preCore' $dev
+    Ok ($dev -cnotmatch 'preCore =') 'deploy on core 0.16.0: dev.lua without preCore' $dev
 
     # -Staged (a VM run's host-side stage): deploys while a game runs on the host; without it, refused.
     function DeployRunning([string[]] $a) {
@@ -229,13 +229,13 @@ try {
     $d = DeployRunning @('-Test', '-PreCore', '-Scenario', 'default', '-Staged')
     Ok ($d.Code -eq 0 -and (Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw) -eq 'default') 'deploy -Staged: a running game on the host does not matter' $d.Out
     Eq (Txt) ("Nucleus : 1`r`nDifficultyDriver : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy -Staged: the same mods.txt as a host deploy'
-    Set-Core '0.12.0'
+    Set-Core '0.15.0'
 
     # -Force: old-core scenario (0.3.0, normal deploy): warns and installs, no dev.lua.
     Set-Core '0.3.0'
     $d = Deploy @('-Force')
-    Ok ($d.Code -eq 0 -and $d.Out -match 'forced: Nucleus 0\.3\.0 is installed, but Difficulty needs \^0\.12\.0') 'deploy -Force: warns and installs' $d.Out
-    Ok (-not (Test-Path (Join-Path $dest 'Scripts\dev.lua'))) 'deploy -Force: no dev.lua (need stays 0.12.0)'
+    Ok ($d.Code -eq 0 -and $d.Out -match 'forced: Nucleus 0\.3\.0 is installed, but Difficulty needs \^0.15.0') 'deploy -Force: warns and installs' $d.Out
+    Ok (-not (Test-Path (Join-Path $dest 'Scripts\dev.lua'))) 'deploy -Force: no dev.lua (need stays 0.15.0)'
     Remove-Item (Join-Path $mods 'Nucleus') -Recurse -Force
     [IO.File]::WriteAllText($modsTxt, $stockTxt)
     $d = Deploy @('-Force')

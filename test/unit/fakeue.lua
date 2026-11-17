@@ -200,9 +200,19 @@ function F.screen(W, names)
     end })
     local ctx = W.p(S)
     local function fire(key) W.fire(P.PATHS[key], ctx, W.p(nil)) end
-    function S:open() S.selected = "None" fire("construct") end
+    -- Story 7: Diffculty and Minium Classified (class defaults Normal = 2); S.levels[i] = { d, cm } is what preset i
+    -- copies into the screen on select; S:pick(d) and S:pickClassified(cm) are the two pickers' handlers.
+    S.Diffculty, S["Minium Classified"], S.levels = 2, 2, {}
+    function S:open() S.selected = "None" S.Diffculty, S["Minium Classified"] = 2, 2 fire("construct") end
     function S:setOption(i) S.selected = i == 0 and "None" or S.names[i] end
-    function S:select(i) S:setOption(i) fire("select") end
+    function S:select(i)
+        S:setOption(i)
+        local l = i > 0 and S.levels[i]
+        if l then S.Diffculty, S["Minium Classified"] = l[1], l[2] end
+        fire("select")
+    end
+    function S:pick(d) S.Diffculty = d fire("difficulty") end
+    function S:pickClassified(cm) S["Minium Classified"] = cm fire("classified") end
     function S:save(name)
         if name ~= nil then S.PresetName = fstr(name) end
         local n = S.PresetName:ToString()
@@ -252,6 +262,81 @@ function F.fs()
         return true
     end
     return D
+end
+
+-- Story 7: a fake core.ui (core 0.15.0) with what rows.lua uses: row.create, slider.create / get / set / setDefault,
+-- place and game.watch. Handles are tables; U.rows and U.sliders keep them by id in creation order (U.order). Like
+-- core, set and setDefault never call onChange, setDefault moves only a Default slider, and values are clamped and
+-- snapped to the step. U.input(id, v) is a real drag or commit: the value clamped and snapped, then onChange(h, v)
+-- once when it changed. U.open(screen) is the watcher's opened. U.fails[name] = true makes that function raise.
+function F.ui()
+    local U = { rows = {}, sliders = {}, order = {}, calls = {}, watchers = {}, fails = {}, placed = {} }
+    local function call(name, ...)
+        U.calls[#U.calls + 1] = name
+        if U.fails[name] then error("nucleus.ui." .. name .. ": boom", 0) end
+    end
+    local function snap(s, v)
+        if v == nil then return nil end
+        if v < s.min then v = s.min elseif v > s.max then v = s.max end
+        local k = math.floor((v - s.min) / s.step + 0.5)
+        return tonumber(string.format("%.10g", s.min + k * s.step))
+    end
+    U.row = {
+        create = function(o)
+            call("row.create", o)
+            assert(type(o.id) == "string" and o.like and o.place and o.place.host == "createServer", "row.create: id, like, place")
+            assert(U.rows[o.id] == nil, "row.create: one declare per id")
+            local h = { kind = "row", id = o.id, opts = o, place = o.place }
+            U.rows[o.id] = h
+            U.order[#U.order + 1] = o.id
+            return h
+        end,
+    }
+    U.slider = {
+        create = function(o)
+            call("slider.create", o)
+            assert(type(o.onChange) == "function" and o.place and o.place.row and o.place.row.kind == "row", "slider.create: onChange, place = { row }")
+            assert(U.sliders[o.id] == nil, "slider.create: one declare per id")
+            local h = { kind = "slider", id = o.id, min = o.min, max = o.max, step = o.step, default = o.defaultValue,
+                        hint = o.hint, onChange = o.onChange, row = o.place.row }
+            h.value = snap(h, o.value)
+            U.sliders[o.id] = h
+            return h
+        end,
+        get = function(h) call("slider.get") return h.value end,
+        set = function(h, v) call("slider.set") h.value = snap(h, v) end,
+        setDefault = function(h, d, hint) call("slider.setDefault") h.default, h.hint = snap(h, d), hint end,
+    }
+    U.place = function(h, intent) call("place") h.place = intent U.placed[#U.placed + 1] = h.id end
+    U.game = {
+        watch = function(host, fn) call("game.watch") U.watchers[#U.watchers + 1] = { host = host, fn = fn } return #U.watchers end,
+    }
+    function U.input(id, v)
+        local h = U.sliders[id]
+        local nv = snap(h, v)
+        if nv == h.value then return end
+        h.value = nv
+        h.onChange(h, nv)
+    end
+    -- What a slider shows: its value, or (Default) its default.
+    function U.shown(id) local h = U.sliders[id] if h.value ~= nil then return h.value end return h.default end
+    function U.open(screen, event)
+        for _, w in ipairs(U.watchers) do w.fn(screen, { event = event or "opened", host = w.host }) end
+    end
+    return U
+end
+
+-- Story 7: a fake opened screen for rows.lua: a widget tree whose settings box has the named children, and the
+-- screen's Diffculty and Minium Classified (d, cm; Normal = 2 by default).
+function F.tree(names, d, cm)
+    local function w(n, kids)
+        return { GetFName = function() return { ToString = function() return n end } end, IsValid = function() return true end,
+                 GetChildrenCount = function() return #(kids or {}) end, GetChildAt = function(_, i) return kids[i + 1] end }
+    end
+    local kids = {}
+    for i, n in ipairs(names) do kids[i] = w(n) end
+    local box = w("VerticalBox_202", kids)
+    return { WidgetTree = { RootWidget = w("CanvasPanel_21", { w("Overlay_0", { box }) }) }, Diffculty = d or 2, ["Minium Classified"] = cm or 2 }
 end
 
 function F.harness(name)

@@ -27,6 +27,10 @@
 --                      Disable Reinforcement from Lua; revives B through the radio; logs every count.
 --   client-revive      (B, VM) opens the military computer through its own ServerInteract, logs the reinforcement
 --                      panel, requests the host's revive past the limit, dies on the host's signal; logs its counts.
+--   host-tokens        (A, host; story 8, d8-tokens) the real Difficulty with Reinforcement Tokens 2: dies twice, each
+--                      time revived by B's terminal, then once more; never writes the count or Disable Reinforcement.
+--   client-tokens      (B, VM; story 8) no Difficulty: each round opens its own terminal and checks the offer (shown
+--                      before the 2nd reinforcement, gone after it), asks for the host's revive, closes the terminal.
 -- The two machines coordinate only through files: a driver logs "SIGNAL <name>", the scenario script
 -- (test/pair/difficulty-scenarios.ps1) writes <name>.txt next to the other machine's copy of this file.
 -- Never keeps a UObject across steps: paths only, re-found each step.
@@ -40,12 +44,13 @@ do
     if f then ROLE = (f:read("*l") or ""):match("^%s*([%a-]+)%s*$") f:close() end
 end
 local ROLES = { ["host-grab"] = true, ["host-grab-vanilla"] = true, ["client-grab"] = true, ["client-observe"] = true,
-                ["host-revive"] = true, ["client-revive"] = true, ["host-spawn"] = true, ["client-watch"] = true }
+                ["host-revive"] = true, ["client-revive"] = true, ["host-spawn"] = true, ["client-watch"] = true,
+                ["host-tokens"] = true, ["client-tokens"] = true }
 if not ROLES[ROLE] then say("END result=FAIL reason=no role (role.txt: %s)", tostring(ROLE)) return end
 local IS_HOST = ROLE:sub(1, 4) == "host"
 -- Stale signal files from an earlier run.
 for _, n in ipairs({ "bready", "temp-start", "temp-end", "done", "s1", "s2", "s3", "s3done", "kill-b", "s4done",
-                     "b-s1", "b-s2", "b-s3", "b-s3done", "b-s4done" }) do os.remove(scriptDir .. "\\" .. n .. ".txt") end
+                     "b-s1", "b-s2", "b-s3", "b-s3done", "b-s4done", "t1", "t2", "tfinal", "b-t1", "b-t2", "b-tfinal" }) do os.remove(scriptDir .. "\\" .. n .. ".txt") end
 
 local FP = "BP_FirstPersonCharacter_C"
 local FPC_PATH = "/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"
@@ -1036,10 +1041,115 @@ local function buildClientRevive()
     end)
 end
 
+-- Story 8 (d8-tokens): the real Difficulty on the host with Reinforcement Tokens N (TOKENS_N, below the Classified
+-- Minimum's stock limit); B runs no Difficulty. The host dies N times and B revives it each time through its own
+-- terminal (OnReinforcement); after the N-th, Difficulty (never this driver: no SET line, no write to
+-- TimesUsedReinforcements or Disable Reinforcement) sets Disable Reinforcement, and B's computer no longer offers a
+-- reinforcement when the host dies once more. B checks its panel each round: offered before N, gone after.
+local TOKENS_N = 2
+local function buildHostTokens()
+    waitMatch()
+    step("other present", function() return function() return other() ~= nil end, 600, "the other player's character" end)
+    waitFile("bready", 600)
+    -- Difficulty's token count is written at its match start (UpdateFriendlyFire), after the lobby countdown.
+    step("match started", function()
+        return function()
+            local ok, st = pcall(function() return gameState()["StartedGame?"] end)
+            return ok and st == true
+        end, 600, "StartedGame?"
+    end)
+    wait("after the start", 8)
+    step("hooks", function() installRadioHooks() reinfState("start") S.guard = true end)
+    local function round(tag, last)
+        hostKill(tag, "me")
+        wait(tag .. " settle", 8)
+        step(tag .. " computer", function()
+            -- The terminal opens only on a powered computer the player stands at (test only: B is moved there).
+            local r, o = radio(), other()
+            local okP = pcall(function() r:ToggleEquipment(true) end)
+            local okM = pcall(function()
+                local at = r:K2_GetActorLocation()
+                o:K2_TeleportTo({ X = at.X - 120, Y = at.Y, Z = at.Z + 100 }, o:K2_GetActorRotation())
+            end)
+            say("COMPUTER powered=%s poweredOn=%s B moved=%s", tostring(okP), tostring(r and r["PoweredOn?"]), tostring(okM))
+            return after(2), 4
+        end)
+        step(tag .. " signal", function() reinfState(tag .. " host dead") signal(tag) end)
+        waitFile("b-" .. tag, 180)
+        if not last then
+            step(tag .. " revived", function()
+                return function() local m = me() return m ~= nil and pathOf(m) ~= S.deadPath end, 90, tag .. ": the host's new character (B's request)"
+            end)
+            step(tag .. " count", function()
+                local cnt, dis = reinfState(tag .. " host revived")
+                say("TOKENROUND %s host revived count=%s disable=%s", tag, tostring(cnt), tostring(dis))
+            end)
+        else
+            step(tag .. " final", function()
+                local cnt, dis = reinfState(tag .. " host final")
+                check(dis == true, "TOKENS the host's Disable Reinforcement is set after %d reinforcements (by Difficulty; got %s)", TOKENS_N, tostring(dis))
+            end)
+        end
+    end
+    for i = 1, TOKENS_N do round("t" .. i, false) end
+    round("tfinal", true)
+    step("done", function() signal("done") return after(8), 12 end)
+end
+
+-- B: each round opens its own terminal, logs the panel and the replicated flag, asks for the host's revive
+-- (OnReinforcement) and closes it; the last round only looks: the offer must be gone.
+local function buildClientTokens()
+    waitMatch()
+    step("ready", function() installRadioHooks() reinfState("client start") signal("bready") end)
+    local function round(tag, last)
+        waitFile(tag, 600)
+        openComputer(tag)
+        step(tag .. " offer", function()
+            local _, dis = reinfState(tag .. " offer")
+            local t = myTerminal()
+            local w
+            if t then pcall(function() w = t.OriginalWidget end) end
+            local okB, vis = false, nil
+            if valid(w) then okB, vis = pcall(function() return num(w.ReinforcementBorder:GetVisibility()) end) end
+            local shown = terminalActive() and okB and vis == 0 and dis == false
+            local gone = dis == true and (not terminalActive() or (okB and vis ~= 0))
+            say("OFFER %s terminal=%s visibility=%s disable=%s", tag, tostring(terminalActive()), okB and tostring(vis) or "?", tostring(dis))
+            if last then
+                check(gone, "OFFER gone after the %d-th reinforcement: Disable Reinforcement %s, terminal active %s, ReinforcementBorder visibility %s (want true and not 0)",
+                    TOKENS_N, tostring(dis), tostring(terminalActive()), okB and tostring(vis) or "?")
+            else
+                check(shown, "OFFER %s shown before N: Disable Reinforcement %s, ReinforcementBorder visibility %s (want false, 0)", tag, tostring(dis), okB and tostring(vis) or "?")
+            end
+        end)
+        if not last then
+            step(tag .. " request", function()
+                local t = myTerminal()
+                local ok, err = false, "no RadioTerminal"
+                S.hostBefore = other() and pathOf(other()) or ""
+                if t then ok, err = pcall(function() t:OnReinforcement() end) end
+                say("REQUEST %s terminal OnReinforcement ok=%s %s", tag, tostring(ok), ok and "" or tostring(err))
+                return after(15), 20
+            end)
+            step(tag .. " result", function()
+                local now = other() and pathOf(other()) or ""
+                say("REQUEST %s result host before=%s now=%s moved=%s", tag, S.hostBefore, now, tostring(now ~= S.hostBefore))
+                check(now ~= S.hostBefore, "REVIVE %s B's terminal revived the host", tag)
+            end)
+        end
+        closeComputer(tag)
+        step(tag .. " ack", function() signal("b-" .. tag) end)
+    end
+    for i = 1, TOKENS_N do round("t" .. i, false) end
+    round("tfinal", true)
+    waitFile("done", 300)
+end
+
 if ROLE == "host-grab" or ROLE == "host-grab-vanilla" then buildHostGrab()
 elseif ROLE == "host-spawn" then buildHostSpawn()
 elseif ROLE == "client-grab" or ROLE == "client-observe" or ROLE == "client-watch" then buildClientGrab()
 elseif ROLE == "host-revive" then buildHostRevive()
+elseif ROLE == "host-tokens" then buildHostTokens()
+elseif ROLE == "client-tokens" then buildClientTokens()
 else buildClientRevive() end
 
 -- ---------------------------------------------------------------- runner (game thread, every 250 ms)

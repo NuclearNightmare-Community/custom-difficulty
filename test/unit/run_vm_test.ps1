@@ -70,6 +70,7 @@ function Invoke-NNBSpRun {
         $rec.Dev = if (Test-Path $dev) { Get-Content $dev -Raw } else { $null }
     } finally {
         $rec | ConvertTo-Json -Depth 4 | Set-Content $recFile
+        Add-Content (Join-Path $ws 'calls.txt') ($rec | ConvertTo-Json -Depth 4 -Compress)
         Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     }
     $out = [pscustomobject]@{ Result = 'finished'; Log = $null }
@@ -91,13 +92,16 @@ $hostBefore = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $host
 $callFile = Join-Path $ws 'call.json'
 $stock = 'BPModLoaderMod : 1|Keybinds : 1'
 
+$callsFile = Join-Path $ws 'calls.txt'
 function Invoke-Run([string[]] $a, [string] $modsTxt = $stock, [string] $log = '') {
-    Remove-Item $callFile -ErrorAction SilentlyContinue
+    Remove-Item $callFile, $callsFile -ErrorAction SilentlyContinue
     $env:FAKE_VM_MODSTXT = $modsTxt; $env:FAKE_VM_LOG = $log
     try { $out = & pwsh -NoProfile -NonInteractive -File (Join-Path $repo 'run.ps1') -Instance $inst -Target vm @a 2>&1 | Out-String }
     finally { $env:FAKE_VM_MODSTXT = $null; $env:FAKE_VM_LOG = $null }
+    $code = $LASTEXITCODE
     $call = if (Test-Path $callFile) { Get-Content $callFile -Raw | ConvertFrom-Json } else { $null }
-    [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out; Call = $call }
+    $calls = if (Test-Path $callsFile) { @(Get-Content $callsFile | ForEach-Object { $_ | ConvertFrom-Json }) } else { @() }
+    [pscustomobject]@{ Code = $code; Out = $out; Call = $call; Calls = $calls }
 }
 $keptDir = Join-Path $ws 'dumps\v9.9-build1\difficulty'
 
@@ -118,7 +122,7 @@ try {
     Ok ($c.Dev -match '(?m)^return \{ debug = true \}' -and $c.Dev -notmatch 'preCore =') 'run: dev.lua from deploy.ps1 -Test -PreCore (core 0.15.0: no dev core mode)' $c.Dev
     Ok (@($c.Files) -contains 'NuclearNightmare\Binaries\Win64\ue4ss\Mods\Difficulty\Scripts\main.lua') 'run: Difficulty''s files in the stage'
     Ok ($r.Out -match "Difficulty \S+ deployed \(test, with DifficultyDriver, scenario default\)") 'run: Difficulty''s own deploy.ps1 ran' $r.Out
-    Ok ($r.Out -match 'VM run: finished') 'run: the VM result is printed' $r.Out
+    Ok ($r.Out -match 'VM run \(default\): finished') 'run: the VM result is printed' $r.Out
     Ok ($r.Out -match '--- Difficulty lines \(default\) ---' -and $r.Out -match 'CONNECT ok Nucleus 0\.15\.0') 'run: check.ps1 judged the kept log' $r.Out
     Ok ($r.Code -eq 1) 'run: a log check.ps1 fails -> exit 1' "exit $($r.Code)"
 
@@ -141,6 +145,58 @@ try {
     # The host copy (with its own foreign driver) was never read for the guard nor changed.
     Ok ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $hostMods 'mods.txt'))) -eq $hostBefore) 'host copy untouched'
     Ok (-not (Test-Path (Join-Path $hostMods 'Difficulty')) -and -not (Test-Path (Join-Path $hostMods 'DifficultyDriver'))) 'host copy: nothing deployed'
+
+    # Story 8: signal is two launches (signal-a, then signal-b), neither with a dev.lua; judged once on both logs.
+    $pass1 = "$log|[2026-11-11 10:00:01.0000001] [Lua] [DifficultyDriver] END result=PASS checks=1 failures=0 notshown=0 dead=false"
+    $r = Invoke-Run @('-Scenario', 'signal') -log $pass1
+    Ok ($r.Calls.Count -eq 2) 'signal: two VM launches' "$($r.Calls.Count) $($r.Out)"
+    Ok ((@($r.Calls | ForEach-Object { $_.ScenarioTxt }) -join ',') -eq 'signal-a,signal-b') 'signal: launch 1 signal-a, launch 2 signal-b' (@($r.Calls | ForEach-Object { $_.ScenarioTxt }) -join ',')
+    Ok (-not ($r.Calls | Where-Object { $_.Dev })) 'signal: no dev.lua in either launch' (@($r.Calls | ForEach-Object { $_.Dev }) -join ' / ')
+    Ok ((@($r.Calls | ForEach-Object { Split-Path $_.LogOut -Leaf }) -join ',') -eq 'signal-a.vm.log,signal-b.vm.log') 'signal: the logs kept as signal-a.vm.log and signal-b.vm.log' (@($r.Calls | ForEach-Object { $_.LogOut }) -join ',')
+    Ok ((@($r.Calls[0].Mods) -join ',') -eq 'Nucleus,DifficultyDriver,Difficulty' -and $r.Calls[0].TimeoutSec -eq 1350) 'signal: core, driver, Difficulty; 900 x 1.5 per launch' ($r.Calls[0] | ConvertTo-Json -Compress)
+    Ok ($r.Out -match 'launch 1: ' -and $r.Out -match 'launch 2: ') 'signal: check.ps1 judged both launches' $r.Out
+    $r = Invoke-Run @('-Scenario', 'signal') -log $log
+    Ok ($r.Calls.Count -eq 1 -and $r.Out -match 'Launch 1 did not end with PASS; launch 2 not run') 'signal: launch 1 without PASS -> launch 2 not run' "$($r.Calls.Count) $($r.Out)"
+    Ok ($r.Code -eq 1) 'signal: launch 1 without PASS -> exit 1' "exit $($r.Code)"
+
+    # Story 8: no-core installs no core (Difficulty with -Force); the driver only waits on the menu; 300 x 1.5.
+    $r = Invoke-Run @('-Scenario', 'no-core') -log $log
+    $c = $r.Call
+    Ok ($c.Prepared -and -not (@($c.Files) | Where-Object { $_ -like '*Mods\Nucleus\*' })) 'no-core: no core in the stage' (@($c.Files) -join ', ')
+    Ok ((@($c.ModsTxt) -join '|') -eq 'BPModLoaderMod : 1|DifficultyDriver : 1|Difficulty : 1|Keybinds : 1') 'no-core: mods.txt without core (driver, Difficulty above Keybinds)' (@($c.ModsTxt) -join '|')
+    Ok ((@($c.Mods) -join ',') -eq 'Nucleus,DifficultyDriver,Difficulty') 'no-core: Nucleus still published by name, so the VM copy has none during the run' (@($c.Mods) -join ',')
+    Ok ($r.Out -match 'forced: Nucleus is not installed' -and $c.ScenarioTxt -eq 'no-core') 'no-core: Difficulty deployed with -Force' $r.Out
+    Ok ($c.TimeoutSec -eq 450) 'no-core: 300 x 1.5' $c.TimeoutSec
+    # old-core: no older package on disk -> skipped (exit 3), nothing run; with one, it is staged as core.
+    $r = Invoke-Run @('-Scenario', 'old-core') -log $log
+    Ok ($r.Code -eq 3 -and $r.Out -match 'SKIPPED: old-core needs a Nucleus package older than dependsOn' -and -not $r.Calls.Count) 'old-core: no older package -> skipped, exit 3, nothing run' "exit $($r.Code) $($r.Out)"
+    $pkg = Join-Path $ws 'mods\Nucleus\build\package-0.2.0-stale'
+    New-Item -ItemType Directory -Force (Join-Path $pkg 'Mods\Nucleus\Scripts'), (Join-Path $pkg 'LogicMods') | Out-Null
+    Set-Content (Join-Path $pkg 'Mods\Nucleus\mod.json') '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.2.0" }'
+    Set-Content (Join-Path $pkg 'Mods\Nucleus\Scripts\main.lua') '-- old core'
+    Set-Content (Join-Path $pkg 'LogicMods\Nucleus.pak') 'old pak'
+    $newPkg = Join-Path $ws 'mods\Nucleus\build\package-0.15.0-copy'
+    New-Item -ItemType Directory -Force (Join-Path $newPkg 'Mods\Nucleus'), (Join-Path $newPkg 'LogicMods') | Out-Null
+    Set-Content (Join-Path $newPkg 'Mods\Nucleus\mod.json') '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.15.0" }'
+    Set-Content (Join-Path $newPkg 'LogicMods\Nucleus.pak') 'pak'
+    $r = Invoke-Run @('-Scenario', 'old-core') -log $log
+    $c = $r.Call
+    Ok ($r.Out -match 'old-core: Nucleus 0\.2\.0 from .*package-0\.2\.0-stale') 'old-core: the older package found (not the current one)' $r.Out
+    Ok ($c.Prepared -and (@($c.Files) -contains 'NuclearNightmare\Binaries\Win64\ue4ss\Mods\Nucleus\Scripts\main.lua') -and (@($c.Files) -contains 'NuclearNightmare\Content\Paks\LogicMods\Nucleus.pak')) 'old-core: the older core and its pak staged' (@($c.Files) -join ', ')
+    Ok ((@($c.ModsTxt) -join '|') -eq 'Nucleus : 1|DifficultyDriver : 1|Difficulty : 1|BPModLoaderMod : 1|Keybinds : 1') 'old-core: core first in mods.txt' (@($c.ModsTxt) -join '|')
+    Ok ($r.Out -match 'forced: Nucleus 0\.2\.0 is installed, but Difficulty needs \^0\.15\.0' -and $c.ScenarioTxt -eq 'old-core') 'old-core: Difficulty deployed with -Force over the older core' $r.Out
+    Ok ($r.Out -notmatch 'core stub: Nucleus 0\.15\.0 staged') 'old-core: core''s current package not deployed' $r.Out
+    Remove-Item $pkg, $newPkg -Recurse -Force
+
+    # Story 7 and 8: the VM-only scenarios refuse the host before anything is deployed.
+    foreach ($s in 'screen', 'signal', 'no-core', 'old-core') {
+        $out = & pwsh -NoProfile -NonInteractive -File (Join-Path $repo 'run.ps1') -Instance $inst -Scenario $s 2>&1 | Out-String
+        Ok ($LASTEXITCODE -eq 1 -and $out -match "refused: scenario '$s' needs .*pass -Target vm") "host: $s refused (VM only)" $out
+    }
+    Ok (-not (Test-Path (Join-Path $hostMods 'Difficulty'))) 'host refusals: nothing deployed'
+    # The spread scenarios' longer host limit (2400 x 1.5 in the VM).
+    $r = Invoke-Run @('-Scenario', 'spread') -log $log
+    Ok ($r.Call.TimeoutSec -eq 3600 -and $r.Call.Dev -match 'knobs = "spread=20"') 'spread: 2400 x 1.5 and its knobs' ($r.Call | ConvertTo-Json -Compress)
 
     # Static: the VM verdict is check.ps1 -Target vm.
     $text = Get-Content (Join-Path $repo 'run.ps1') -Raw

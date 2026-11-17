@@ -19,7 +19,10 @@
   is given, the scenario's knobs: scaled and clash "enemyDamage=17", flip "enemyDamage=25", per-enemy
   "dmg.stalker=200", default none; story 4: cold "cold=50", cold-zero "cold=0", frostbite "frostbite=3",
   frostbite-zero "frostbite=0", tokens-more "revives=4", tokens-fewer "revives=2"; cold-whiteout "cold=50" (opt-in);
-  story 6: presets none (the menu-only preset scenario); story 7: screen none (the rows, real input in the VM). A
+  story 6: presets none (the menu-only preset scenario); story 7: screen none (the rows, real input in the VM); story
+  8: spread "spread=20", spread-grab "enemyDamage=25;spread=50", no-core and old-core none (the driver only waits on
+  the menu; deploy with -Force), signal-a and signal-b no dev.lua at all (the signal's values come only from the
+  screen, the preset and the capture; -Knobs is refused with them). A
   deploy without -Scenario removes the driver. Neither the driver nor dev.lua is ever shipped: a deploy without -Test installs no knob source at all.
   -PreCore (only with -Test) is the dev core mode: it also accepts an installed core ^0.3.0 (before core 0.4.0, which
   brings the UI) and writes dev.lua with preCore = true, so main.lua connects with need 0.3.0 and logs one WARN. On a
@@ -45,7 +48,8 @@ param(
     [switch] $PreCore,
     [string] $Knobs,
     [ValidateSet('', 'scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite', 'frostbite-zero',
-                 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen')] [string] $Scenario = '',
+                 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen', 'spread', 'spread-grab', 'signal-a', 'signal-b',
+                 'no-core', 'old-core')] [string] $Scenario = '',
     [switch] $Force,
     [switch] $Remove,
     [switch] $Staged
@@ -65,13 +69,18 @@ $driver   = "${name}Driver"
 # The knobs each driver scenario needs (test/DifficultyDriver); -Knobs overrides them.
 $ScenarioKnobs = @{ 'scaled' = 'enemyDamage=17'; 'flip' = 'enemyDamage=25'; 'per-enemy' = 'dmg.stalker=200'; 'default' = ''; 'clash' = 'enemyDamage=17'
                    'cold' = 'cold=50'; 'cold-zero' = 'cold=0'; 'frostbite' = 'frostbite=3'; 'frostbite-zero' = 'frostbite=0'
-                   'tokens-more' = 'revives=4'; 'tokens-fewer' = 'revives=2'; 'cold-whiteout' = 'cold=50'; 'presets' = ''; 'screen' = '' }
+                   'tokens-more' = 'revives=4'; 'tokens-fewer' = 'revives=2'; 'cold-whiteout' = 'cold=50'; 'presets' = ''; 'screen' = ''
+                   'spread' = 'spread=20'; 'spread-grab' = 'enemyDamage=25;spread=50'; 'signal-a' = ''; 'signal-b' = ''
+                   'no-core' = ''; 'old-core' = '' }
+# Story 8's signal takes its values only from the screen, the preset and the capture: no dev.lua at all (and no -Knobs).
+$NoDevLua = @('signal-a', 'signal-b')
 
 function Stop-Deploy([string] $why) { Write-Host "$name not deployed: $why"; exit 1 }
 
 if ($PreCore -and -not $Test) { Stop-Deploy '-PreCore is a dev mode and needs -Test.' }
 if ($PSBoundParameters.ContainsKey('Knobs') -and -not $Test) { Stop-Deploy '-Knobs is a dev mode and needs -Test.' }
 if ($Scenario -and -not $Test) { Stop-Deploy '-Scenario is a dev mode and needs -Test.' }
+if ($Scenario -in $NoDevLua -and $PSBoundParameters.ContainsKey('Knobs')) { Stop-Deploy "-Scenario $Scenario takes its knobs only from the screen; -Knobs is refused." }
 if ($Scenario -and -not $PSBoundParameters.ContainsKey('Knobs')) { $Knobs = $ScenarioKnobs[$Scenario] }
 if ($Knobs -and ($Knobs.Length -gt 1024 -or $Knobs -notmatch '\A[A-Za-z0-9.=; -]*\z')) { Stop-Deploy "-Knobs may hold only letters, digits, '.', '=', ';', '-' and spaces, at most 1024 characters." }
 $inst     = (Resolve-Path $Instance).Path
@@ -136,7 +145,7 @@ New-Item -ItemType Directory -Force $dest | Out-Null
 Copy-Item (Join-Path $here 'mod.json') (Join-Path $modsDir $name) -Force
 foreach ($f in $files) { Copy-Item (Join-Path $here "Scripts\$f") $dest -Force }
 $devText = $null
-if ($Test) {
+if ($Test -and $Scenario -notin $NoDevLua) {
     $knobsField = if ($Knobs) { ", knobs = `"$Knobs`"" } else { '' }
     $devText = if ($preCoreUsed) { "return { debug = true, preCore = true$knobsField }" } else { "return { debug = true$knobsField }" }
     $devText = "-- Written by deploy.ps1 -Test$(if ($PreCore) { ' -PreCore' }); dev only, never shipped.`n$devText`n"

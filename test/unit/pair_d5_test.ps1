@@ -150,6 +150,56 @@ try {
                    '[DifficultyPair] GRAB #1 Meek Attack victim=me hpSeen=100.00 hpNow=100.00 montage=AM_StabAndDump diff=0 (start 0)') + $vEnds)
     $r = Get-DpD5Report -Kind host-vanilla
     Ok ((($r.D5.Misses -join ';') -match '2 inactive lines') -and (($r.D5.Misses -join ';') -match 'RECOVER')) 'host-vanilla: two inactive lines and a RECOVER fail' (($r.D5.Misses) -join '; ')
+
+    # ---------------------------------------------------------------- story 8: d8-tokens (CAP-5)
+    $sc8 = $PairScenarios['d8-tokens']
+    Ok ($null -ne $sc8) 'd8-tokens is registered with pair.ps1'
+    foreach ($key in 'Summary', 'Prereq', 'HostModPaths', 'VMSetup', 'VMRestore', 'AfterJoin', 'Check', 'HostFiles') { Ok ($null -ne $sc8[$key]) "d8-tokens has $key" }
+    $p8 = @(& $sc8.HostModPaths)
+    Ok ($p8.Count -eq 3 -and $p8[0] -like '*Nucleus\build\package' -and (Split-Path $p8[1] -Leaf) -eq 'Difficulty' -and (Split-Path $p8[2] -Leaf) -eq 'DifficultyPair') 'd8-tokens: host mods core, Difficulty, DifficultyPair' ($p8 -join ' | ')
+    Ok ((Get-Content (Join-Path $p8[1] 'Scripts\dev.lua') -Raw) -match 'return \{ debug = true, knobs = "revives=2" \}') 'd8-tokens: the host''s Difficulty has revives=2 (dev.lua)'
+    Ok ((Get-Content (Join-Path $p8[2] 'Scripts\role.txt') -Raw) -eq 'host-tokens') 'd8-tokens: host role host-tokens'
+    Ok ($sc8.VMSetup.ToString() -match "client-tokens" -and $sc8.VMSetup.ToString() -notmatch 'Modded|DpCorePackage|Get-DpModStage') 'd8-tokens: B gets only the client-tokens driver (no core, no Difficulty)'
+    foreach ($sig in 't1', 't2', 'tfinal', 'b-t1', 'b-t2', 'b-tfinal') { Ok ($DpSignals -contains $sig) "d8-tokens: the relay passes $sig" }
+    $drv = Get-Content (Join-Path $repo 'test\DifficultyPair\Scripts\main.lua') -Raw
+    Ok ($drv -match 'local TOKENS_N = 2' -and $DpTokensN -eq 2) 'd8-tokens: the driver''s TOKENS_N matches the scenario''s N'
+    $tokFn = [regex]::Match($drv, '(?s)local function buildHostTokens\(\).*?\nend\r?\n').Value
+    Ok ($tokFn -and $tokFn -notmatch 'setCount|TimesUsedReinforcements\s*=|\["Disable Reinforcement"\]\s*=') 'd8-tokens: the host role never writes the count or Disable Reinforcement'
+    $h8End = '[DifficultyPair] END result=PASS checks=1 failures=0 role=host-tokens'
+    $v8End = '[DifficultyPair] END result=PASS checks=5 failures=0 role=client-tokens'
+    $h8 = @('[Difficulty] MATCH start knobs=revives=2', '[Difficulty] TOKENS start limit=6 N=2 count=4', '[Difficulty] TOKENS used=1 left=1 count=5 via=radio',
+            '[Difficulty] TOKENS used=2 left=0 count=6 via=radio', '[Difficulty] TOKENS disabled at used=2 N=2 via=radio',
+            '[DifficultyPair] OK TOKENS the host''s Disable Reinforcement is set after 2 reinforcements (by Difficulty; got true)', $h8End)
+    $v8 = @('[DifficultyPair] OK OFFER t1 shown before N: Disable Reinforcement false, ReinforcementBorder visibility 0 (want false, 0)',
+            '[DifficultyPair] OK REVIVE t1 B''s terminal revived the host',
+            '[DifficultyPair] OK OFFER t2 shown before N: Disable Reinforcement false, ReinforcementBorder visibility 0 (want false, 0)',
+            '[DifficultyPair] OK REVIVE t2 B''s terminal revived the host',
+            '[DifficultyPair] OK OFFER gone after the 2-th reinforcement: Disable Reinforcement true, terminal active true, ReinforcementBorder visibility 1 (want true and not 0)', $v8End)
+    Logs $h8 $v8
+    $r = Get-DpD8Report
+    Ok ($r.Verdict -eq 'PASS' -and $r.D8.Misses.Count -eq 0) 'd8-tokens: a clean run passes' (($r.D8.Misses) -join '; ')
+    Logs $h8 ($v8 -replace '^\[DifficultyPair\] OK OFFER gone', '[DifficultyPair] FAIL OFFER gone' -replace 'result=PASS checks=5 failures=0', 'result=FAIL checks=5 failures=1')
+    $r = Get-DpD8Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D8.Misses -join ';') -match 'offer not gone')) 'd8-tokens: B''s offer still present after N -> FAIL' (($r.D8.Misses) -join '; ')
+    Logs ($h8 | Where-Object { $_ -notmatch 'disabled at' }) $v8
+    $r = Get-DpD8Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D8.Misses -join ';') -match 'TOKENS disabled at used=2')) 'd8-tokens: no TOKENS disabled line on the host -> FAIL' (($r.D8.Misses) -join '; ')
+    Logs ($h8 + '[DifficultyPair] SET TimesUsedReinforcements=6 Disable Reinforcement=true') $v8
+    $r = Get-DpD8Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D8.Misses -join ';') -match 'SET line')) 'd8-tokens: the driver writing the count -> FAIL' (($r.D8.Misses) -join '; ')
+    Logs ($h8 -replace 'limit=6 N=2 count=4', 'limit=2 N=2 count=0') $v8
+    $r = Get-DpD8Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D8.Misses -join ';') -match 'not below the stock limit')) 'd8-tokens: N not below the stock limit -> FAIL' (($r.D8.Misses) -join '; ')
+    Logs $h8 ($v8 | Where-Object { $_ -notmatch 'REVIVE t2' })
+    $r = Get-DpD8Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D8.Misses -join ';') -match 'round t2')) 'd8-tokens: the host not revived in round 2 -> FAIL' (($r.D8.Misses) -join '; ')
+    Logs $h8 ($v8 + '[Difficulty] READY version=0.1.0')
+    $r = Get-DpD8Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D8.Misses -join ';') -match 'without Difficulty')) 'd8-tokens: Difficulty lines on B -> FAIL' (($r.D8.Misses) -join '; ')
+    $result.Outcome = 'FAIL: players dropped'
+    Logs $h8 $v8
+    Ok ((Get-DpD8Report).Verdict -eq 'FAIL') 'd8-tokens: a failed session fails'
+    $result.Outcome = 'PASS'
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

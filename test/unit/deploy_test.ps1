@@ -189,6 +189,27 @@ try {
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($d.Code -eq 0 -and $dev -match '(?m)^return \{ debug = true \}$') 'deploy -Scenario presets: no knobs' "$($d.Out) $dev"
     Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) 'presets' 'deploy -Scenario presets: scenario.txt'
+    # Story 8: the spread scenarios' knobs; the menu-only failure scenarios without knobs; signal without any dev.lua.
+    foreach ($s8 in @(@('spread', 'spread=20'), @('spread-grab', 'enemyDamage=25;spread=50'))) {
+        $d = Deploy @('-Test', '-PreCore', '-Scenario', $s8[0])
+        $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+        Ok ($d.Code -eq 0 -and $dev -match "(?m)^return \{ debug = true, knobs = `"$([regex]::Escape($s8[1]))`" \}$") "deploy -Scenario $($s8[0]): knobs $($s8[1])" "$($d.Out) $dev"
+        Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) $s8[0] "deploy -Scenario $($s8[0]): scenario.txt"
+    }
+    foreach ($s8 in 'no-core', 'old-core') {
+        $d = Deploy @('-Force', '-Test', '-Scenario', $s8)
+        $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+        Ok ($d.Code -eq 0 -and $dev -match '(?m)^return \{ debug = true \}$') "deploy -Force -Test -Scenario ${s8}: no knobs" "$($d.Out) $dev"
+        Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) $s8 "deploy -Scenario ${s8}: scenario.txt"
+    }
+    foreach ($s8 in 'signal-a', 'signal-b') {
+        $d = Deploy @('-Test', '-PreCore', '-Scenario', $s8)
+        Ok ($d.Code -eq 0 -and -not (Test-Path (Join-Path $dest 'Scripts\dev.lua'))) "deploy -Test -Scenario ${s8}: no dev.lua at all (the screen is the only source)" $d.Out
+        Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) $s8 "deploy -Scenario ${s8}: scenario.txt"
+        Ok (Test-Path (Join-Path $mods 'DifficultyDriver\Scripts\main.lua')) "deploy -Scenario ${s8}: the driver installed"
+    }
+    $d = Deploy @('-Test', '-Scenario', 'signal-b', '-Knobs', '"enemyDamage=17"')
+    Ok ($d.Code -eq 1 -and $d.Out -match 'signal-b takes its knobs only from the screen; -Knobs is refused') 'deploy -Scenario signal-b -Knobs: refused' $d.Out
     $d = Deploy @('-Test', '-Scenario', 'scaled', '-Knobs', '"spread=5"')
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($dev -match 'knobs = "spread=5"') '-Knobs overrides the scenario''s knobs' $dev

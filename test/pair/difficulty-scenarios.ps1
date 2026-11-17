@@ -20,6 +20,12 @@
                      matches it, B revived after each death, two players throughout (the session outcome).
     d5-host-vanilla  the host has no core and no Difficulty, B is modded: one inactive line on B, no GRAB, RESTORE
                      or RECOVER there.
+  Story 8 (CAP-5, Reinforcement Tokens across machines; Normal lobby, PairDriver's Classified Minimum 2: stock limit 6):
+    d8-tokens        the host runs core and Difficulty with Reinforcement Tokens 2 (dev.lua revives=2), B (VM) runs no
+                     Difficulty. The host dies, B's own terminal revives it, twice; then the host dies once more. PASS
+                     needs the host's one "TOKENS disabled at used=2 N=2", B's terminal offer shown in rounds 1 and 2 and
+                     gone in the last (B's OFFER checks), no write of the count or Disable Reinforcement by the driver
+                     (no SET line), both drivers' END PASS and the session held.
   The host copy must have no Nucleus or Difficulty of its own installed (pair.ps1 refuses mods it didn't put there):
   run their deploy.ps1 -Remove first.
   The drivers coordinate only through files: each logs "SIGNAL <name>", and AfterJoin's relay writes <name>.txt next
@@ -36,10 +42,10 @@
 
 $script:DpDriver = Join-Path (Split-Path $PSScriptRoot) 'DifficultyPair'
 $script:DpSignals = @('bready', 'temp-start', 'temp-end', 'done', 's1', 's2', 's3', 's3done', 'kill-b', 's4done',
-    'b-s1', 'b-s2', 'b-s3', 'b-s3done', 'b-s4done')
+    'b-s1', 'b-s2', 'b-s3', 'b-s3done', 'b-s4done', 't1', 't2', 'tfinal', 'b-t1', 'b-t2', 'b-tfinal')
 
 # A copy of DifficultyPair with Scripts\role.txt, in its own folder per role (host and VM copies differ).
-function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive', 'host-spawn', 'client-watch')] [string] $Role) {
+function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive', 'host-spawn', 'client-watch', 'host-tokens', 'client-tokens')] [string] $Role) {
     $stage = Join-Path ([IO.Path]::GetTempPath()) "nn-dp-stage-$Role"
     Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     $dst = Join-Path $stage 'DifficultyPair'
@@ -358,5 +364,54 @@ function New-DpD5Scenario([string] $Summary, [ValidateSet('modded', 'unmodded', 
 $DpPairScenarios['d5-grab-modded'] = New-DpD5Scenario "Difficulty story 5: host and B both run $DpCoreName and Difficulty (host Enemy Damage 25, Nightmare); Meek, Mimic, Psycho, Watcher and Stalker grab B at full Health: decision=s on both machines, B's survivable montage, B >= 1 HP and moving at 6 s" 'modded'
 $DpPairScenarios['d5-grab-unmodded'] = New-DpD5Scenario "Difficulty story 5: the host runs $DpCoreName and Difficulty, B only UE4SS and its watcher: the host keeps the game's decision (spare=no(absent)), B's montage matches it, B revived after each execution, two players throughout" 'unmodded'
 $DpPairScenarios['d5-host-vanilla'] = New-DpD5Scenario "Difficulty story 5: the host runs no Difficulty, B runs $DpCoreName and Difficulty: one inactive line on B and no GRAB, RESTORE or RECOVER" 'host-vanilla'
+
+# ------------------------------------------------------------------------------------------------ story 8
+# d8-tokens: Difficulty, not the driver, closes the computers after N reinforcements (CAP-5).
+$script:DpTokensN = 2   # below the stock limit 6 (PairDriver's Classified Minimum 2); DifficultyPair's TOKENS_N
+function Get-DpD8Report {
+    $r = Get-DpReport
+    $hostLog = Join-Path $outDir "$Label.host.UE4SS.log"
+    $hd = Get-DpTagged $hostLog $DpName
+    $vd = Get-DpTagged $vmLogPath $DpName
+    $hp = Get-DpTagged $hostLog 'DifficultyPair'
+    $vp = Get-DpTagged $vmLogPath 'DifficultyPair'
+    $miss = [Collections.Generic.List[string]]::new()
+    $n = $DpTokensN
+    $start = @($hd | Where-Object { $_ -match "^TOKENS start limit=(\d+) N=$n count=-?\d+\s*$" })
+    if ($start.Count -ne 1) { $miss.Add("host: want one 'TOKENS start ... N=$n', found $($start.Count)") }
+    elseif ($start[0] -match 'limit=(\d+)' -and [int]$Matches[1] -le $n) { $miss.Add("host: N=$n is not below the stock limit ($($start[0]))") }
+    $dis = @($hd | Where-Object { $_ -match '^TOKENS disabled at used=' })
+    if ($dis.Count -ne 1 -or $dis[0] -notmatch "^TOKENS disabled at used=$n N=$n via=\S+\s*$") { $miss.Add("host: want exactly one 'TOKENS disabled at used=$n N=$n', found: $($dis -join ' / ')") }
+    if ($hp | Where-Object { $_ -match '^SET ' }) { $miss.Add('host: the driver wrote TimesUsedReinforcements or Disable Reinforcement (a SET line)') }
+    foreach ($t in 1..$n) {
+        if (-not ($vp | Where-Object { $_ -match "^OK OFFER t$t shown before N" })) { $miss.Add("B: no OK OFFER t$t (the offer before the $n-th reinforcement)") }
+        if (-not ($vp | Where-Object { $_ -match "^OK REVIVE t$t " })) { $miss.Add("B: the host not revived by B's terminal in round t$t") }
+    }
+    if (-not ($vp | Where-Object { $_ -match '^OK OFFER gone after' })) { $miss.Add("B: the computer's reinforcement offer not gone after the $n-th reinforcement (no OK OFFER gone)") }
+    if (-not ($hp | Where-Object { $_ -match '^OK TOKENS the host''s Disable Reinforcement is set' })) { $miss.Add('host: Disable Reinforcement not read true at the end') }
+    if ($vd.Count) { $miss.Add("B: $($vd.Count) $DpName lines on a machine without $DpName") }
+    if ($r.HostEnd -notmatch 'result=PASS') { $miss.Add("host driver: $($r.HostEnd)") }
+    if ($r.VMEnd -notmatch 'result=PASS') { $miss.Add("B's driver: $($r.VMEnd)") }
+    $r.D8 = [ordered]@{
+        Misses = @($miss)
+        HostTokens = @($hd | Where-Object { $_ -match '^(TOKENS|MATCH) ' })
+        VMOffer = @($vp | Where-Object { $_ -match '^(OK|FAIL) (OFFER|REVIVE) |^OFFER ' })
+        Session = $result.Outcome
+    }
+    foreach ($m in $miss) { Write-Host "FAIL $m" }
+    $r.Verdict = if ($r.Verdict -eq 'FAIL' -or $miss.Count -or $result.Outcome -ne 'PASS') { 'FAIL' } else { 'PASS' }
+    $r
+}
+$DpPairScenarios['d8-tokens'] = @{
+    Summary = "Difficulty story 8 (CAP-5): the host runs $DpCoreName and Difficulty with Reinforcement Tokens $DpTokensN, B no Difficulty; B's terminal revives the host $DpTokensN times, then Difficulty's Disable Reinforcement takes the offer off B's computer"
+    Prereq = $DpD5Prereq
+    HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '2' }   # Normal; PairDriver's Classified Minimum 2 (limit 6)
+    HostModPaths = { @($DpCorePackage, (Get-DpModStage -Side host -Knobs "revives=$DpTokensN"), (Get-DpStage -Role 'host-tokens')) }
+    VMSetup = { Restore-VMBaseline; Invoke-VMDeploy -Remove -Path (Get-DpRemovePaths); Invoke-VMDeploy -UE4SS On; Invoke-VMDeploy -Path (Get-DpStage -Role 'client-tokens') }
+    VMRestore = { Invoke-VMDeploy -Remove -Path (Get-DpRemovePaths); Restore-VMBaseline }
+    AfterJoin = { Invoke-DpRelay }
+    PlaySec = 20
+    Check = { Get-DpD8Report }
+}
 
 if ($script:PairScenarios -is [hashtable]) { foreach ($k in $DpPairScenarios.Keys) { $script:PairScenarios[$k] = $DpPairScenarios[$k] } }

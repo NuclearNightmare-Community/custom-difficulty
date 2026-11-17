@@ -55,7 +55,12 @@ runtime refuse core 0.3.0.
   (`Health - E > 0` is survivable). When that differs from the game's choice, `Health` is set to standard + 1 (or 0.01)
   for the grab's own test and put back in the grab's multicast hook (or on the next tick). A client victim is spared
   the same way only when core's player presence says its machine runs a compatible Difficulty (below); any other
-  victim keeps the game's choice.
+  victim keeps the game's choice. The GRAB line always names the attacker: its row, or `enemy=unknown(<class>)` (the
+  nearest grab-class AI within 10 m, else `none`) with `why=<reason>` at the end of the line (`no-locked-victim`,
+  `no-grab-ai-near`, `no-row`). A Watcher's chase `Target` counts as its attacker link, since the Watcher calls
+  `HasPerk(0x27)` on its `Target` (story 11). After a Watcher's GRAB line comes one `WATCHER target=<local|client|none>
+  attacked=<local|client|none>` line, read from that Watcher at the decision (its own line, so the GRAB line keeps the
+  format the pair checks match).
 - Everything waits for the match to start (`UpdateFriendlyFire` in this world), acts only on the host, and does
   nothing at all for a knob that is Default. Two exceptions (story 5): a modded client's grab on its own player, from
   the host's values, and the soft-lock recovery, on every machine with the mod for its own player, Default knobs too.
@@ -326,8 +331,15 @@ shown.
 `test/run-pair.ps1 -Workspace <workspace> -Scenarios d5-grab-modded,d5-grab-unmodded,d5-host-vanilla`: the real
 Nucleus (`mods/Nucleus/build/package`, which must satisfy `dependsOn`) and the real Difficulty (staged with a test
 `dev.lua`, host knobs `enemyDamage=25`) on the machines that run them, in a Nightmare friends-only lobby;
-`DifficultyPair` only spawns a Meek, Mimic, Psycho, Watcher and Stalker in front of B (`host-spawn`, no Husk: a
-survivable Husk grab infects by design) and watches (`client-watch`), never flips.
+`DifficultyPair` only spawns a Meek, Mimic, Psycho, Stalker and Watcher (last) in front of B (`host-spawn`, no Husk: a
+survivable Husk grab infects by design) and watches (`client-watch`), never flips. Since story 11 the harness keeps B
+the enemies' only target and never touches a dead body: before each spawn the host is refilled (only when alive) and
+teleported at least 2500 cm from B (`MOVE host <n> cm from B`); hp <= 0 is dead (the case ends, no Health write on
+that body); a dead B is revived specifically, after its real death (up to 30 s), with
+`ReinforceSpecficPlayer(<B's dead character>)` and then `Reinformant()` every 5 s (up to 6 `RETRY` lines), and the
+host the same way (`REVIVE-HOST`) when it has no character; a playable-monster B is a FAIL at once. Both roles clear
+infection timers (story 2's hook). A Watcher's `GRAB #n` line ends with `target=<me|other|none>
+attacked=<me|other|none>`.
 - `d5-grab-modded`: both machines modded. FAILs unless both logs show `decision=s` for B per enemy at full Health,
   B's driver sees the survivable montage and B is alive and moving 6 s later. `RECOVER` lines are reported.
 - `d5-grab-unmodded`: B has only UE4SS and the watcher. FAILs unless the host logs `spare=no(absent)` and the game's

@@ -119,7 +119,7 @@ try {
     Ok (@($c.Files) -contains 'NuclearNightmare\Binaries\Win64\ue4ss\Mods\Difficulty\Scripts\main.lua') 'run: Difficulty''s files in the stage'
     Ok ($r.Out -match "Difficulty \S+ deployed \(test, with DifficultyDriver, scenario default\)") 'run: Difficulty''s own deploy.ps1 ran' $r.Out
     Ok ($r.Out -match 'VM run: finished') 'run: the VM result is printed' $r.Out
-    Ok ($r.Out -match '--- Difficulty lines \(default\) ---' -and $r.Out -match 'CONNECT ok Nucleus 0.15.0') 'run: check.ps1 judged the kept log' $r.Out
+    Ok ($r.Out -match '--- Difficulty lines \(default\) ---' -and $r.Out -match 'CONNECT ok Nucleus 0\.15\.0') 'run: check.ps1 judged the kept log' $r.Out
     Ok ($r.Code -eq 1) 'run: a log check.ps1 fails -> exit 1' "exit $($r.Code)"
 
     # -TimeoutSec is passed through as given.

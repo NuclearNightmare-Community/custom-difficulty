@@ -59,8 +59,8 @@ Expect $order 'ready' 1 'ready: READY before CONNECT -> fails' 'READY comes afte
 $ready4 = @((D 'CONNECT ok Nucleus 0.15.1 (pong 0.15.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.15.1 need=0.15.0'))
 Expect $ready4 'ready' 0 'ready on 0.15.1: passes without the pre-core WARN' 'no pre-core WARN'
 Expect ($ready4 + @(D 'WARN running on Nucleus 0.15.1 before 0.4.0 (dev only): no UI')) 'ready' 1 'ready on 0.15.1: a pre-core WARN -> fails' 'pre-core WARN'
-Expect $ready4 'ready' 0 'ready on 0.15.1: READY need=0.15.0 is dependsOn''s minimum' 'need=0.15.0 is dependsOn'
-Expect ($ready4 -replace 'need=0.15.0', 'need=0.3.0') 'ready' 1 'ready on 0.15.1: need=0.3.0 without the pre-core WARN -> fails' 'READY need=0\.3\.0'
+Expect $ready4 'ready' 0 'ready on 0.15.1: READY need=0.15.0 is dependsOn''s minimum' 'need=0\.15\.0 is dependsOn'
+Expect ($ready4 -replace 'need=0\.15\.0', 'need=0.3.0') 'ready' 1 'ready on 0.15.1: need=0.3.0 without the pre-core WARN -> fails' 'READY need=0\.3\.0'
 
 # ---------------------------------------------------------------- host
 $hostLog = $ready + @((U 'LoadMap /Game/Maps/SmallLoweIsland/SmallMap'), (D 'WORLD host=true standalone=false map=SmallMap'))
@@ -75,7 +75,7 @@ Expect (Without $ready4 'WORLD') 'hand' 1 'hand: no WORLD line -> fails' 'WORLD'
 # ---------------------------------------------------------------- old-core, no-core
 $oldCore = $coreStart + @((D 'ERROR Nucleus 0.3.0 is not compatible; Difficulty needs 0.15.0 (^ rules). Update Nucleus. Difficulty will not run.'))
 Expect $oldCore 'old-core' 0 'old-core: passes as written' 'All checks passed'
-Expect ($oldCore -replace 'needs 0.15.0', 'needs 0.3.0') 'old-core' 1 'old-core: the need must be dependsOn''s minimum' 'not compatible'
+Expect ($oldCore -replace 'needs 0\.15\.0', 'needs 0.3.0') 'old-core' 1 'old-core: the need must be dependsOn''s minimum' 'not compatible'
 Expect ($oldCore + @($menu)) 'old-core' 1 'old-core: a second Difficulty line -> fails' '#1'
 Expect (Without $oldCore 'not compatible') 'old-core' 1 'old-core: no line -> fails' '#1'
 $noCore = @((U "Starting Lua mod 'Difficulty'"), (D 'Nucleus is not installed. Difficulty will not run.'))
@@ -289,20 +289,32 @@ $screen = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROW
     (DR 'SCENARIO screen'), (D 'PRESETS open presets=1 entries=1 changed=false'),
     (D 'ROWS follow difficulty=2 classified=2 enemyDamage=25 cold=100 revives=6'),
     (DR 'OK SCORDER open 1: the knob rows at children 2-6 after Overlay_28, the per-enemy rows right after Overlay_738 (enemyDamage at 2)'),
+    (D 'ROWS follow difficulty=1 classified=2 enemyDamage=50 cold=133 revives=6'), (D 'ROWS follow difficulty=2 classified=2 enemyDamage=25 cold=100 revives=6'),
     (DR 'OK SCTEN 10 opens by real clicks: every row once, in order, the game rows in stock order; 10 distinct row widgets, 11 Construct snapshots'),
+    (DR 'OK SCPICKTEN the Difficulty picker changed its value by real clicks (and back) on 10 of 10 opens'),
     (DR 'OK SCDRAG value=80 bar=80 (the box followed the drag)'),
     (D 'ROWS change enemyDamage=80 rows=enemyDamage=80'), (D 'ROWS change enemyDamage=57 rows=enemyDamage=57'),
     (D 'ROWS change enemyDamage=200 rows=enemyDamage=200'), (D 'ROWS change enemyDamage=default rows='),
     (D 'ROWS change cold=150 rows=cold=150'),
+    (D 'ROWS change frostbite=2.5 rows=cold=150;frostbite=2.5'), (DR 'OK SCSTEP frostbite 2.3 typed: box ''2.5'' bar 2.5 (want 2.5)'),
     (D 'ROWS follow difficulty=0 classified=2 enemyDamage=100 cold=200 revives=6'),
     (D 'ROWS follow difficulty=1 classified=2 enemyDamage=50 cold=133 revives=6'),
-    (D 'ROWS change enemyDamage=17 rows=enemyDamage=17;cold=150'),
-    (D 'PRESETS save index=1 name=DT7-A knobs=enemyDamage=17 cold=150'),
-    (D 'ROWS change enemyDamage=40 rows=enemyDamage=40;cold=150'),
+    (D 'ROWS follow difficulty=1 classified=1 enemyDamage=50 cold=133 revives=4'),
+    (DR 'OK SCCLASS a real click on the Classified Minimum picker''s arrow: Minium Classified 1, shown Hard (want 1, Hard)'),
+    (DR 'OK SCCLASS the Default Reinforcement Tokens row follows: hint 4, slider at 4, box '''' (want 4)'),
+    (D 'ROWS change cold=default rows=frostbite=2.5'),
+    (D 'ROWS change enemyDamage=17 rows=enemyDamage=17;frostbite=2.5'),
+    (D 'PRESETS save index=1 name=DT7-A knobs=enemyDamage=17 frostbite=2.5'),
+    (D 'ROWS change enemyDamage=40 rows=enemyDamage=40;frostbite=2.5'),
     (D 'PRESETS select none (rows unchanged)'),
-    (D 'PRESETS select index=1 name=DT7-A knobs=enemyDamage=17 cold=150'),
+    (D 'ROWS follow difficulty=3 classified=1 enemyDamage=17 cold=50 revives=4'),
+    (D 'PRESETS select index=1 name=DT7-A knobs=enemyDamage=17 frostbite=2.5'),
+    (D 'ROWS follow difficulty=1 classified=1 enemyDamage=50 cold=133 revives=4'),
     (DR 'OK SCPRESET DT7-A shows Enemy Damage 17: box ''17'' bar 17'),
+    (DR 'OK SCPRESETDIFF the Default rows follow DT7-A''s Hard: Diffculty 1, Cold box '''' hint 133 slider 133 (want 1, empty, 133)'),
     (D 'PRESETS delete index=1 name=DT7-A'),
+    (D 'PRESETS open presets=1 entries=1 changed=false'), (D 'ROWS follow difficulty=2 classified=2 enemyDamage=25 cold=100 revives=6'),
+    (DR 'OK SCREOPEN a new open starts Default on Normal: Enemy Damage box '''' hint 25, Cold box '''' hint 100 (want empty 25, empty 100)'),
     (DR 'END result=PASS checks=60 failures=0 notshown=0 dead=false'))
 Expect $screen 'screen' 0 'screen: passes as written (no WHITEOUT, no match)' 'All checks passed'
 Expect ($screen + @(D 'ROWS declared 19')) 'screen' 1 'screen: rows declared twice -> fails' 'ROWS declared'
@@ -312,8 +324,18 @@ Expect ($screen -replace 'enemyDamage=57 rows=enemyDamage=57', 'enemyDamage=57 r
 Expect ($screen -replace 'SCDRAG value=80', 'SCDRAG value=81') 'screen' 1 'screen: the first change is not the dragged value -> fails' 'in order'
 Expect (Without $screen 'enemyDamage=default') 'screen' 1 'screen: no Default after clearing -> fails' 'default'
 Expect (Without $screen 'difficulty=0 classified') 'screen' 1 'screen: no Nightmare follow -> fails' 'difficulty=0'
-Expect ($screen -replace 'difficulty=1 classified=2 enemyDamage=50', 'difficulty=1 classified=2 enemyDamage=25') 'screen' 1 'screen: Hard follow with the wrong default -> fails' 'difficulty=1'
+Expect ($screen -replace 'enemyDamage=50 cold=133', 'enemyDamage=25 cold=133') 'screen' 1 'screen: Hard follow with the wrong default -> fails' 'difficulty=1'
 Expect (Without $screen 'select none') 'screen' 1 'screen: no None select -> fails' 'select none'
+Expect (Without $screen 'SCPICKTEN') 'screen' 1 'screen: the picker not proven on every open -> fails' 'SCPICKTEN'
+Expect (Without $screen 'frostbite=2\.5 rows') 'screen' 1 'screen: no frostbite 2.5 (step rounding) -> fails' 'frostbite'
+Expect (Without $screen 'classified=1 enemyDamage=50 cold=133 revives=4') 'screen' 1 'screen: no follow line for the Classified Minimum change -> fails' 'classified=1'
+Expect (Without $screen 'SCCLASS the Default') 'screen' 1 'screen: tokens hint not shown following -> fails' 'SCCLASS'
+Expect (Without $screen 'difficulty=3 classified=1') 'screen' 1 'screen: the screen not put on Easy before the select -> fails' 'difficulty=3'
+$selNoFollow = @($screen | Where-Object { $_ -notmatch 'SCPRESETDIFF' })
+$iLast = -1; for ($i = 0; $i -lt $selNoFollow.Count; $i++) { if ($selNoFollow[$i] -match 'ROWS follow difficulty=1 classified=1') { $iLast = $i } }
+$selNoFollow = @($selNoFollow[0..($iLast - 1)]) + @($selNoFollow[($iLast + 1)..($selNoFollow.Count - 1)]) + @(DR 'OK SCPRESETDIFF x')
+Expect $selNoFollow 'screen' 1 'screen: no Hard follow line right after the DT7-A select -> fails' 'after the DT7-A select'
+Expect (Without $screen 'SCREOPEN') 'screen' 1 'screen: no reopen check -> fails' 'SCREOPEN'
 Expect ($screen -replace 'select index=1 name=DT7-A knobs=enemyDamage=17', 'select index=1 name=DT7-A knobs=all') 'screen' 1 'screen: DT7-A not 17 -> fails' 'DT7-A'
 Expect ($screen + @(D 'WARN ROWS Overlay_738 is missing from the create-world screen; the per-enemy rows follow the knob rows')) 'screen' 1 'screen: the anchor WARN -> fails' 'WARN'
 Expect ($screen + @(D 'ERROR ROWS enemyDamage change failed: x; not written')) 'screen' 1 'screen: an ERROR -> fails' 'ERROR'

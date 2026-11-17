@@ -56,12 +56,17 @@
                     Default" and "PRESETS select none (rows unchanged)"; a "PRESETS open ... changed=true" after the
                     driver's STALE line; no ERROR and no WARN (the stale line is well-formed: no problem WARN).
   Story 7 (run.ps1 -Scenario screen -Target vm, the main menu only, real input):
-    screen          everything 'ready' needs, the driver's END result=PASS with no driver FAIL line and its SCTEN line
-                    (ten opens, the rows in order); exactly one "ROWS declared 19"; Enemy Damage's "ROWS change" lines
-                    in the order dragged value (the driver's SCDRAG), 57, 200, default, 17, 40, with the model text
-                    "rows=enemyDamage=57" after 57 (what a capture would encode); "ROWS change cold=150"; a ROWS follow
-                    line for Nightmare (enemyDamage=100 cold=200) and one for Hard (50, 133); the DT7-A save and select
-                    with enemyDamage=17, a None select; no MATCH start, no ERROR and no WARN.
+    screen          everything 'ready' needs, the driver's END result=PASS with no driver FAIL line, its SCTEN line (ten
+                    opens, the rows in order) and SCPICKTEN (the Difficulty picker changed by real clicks on every open);
+                    exactly one "ROWS declared 19"; Enemy Damage's "ROWS change" lines in the order dragged value (the
+                    driver's SCDRAG), 57, 200, default, 17, 40, with the model text "rows=enemyDamage=57" after 57 (what a
+                    capture would encode); "ROWS change cold=150"; "ROWS change frostbite=2.5" (2.3 typed, step 0.5) and
+                    SCSTEP; a ROWS follow line for Nightmare (enemyDamage=100 cold=200) and one for Hard (50, 133); a
+                    ROWS follow line with classified=1 and revives=4 (a real click on the Classified Minimum picker) and
+                    both SCCLASS lines; the screen on Easy before the DT7-A select (ROWS follow difficulty=3 ...), and
+                    right after the select the next ROWS follow line is DT7-A's Hard (difficulty=1 classified=1
+                    enemyDamage=50 cold=133 revives=4) with SCPRESETDIFF; the DT7-A save and select with enemyDamage=17,
+                    a None select; SCREOPEN (a new open starts Default on Normal); no MATCH start, no ERROR and no WARN.
   When the driver reports NOTSHOWN (it couldn't make the case happen: an enemy didn't attack in time, the player
   wasn't outdoors, no frostbite tick came), or a cold run's game never cooled (raw=0), the run is not shown: exit 2,
   never "passed".
@@ -200,7 +205,16 @@ $expect['screen'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ -
     "#1|\[$C\] ROWS declared 19\s*$"
     "!\[$C\] MATCH start "
     "\[$D\] OK SCTEN "
+    "\[$D\] OK SCPICKTEN "
 ) + $(if ($screenNotShown) { @() } else { @(
+    "\[$C\] ROWS change frostbite=2\.5 rows=\S*frostbite=2\.5\S*\s*$"
+    "\[$D\] OK SCSTEP "
+    "\[$C\] ROWS follow difficulty=\d classified=1 enemyDamage=\d+ cold=\d+ revives=4\s*$"
+    "\[$D\] OK SCCLASS a real click"
+    "\[$D\] OK SCCLASS the Default Reinforcement Tokens row follows"
+    "\[$C\] ROWS follow difficulty=3 classified=1 enemyDamage=17 cold=50 revives=4\s*$"
+    "\[$D\] OK SCPRESETDIFF "
+    "\[$D\] OK SCREOPEN "
     "\[$C\] ROWS change enemyDamage=57 rows=enemyDamage=57\s*$"
     "\[$C\] ROWS change enemyDamage=200 rows=enemyDamage=200\s*$"
     "\[$C\] ROWS change enemyDamage=default rows=\s*$"
@@ -304,6 +318,12 @@ if ($Scenario -eq 'screen' -and -not $screenNotShown) {
         if (($seq -join ',') -eq ($want -join ',')) { Pass "ROWS change enemyDamage in order: $($seq -join ', ')" }
         else { Fail "ROWS change enemyDamage in order: got $($seq -join ', '), want $($want -join ', ')" }
     }
+    # The select of DT7-A (saved on Hard, selected with the screen on Easy): the next ROWS follow line is Hard's.
+    $isel = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match "\[$C\] PRESETS select index=\d+ name=DT7-A ") { $isel = $i } }
+    $next = if ($isel -ge 0) { @($lines[($isel + 1)..($lines.Count - 1)] | Where-Object { $_ -match "\[$C\] ROWS follow " })[0] } else { $null }
+    if ($next -and $next -match "\[$C\] ROWS follow difficulty=1 classified=1 enemyDamage=50 cold=133 revives=4\s*$") { Pass 'after the DT7-A select the Default rows follow its Hard (ROWS follow difficulty=1 ... cold=133)' }
+    else { Fail "after the DT7-A select the Default rows follow its Hard: want 'ROWS follow difficulty=1 classified=1 enemyDamage=50 cold=133 revives=4' next, got '$next'" }
 }
 
 # Story 4, cold: the last COLD summary (sums since the match start). raw = 0 means the game never cooled the player

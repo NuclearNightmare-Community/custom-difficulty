@@ -41,8 +41,10 @@ do
         ok(help:find(range, 1, true), key .. ": help names the range " .. range, help)
         if key:match("^dmg%.") then
             ok(help:find("Empty = 100.", 1, true), key .. ": help says Empty = 100")
+        elseif key == "revives" then
+            ok(help:find("Empty = follow Classified Minimum.", 1, true) and not help:find("follow Difficulty", 1, true), key .. ": help says Empty = follow Classified Minimum")
         else
-            ok(help:find("Empty = follow Difficulty", 1, true), key .. ": help says Empty = follow Difficulty")
+            ok(help:find("Empty = follow Difficulty.", 1, true), key .. ": help says Empty = follow Difficulty")
         end
     end
     ok(rows.HELP.frostbite:find("in steps of 0.5", 1, true), "frostbite: the 0.5 step named")
@@ -231,7 +233,11 @@ do -- the walk: a tree that can't be read changes nothing; the real walk finds a
     local many = {}
     for i = 1, rows.WALK_MAX + 10 do many[i] = "w" .. i end
     many[#many + 1] = "Overlay_738"
-    eq(rows.hasNamed(F.tree(many), "Overlay_738"), false, "the walk stops after WALK_MAX widgets")
+    eq(rows.hasNamed(F.tree(many), "Overlay_738"), nil, "the walk out of budget with widgets left: nil (unknown), not a miss")
+    local placed = #U.placed
+    U.open(F.tree(many))
+    eq(#U.placed, placed, "a truncated walk: the per-enemy rows stay where they are")
+    eq(count("^WARN ROWS Overlay_738"), 0, "a truncated walk: no missing-anchor WARN")
     setup{ hasAnchor = function() error("boom") end }
     R:declare()
     U.open({})
@@ -267,6 +273,11 @@ do -- unknown difficulty index on the screen: Normal, one WARN
     S.Diffculty = "garbage"
     S:pickClassified(1)
     eq(count("^WARN ROWS Difficulty"), 1, "unknown index: one WARN per Lua state")
+    S:pick(2)
+    S:pickClassified(7)
+    eq(sl("revives").hint, "6", "Minium Classified 7: Normal's tokens hint")
+    S:pickClassified(9)
+    eq(count("^WARN ROWS Classified Minimum"), 1, "unknown Classified index: its own WARN, once")
 end
 
 do -- core calls that fail: logged, never thrown

@@ -16,7 +16,8 @@
 --                      specifically: after its real death (B's controller no longer holds the case's character, up to
 --                      30 s), ReinforceSpecficPlayer(<B's dead character>), then Reinformant() every 5 s (up to 6
 --                      tries) until B has a new character; a playable-monster B is a FAIL at once. The host is revived
---                      the same way when it has no character. Clears infection timers (story 2's hook).
+--                      the same way when it has no character. Clears infection timers (story 2's hook) and, every 2 s,
+--                      either player's StartedInfection? on the host (it decides a playable monster at death).
 --   client-watch       (B, VM; story 5) logs only: each grab on B with its montage, and B's montage, PlayingMontage,
 --                      movement mode and Health 6 s and 12 s later (AFTERGRAB). The real Difficulty (or none) decides.
 --                      Clears infection timers like the host.
@@ -433,6 +434,19 @@ local function monitor()
         S.guardAt = os.clock()
         clearNatural(S.case and S.case.actor)
         if not S.tempHold then for _, ch in ipairs({ m, o }) do if ch then pcall(function() ch.Temperature = 0 end) end end end
+        -- Story 11 (host-spawn): the host's own StartedInfection? decides a playable monster at death, and a client's
+        -- clear of its own timer doesn't reach it (d5-grab-unmodded 2026-11-17: B turned into a monster after the
+        -- Watcher's execution infected it). Cleared here for both players, a dying body included (not a Health write).
+        if ROLE == "host-spawn" then
+            for _, ch in ipairs({ m, o }) do
+                local okI, inf = pcall(function() return ch and ch["StartedInfection?"] end)
+                if okI and inf == true then
+                    pcall(function() KSL():K2_ClearTimer(ch, "BecomeInfected") end)
+                    local okW = pcall(function() ch["StartedInfection?"] = false end)
+                    say("INFECTCLEAR host guard victim=%s StartedInfection? -> false ok=%s hp=%s", who(ch), tostring(okW), fmt1(hpOf(ch)))
+                end
+            end
+        end
     end
     if not IS_HOST and o then
         local h = hpOf(o)

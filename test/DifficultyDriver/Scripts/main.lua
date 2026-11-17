@@ -974,6 +974,16 @@ if SC.special == "spread" then
             local m = me()
             if not m then if gone() then S.dead = true return true end return false end
             pcall(function() m.Temperature = 0 end)
+            -- A Meek grab can start an infection that ends the player minutes later (VM run 2026-11-17: the pawn
+            -- gone after 45 grabs): its timer is cleared (test only, logged).
+            local okA, act = pcall(function() return KSL():K2_IsTimerActive(m, "BecomeInfected") end)
+            local okI, inf = pcall(function() return m["StartedInfection?"] end)
+            if (okA and act == true) or (okI and inf == true) then
+                local okC = pcall(function() KSL():K2_ClearTimer(m, "BecomeInfected") end)
+                local okW = pcall(function() m["StartedInfection?"] = false end)
+                P.infections = (P.infections or 0) + 1
+                say("INFECTCLEAR #%d timer=%s started=%s cleared=%s/%s (test only)", P.infections, tostring(act), tostring(inf), tostring(okC), tostring(okW))
+            end
             if os.clock() - (P.clearAt or 0) >= 2 then P.clearAt = os.clock() clearOthers(P.actor) end
             if (S.lockedHits or 0) > #P.losses then
                 local hp = hpOf(m)

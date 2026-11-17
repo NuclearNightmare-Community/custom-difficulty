@@ -348,7 +348,8 @@ attacked=<me|other|none>`.
   `host has no Difficulty, inactive` line and no `GRAB`, `RESTORE` or `RECOVER`.
 The verdict is in `dumps/<copy>/pair/<label>.json` (`ScenarioReport.Verdict`, misses in `ScenarioReport.D5.Misses`).
 The host copy must have no Nucleus or Difficulty of its own installed (`pair.ps1` refuses mods it didn't put there):
-run their `deploy.ps1 -Remove` first. Not run yet (story 5's pair runs are pending: the host PC was off-limits).
+run their `deploy.ps1 -Remove` first. All three passed on V8.2.3 on 2026-11-17 with story 11's harness (Outcome and
+Verdict PASS, no miss, no driver FAIL; `docs/game-internals.md` in the workspace has the details).
 
 ## Settings
 

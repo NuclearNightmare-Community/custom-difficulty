@@ -82,6 +82,12 @@ $noCore = @((U "Starting Lua mod 'Difficulty'"), (D 'Nucleus is not installed. D
 Expect $noCore 'no-core' 0 'no-core: passes as written' 'All checks passed'
 Expect ($noCore + @(D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0')) 'no-core' 1 'no-core: a second Difficulty line -> fails' '#1'
 Expect ($noCore -replace 'not installed', 'missing') 'no-core' 1 'no-core: another wording -> fails' 'not installed'
+# Through run.ps1 -Target vm the driver waits for the menu world; its verdict counts.
+$menuDrv = { param($sc, $end) @((L 'DifficultyDriver' "SCENARIO $sc"), (L 'DifficultyDriver' "OK MENU $sc reached the menu world and stayed 20 s"), (L 'DifficultyDriver' $end)) }
+Expect ($noCore + (& $menuDrv 'no-core' 'END result=PASS checks=1 failures=0 notshown=0 dead=false')) 'no-core' 0 'no-core (VM): the driver reached the menu -> passes' 'All checks passed' 'vm'
+Expect ($noCore + @((L 'DifficultyDriver' 'SCENARIO no-core'), (L 'DifficultyDriver' 'FAIL TIMEOUT menu world'), (L 'DifficultyDriver' 'END result=FAIL checks=1 failures=1 notshown=0 dead=false'))) 'no-core' 1 'no-core (VM): the driver never reached the menu -> fails' 'OK MENU' 'vm'
+Expect ($oldCore + (& $menuDrv 'old-core' 'END result=PASS checks=1 failures=0 notshown=0 dead=false')) 'old-core' 0 'old-core (VM): the driver reached the menu -> passes' 'All checks passed' 'vm'
+Expect ($oldCore + @(L 'DifficultyDriver' 'SCENARIO old-core')) 'old-core' 1 'old-core (VM): no driver END -> fails' 'END result=PASS' 'vm'
 
 # ---------------------------------------------------------------- story 3 scenarios (driver + Difficulty's lines)
 function DR([string] $msg) { L 'DifficultyDriver' $msg }
@@ -387,6 +393,7 @@ $grabs20 = @(1..20 | ForEach-Object {
 $sgrab = Story3 'spread-grab' 'enemyDamage=25 spread=50' $grabs20 @()
 Expect $sgrab 'spread-grab' 0 'spread-grab: 20 survivable grabs, rolled up to 44, applied at most 25 -> passes' 'All checks passed'
 Expect ($sgrab -replace 'rolled=44 applied=25 hp=26', 'rolled=44 applied=26 hp=26') 'spread-grab' 1 'spread-grab: one applied 26 (Health 0) -> fails' 'left less than 1 HP: applied=26'
+Expect ($sgrab -replace 'rolled=[\d.]+ applied=25 ', 'rolled=24 applied=24 ') 'spread-grab' 1 'spread-grab: no roll above 25 (the cap never engaged) -> fails' 'cap never engaged'
 $sgrab19 = @($sgrab | Where-Object { $_ -notmatch 'Meek #20 ' })
 $iLastGrab = -1; for ($i = 0; $i -lt $sgrab19.Count; $i++) { if ($sgrab19[$i] -match 'GRAB enemy=meek') { $iLastGrab = $i } }
 $sgrab19 = @($sgrab19[0..($iLastGrab - 1)]) + @($sgrab19[($iLastGrab + 3)..($sgrab19.Count - 1)])
@@ -469,6 +476,10 @@ ExpectSignal $sigA ($sigB -replace 'COLD raw=0\.1500', 'COLD raw=0.0000') 2 'sig
 $sigBNs = @(Without $sigB 'GRAB|RESTORE|HIT enemy|OK signal-b Meek|OK signal-b Stalker|END result') + @((DR "NOTSHOWN Meek #1: the Meek didn't hit in 120 s"), (DR 'END result=NOTSHOWN checks=10 failures=0 notshown=1 dead=false'))
 ExpectSignal $sigA $sigBNs 2 'signal: the Meek never hit -> not shown' 'NOT SHOWN'
 ExpectSignal $sigA (Without $sigB 'SIGCLEAN') 0 'signal: the clean-up line is soft' 'warn: launch 2: \?'
+ExpectSignal $sigA (@(Without $sigB 'SIGCLEAN') + @(DR 'WARN SIGCLEAN no DT8- preset left (deleted 0)')) 0 'signal: a clean-up WARN is soft' 'warn: launch 2: \?'
+$sigANs = @(Without $sigA 'SIGSAVED|PRESETS save|END result') + @((DR 'NOTSHOWN save DT8-SIGNAL: the game''s preset count didn''t grow'), (DR 'END result=NOTSHOWN checks=11 failures=0 notshown=1 dead=false'))
+ExpectSignal $sigANs @() 2 'signal: launch 1 NOTSHOWN, no launch 2 log -> not shown' 'NOT SHOWN' $true
+ExpectSignal (Without $sigA 'PRESETS save') $sigBNs 1 'signal: launch 2 NOTSHOWN does not excuse launch 1''s missing save line -> fails' 'launch 1: .*PRESETS save'
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)

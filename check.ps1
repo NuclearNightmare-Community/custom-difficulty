@@ -215,6 +215,12 @@ $expect = @{
         "\[$C\] ERROR $K \d+\.\d+\.\d+ is not compatible; $C needs $NeedRx \(\^ rules\)\. Update $K\. $C will not run\.\s*$"
     )
 }
+# no-core, old-core through run.ps1 -Target vm: the driver waits for the menu world; its verdict counts too.
+foreach ($nc in 'no-core', 'old-core') {
+    if ($Scenario -eq $nc -and @($lines | Where-Object { $_ -match "\[$D\] SCENARIO " }).Count) {
+        $expect[$nc] += @("\[$D\] SCENARIO $nc\s*$", "\[$D\] OK MENU ", "\[$D\] END result=PASS ", "!\[$D\] FAIL ")
+    }
+}
 # The driver's END result=NOTSHOWN (and no driver FAIL): an enemy didn't attack in time, so the scenario's HIT, GRAB,
 # RESTORE and WARN expectations are skipped and the run ends as not shown (exit 2), never as failed or passed.
 $driverNotShown = ($Scenario -in $story3.Keys) -and @($lines | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
@@ -259,15 +265,18 @@ $expect['screen'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ -
     "\[$D\] OK SCPRESET "
 ) })
 
-$signalNotShown = ($Scenario -eq 'signal') -and @(@($lines1) + @($lines) | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
-    @(@($lines1) + @($lines) | Where-Object { $_ -match "\[$D\] FAIL " }).Count -eq 0
+# Each launch's not-shown comes from its own log: a launch 2 NOTSHOWN never excuses launch 1's required lines.
+$signal1NotShown = ($Scenario -eq 'signal') -and @($lines1 | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
+    @($lines1 | Where-Object { $_ -match "\[$D\] FAIL " }).Count -eq 0
+$signalNotShown = ($Scenario -eq 'signal') -and @($lines | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
+    @($lines | Where-Object { $_ -match "\[$D\] FAIL " }).Count -eq 0
 $sigDriver = { param($sc, [switch] $match) @("\[$D\] SCENARIO $sc\s*$", "\[$D\] END result=(PASS|NOTSHOWN) ", "!\[$D\] FAIL ", "!\[$D\] HOOKERR ", "!\[$D\] DEATH ") +
     $(if ($match) { @("#1|\[$D\] WHITEOUT disabled=true director=\d+ phase=\S+\s*$") } else { @() }) }
 $signal1 = $running + @($menuWorld) + (& $sigDriver 'signal-a') + @(
     "!\[$C\] MATCH start "
     "\[$D\] DEVLUA absent "
     "!\[$D\] DEVLUA present "
-) + $(if ($signalNotShown) { @() } else { @(
+) + $(if ($signal1NotShown) { @() } else { @(
     "\[$D\] OK SIGDIFF "
     "\[$D\] OK SIGROWS before the save"
     "\[$D\] OK SIGSAVED "
@@ -318,7 +327,7 @@ function Test-Patterns([string[]] $patterns, [string[]] $ls, [string] $tag = '')
 if ($Scenario -eq 'signal') {
     Test-Patterns ($always + $signal1) $lines1 'launch 1: '
     # At least two values typed and two dragged (real input), from launch 1's driver lines.
-    if (-not $signalNotShown) {
+    if (-not $signal1NotShown) {
         foreach ($k in @(@('SIGDRAG', 'dragged'), @('SIGTYPE', 'typed'))) {
             $got = @($lines1 | Where-Object { $_ -match "\[$D\] OK $($k[0]) " }).Count
             if ($got -ge 2) { Pass "launch 1: $got values $($k[1]) (OK $($k[0]))" } else { Fail "launch 1: at least two values $($k[1]) (OK $($k[0])), found $got" }
@@ -487,6 +496,9 @@ if ($Scenario -eq 'spread-grab' -and -not $driverNotShown) {
     $over = @($surv | Where-Object { $_.Applied -gt 25 -or ($_.Hp - $_.Applied) -lt 1 })
     if ($over.Count) { Fail "spread-grab: a survivable hit left less than 1 HP: applied=$($over[0].Applied) at hp=$($over[0].Hp) (rolled $($over[0].Rolled))" }
     elseif ($surv.Count) { Pass "spread-grab: every survivable hit applied <= 25 (max $(($surv | Measure-Object Applied -Maximum).Maximum); rolled up to $(($surv | Measure-Object Rolled -Maximum).Maximum))" }
+    # The cap itself: at least one roll above 25 that applied exactly 25 (with spread 50, about half the rolls).
+    $capped = @($surv | Where-Object { $_.Rolled -gt 25 -and $_.Applied -eq 25 }).Count
+    if ($capped) { Pass "spread-grab: $capped rolls above 25 capped at 25" } else { Fail "spread-grab: no roll above 25 capped at 25 (the survivable cap never engaged)" }
     $ok = @($lines | Where-Object { $_ -match "\[$D\] OK spread-grab Meek #\d+ hit took " }).Count
     if ($ok -ge 20) { Pass "spread-grab: the driver saw Health >= 1 after $ok grabs" } else { Fail "spread-grab: the driver's OK line for 20 grabs, found $ok" }
 }

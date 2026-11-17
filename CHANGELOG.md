@@ -21,6 +21,13 @@ Not released yet. Earlier work is described in `README.md`.
   (`ROWS change ... rows=...`), never the sidecar; an open or a preset select pushes the model back into the sliders.
   Each row's "?" shows what the knob does, its defaults per difficulty and its range. New `screen` scenario
   (`run.ps1 -Target vm` only: real clicks, a drag and typing).
+- Story 8 (tests only, no change to the mod): new `run.ps1` scenarios `spread` (200 rolled Meek hits: mean, sample
+  standard deviation and range of Difficulty's `rolled` values), `spread-grab` (20 survivable grabs at Health 26, each
+  leaving at least 1 HP), `signal` (VM only, two launches: the epic's success signal with values set on the screen by
+  real input, saved as a preset, selected after a restart and captured into a friends-only solo match; no `dev.lua`),
+  and `no-core` / `old-core` through `run.ps1 -Target vm` (`old-core` from an older core package already on disk, exit 3
+  when there is none). Pair scenario `d8-tokens` (Reinforcement Tokens across machines: Difficulty, not the driver,
+  closes an unmodded client's computer after N). README: "The user's check", the success signal as steps.
 
 ### Changed
 

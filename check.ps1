@@ -67,6 +67,23 @@
                     right after the select the next ROWS follow line is DT7-A's Hard (difficulty=1 classified=1
                     enemyDamage=50 cold=133 revives=4) with SCPRESETDIFF; the DT7-A save and select with enemyDamage=17,
                     a None select; SCREOPEN (a new open starts Default on Normal); no MATCH start, no ERROR and no WARN.
+  Story 8 (the epic's success checks):
+    spread          Normal, Damage Spread 20: at least 200 Meek HIT lines (kind hit, or survivable on the real-attack route:
+                    rolled is the roll either way), every one scaled=25; their rolled values have mean 25 +- 1, sample
+                    standard deviation 4..6 and none outside 15..35. A HIT enemy=frostbite line, if any, must have rolled =
+                    scaled (never rolled); none is a soft check (spread=20 alone sets no frostbite, so none is expected).
+    spread-grab     Nightmare, Enemy Damage 25, Spread 50, Health 26 before each grab: at least 20 "GRAB enemy=meek hp=26
+                    E=25 game=e decision=s flip=101" lines and none with decision=e; at least 20 survivable Meek HITs at
+                    hp=26, each with applied <= 25 (Health >= 1 left); 20 driver OK lines; no death.
+    signal          (run.ps1 -Scenario signal -Target vm: two launches; -Log is launch 2's, -FirstLog launch 1's) launch 1:
+                    the running checks, the driver's PASS, no dev.lua (DEVLUA absent), Nightmare by real clicks (SIGDIFF),
+                    a ROWS change line per value, at least two OK SIGDRAG and two OK SIGTYPE lines, SIGROWS, and "PRESETS
+                    save ... name=DT8-SIGNAL knobs=<the six values>". Launch 2: everything a match scenario needs, no
+                    dev.lua, DT8-SIGNAL found (SIGFOUND), selected with the six values, SIGROWS, a friends-only session
+                    (OK SIGSESSION), "PRESETS capture" and exactly one "MATCH start" with exactly the six values (a
+                    difference names the knob), a Meek HIT at hp=100 taking 15..35 and a Stalker HIT scaled=50 taking
+                    30..70, the last COLD line applied=0 (raw 0: not shown), the driver's Temperature check, "TOKENS start
+                    ... N=8" and SIGTOKENS. No launch 2 log after a passing launch 1 fails.
   When the driver reports NOTSHOWN (it couldn't make the case happen: an enemy didn't attack in time, the player
   wasn't outdoors, no frostbite tick came), or a cold run's game never cooled (raw=0), the run is not shown: exit 2,
   never "passed".
@@ -81,8 +98,10 @@
 param(
     [string] $Instance,
     [string] $Log,
+    [string] $FirstLog, # signal only: launch 1's log (-Log is launch 2's)
     [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit', 'scaled', 'flip', 'per-enemy', 'default', 'clash',
-                 'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen')]
+                 'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen',
+                 'spread', 'spread-grab', 'signal')]
     [string] $Scenario = 'ready',
     [ValidateSet('host', 'vm')] [string] $Target = 'host'
 )
@@ -100,13 +119,19 @@ if (-not $Log) {
     if (-not $Instance) { Write-Host 'FAIL: pass -Log <file> or -Instance <copy>'; exit 1 }
     $Log = Join-Path (Resolve-Path $Instance) 'NuclearNightmare\Binaries\Win64\ue4ss\UE4SS.log'
 }
-if (-not (Test-Path $Log)) { Write-Host "FAIL: no log at $Log"; exit 1 }
+# signal: launch 2's log may be missing (launch 1 didn't pass, so it never ran); launch 1's is judged anyway.
+$launch2Missing = $false
+if ($Scenario -eq 'signal') {
+    if (-not $FirstLog -or -not (Test-Path $FirstLog)) { Write-Host "FAIL: signal needs launch 1's log (-FirstLog; none at '$FirstLog')"; exit 1 }
+    $launch2Missing = -not (Test-Path $Log)
+} elseif (-not (Test-Path $Log)) { Write-Host "FAIL: no log at $Log"; exit 1 }
 
-$lines = @(Get-Content $Log)
+$lines = if ($launch2Missing) { @() } else { @(Get-Content $Log) }
+$lines1 = if ($Scenario -eq 'signal') { @(Get-Content $FirstLog) } else { @() }
 Write-Host "--- $name lines ($Scenario) ---"
-$lines | Where-Object {
+@($lines1) + @($lines) | Where-Object {
     ($_ -match "\[$C\]" -and $_ -notmatch "\[$C\] (DEBUG )?hud ") -or
-    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM|DRIVE|BASELINE|STALE|CLEANUP|SIDECAR|NAME) ") -or
+    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM|DRIVE|BASELINE|STALE|CLEANUP|SIDECAR|NAME|SETHP|SPREAD|SPREADMODE|SPREADRUN|DEVLUA|SIGHOST|SIGSESSION|SIGCREATE|SIGBACK|SIGCLEAN|SIGDRAG|MENU|INFECTCLEAR) ") -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -170,6 +195,13 @@ $story4 = @{
                          "\[$D\] TERMINAL open active=true original=\S+\s*$")
 }
 foreach ($s4Key in $story4.Keys) { $story3[$s4Key] = $story4[$s4Key] }
+# Story 8: the spread scenarios (the rolled values and the grabs are judged below).
+$story3['spread'] = @("\[$C\] MATCH start knobs=spread=20\s*$", "!\[$C\] HIT enemy=meek .* kind=execution\s*$")
+$story3['spread-grab'] = @("\[$C\] MATCH start knobs=enemyDamage=25 spread=50\s*$", "!\[$C\] GRAB enemy=meek .* decision=e ", "!\[$C\] HIT enemy=meek .* kind=execution\s*$")
+# signal: the six values the screen gets, in Difficulty's knob order (knobs.lua).
+$K8 = @(@('enemyDamage', '25'), @('spread', '20'), @('revives', '8'), @('cold', '0'), @('frostbite', '0'), @('dmg.stalker', '200'))
+$K8Text = ($K8 | ForEach-Object { "$($_[0])=$($_[1])" }) -join ' '
+$K8Rx = [regex]::Escape($K8Text)
 $expect = @{
     'ready'    = $running + @($menuWorld)
     'host'     = $running + @($menuWorld, "\[$C\] WORLD host=true standalone=false map=\S+\s*$")
@@ -227,30 +259,81 @@ $expect['screen'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ -
     "\[$D\] OK SCPRESET "
 ) })
 
+$signalNotShown = ($Scenario -eq 'signal') -and @(@($lines1) + @($lines) | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
+    @(@($lines1) + @($lines) | Where-Object { $_ -match "\[$D\] FAIL " }).Count -eq 0
+$sigDriver = { param($sc, [switch] $match) @("\[$D\] SCENARIO $sc\s*$", "\[$D\] END result=(PASS|NOTSHOWN) ", "!\[$D\] FAIL ", "!\[$D\] HOOKERR ", "!\[$D\] DEATH ") +
+    $(if ($match) { @("#1|\[$D\] WHITEOUT disabled=true director=\d+ phase=\S+\s*$") } else { @() }) }
+$signal1 = $running + @($menuWorld) + (& $sigDriver 'signal-a') + @(
+    "!\[$C\] MATCH start "
+    "\[$D\] DEVLUA absent "
+    "!\[$D\] DEVLUA present "
+) + $(if ($signalNotShown) { @() } else { @(
+    "\[$D\] OK SIGDIFF "
+    "\[$D\] OK SIGROWS before the save"
+    "\[$D\] OK SIGSAVED "
+    "\[$C\] PRESETS save index=\d+ name=DT8-SIGNAL knobs=$K8Rx\s*$"
+) + @($K8 | ForEach-Object { "\[$C\] ROWS change $([regex]::Escape($_[0]))=$($_[1]) rows=" }) })
+$expect['signal'] = $running + @($menuWorld, $hostWorld) + (& $sigDriver 'signal-b' -match) + @(
+    "\[$D\] DEVLUA absent "
+    "!\[$D\] DEVLUA present "
+    "!\[$D\] SIGSESSION advertise=True"
+    "!\[$D\] SIGSESSION advertise=true"
+    "#1|\[$C\] MATCH start "
+) + $(if ($signalNotShown) { @() } else { @(
+    "\[$D\] OK SIGFOUND "
+    "\[$D\] OK SIGROWS after the select"
+    "\[$D\] OK SIGSESSION "
+    "\[$C\] PRESETS select index=\d+ name=DT8-SIGNAL knobs=$K8Rx\s*$"
+    "\[$C\] PRESETS capture knobs=$K8Rx\s*$"
+    "\[$C\] GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes\s*$"
+    "\[$C\] COLD raw=.* clock=core\s*$"
+    "\[$D\] OK signal-b Temperature stayed at its start"
+    "\[$C\] TOKENS start limit=\d+ N=8 count=-?\d+\s*$"
+    "\[$D\] OK SIGTOKENS "
+    "?\[$D\] OK SIGCLEAN "
+) })
+
 $failed = 0
 $warned = 0
 function Fail([string] $label) { Write-Host "FAIL: $label"; $script:failed++ }
 function Pass([string] $label) { Write-Host "ok:   $label" }
 Write-Host "--- checks ($Scenario) ---"
-foreach ($pattern in ($always + $expect[$Scenario])) {
-    if ($pattern.StartsWith('#')) {
-        $count, $p = $pattern.Substring(1) -split '\|', 2
-        $hits = @($lines | Where-Object { $_ -match $p }).Count
-        if ($hits -eq [int]$count) { Pass "$pattern (found $hits)" } else { Fail "$pattern (found $hits)" }
-    } elseif ($pattern.StartsWith('?!')) {
-        if ($lines | Where-Object { $_ -match $pattern.Substring(2) }) { Write-Host "warn: $pattern"; $warned++ } else { Pass $pattern }
-    } elseif ($pattern.StartsWith('?')) {
-        if ($lines | Where-Object { $_ -match $pattern.Substring(1) }) { Pass $pattern } else { Write-Host "warn: $pattern"; $warned++ }
-    } elseif ($pattern.StartsWith('!')) {
-        if ($lines | Where-Object { $_ -match $pattern.Substring(1) }) { Fail $pattern } else { Pass $pattern }
-    } else {
-        if ($lines | Where-Object { $_ -match $pattern }) { Pass $pattern } else { Fail $pattern }
+function Test-Patterns([string[]] $patterns, [string[]] $ls, [string] $tag = '') {
+    foreach ($pattern in $patterns) {
+        if ($pattern.StartsWith('#')) {
+            $count, $p = $pattern.Substring(1) -split '\|', 2
+            $hits = @($ls | Where-Object { $_ -match $p }).Count
+            if ($hits -eq [int]$count) { Pass "$tag$pattern (found $hits)" } else { Fail "$tag$pattern (found $hits)" }
+        } elseif ($pattern.StartsWith('?!')) {
+            if ($ls | Where-Object { $_ -match $pattern.Substring(2) }) { Write-Host "warn: $tag$pattern"; $script:warned++ } else { Pass "$tag$pattern" }
+        } elseif ($pattern.StartsWith('?')) {
+            if ($ls | Where-Object { $_ -match $pattern.Substring(1) }) { Pass "$tag$pattern" } else { Write-Host "warn: $tag$pattern"; $script:warned++ }
+        } elseif ($pattern.StartsWith('!')) {
+            if ($ls | Where-Object { $_ -match $pattern.Substring(1) }) { Fail "$tag$pattern" } else { Pass "$tag$pattern" }
+        } else {
+            if ($ls | Where-Object { $_ -match $pattern }) { Pass "$tag$pattern" } else { Fail "$tag$pattern" }
+        }
     }
 }
+if ($Scenario -eq 'signal') {
+    Test-Patterns ($always + $signal1) $lines1 'launch 1: '
+    # At least two values typed and two dragged (real input), from launch 1's driver lines.
+    if (-not $signalNotShown) {
+        foreach ($k in @(@('SIGDRAG', 'dragged'), @('SIGTYPE', 'typed'))) {
+            $got = @($lines1 | Where-Object { $_ -match "\[$D\] OK $($k[0]) " }).Count
+            if ($got -ge 2) { Pass "launch 1: $got values $($k[1]) (OK $($k[0]))" } else { Fail "launch 1: at least two values $($k[1]) (OK $($k[0])), found $got" }
+        }
+    }
+    if ($launch2Missing) {
+        if (@($lines1 | Where-Object { $_ -match "\[$D\] END result=PASS " }).Count) { Fail "launch 2: no log at $Log (launch 1 passed)" }
+        else { Write-Host "launch 2: not run (launch 1 didn't pass)" }
+    }
+}
+if (-not $launch2Missing) { Test-Patterns ($always + $expect[$Scenario]) $lines $(if ($Scenario -eq 'signal') { 'launch 2: ' } else { '' }) }
 
 function IndexOf([string] $p) { for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match $p) { return $i } } return -1 }
 
-if ($Scenario -in @('ready', 'host', 'hand', 'presets', 'screen') + @($story3.Keys)) {
+if ($Scenario -in @('ready', 'host', 'hand', 'presets', 'screen', 'signal') + @($story3.Keys) -and -not $launch2Missing) {
     $ic, $ir = (IndexOf "\[$C\] CONNECT ok "), (IndexOf "\[$C\] READY ")
     if ($ic -ge 0 -and $ir -gt $ic) { Pass 'READY comes after CONNECT ok' } else { Fail "READY comes after CONNECT ok (CONNECT at line $ic, READY at line $ir)" }
     # Dev core mode: connected to a core dependsOn doesn't accept -> exactly one pre-core WARN; otherwise none.
@@ -275,7 +358,7 @@ if ($Scenario -in @('ready', 'host', 'hand', 'presets', 'screen') + @($story3.Ke
     }
 }
 
-if ($Scenario -in $story3.Keys) {
+if ($Scenario -in @($story3.Keys) + @('signal') -and -not $launch2Missing) {
     # The match lines come after the hosted world; in clash no HIT follows the WARN.
     $iw, $im = (IndexOf $hostWorld), (IndexOf "\[$C\] MATCH start ")
     if ($iw -ge 0 -and $im -gt $iw) { Pass 'MATCH start comes after WORLD host=true' } else { Fail "MATCH start comes after WORLD host=true (WORLD at line $iw, MATCH at line $im)" }
@@ -333,7 +416,7 @@ if ($Scenario -eq 'screen' -and -not $screenNotShown) {
 # Story 4, cold: the last COLD summary (sums since the match start). raw = 0 means the game never cooled the player
 # (indoors, a vehicle): not shown.
 $coldNotShown = $null
-if ($Scenario -in 'cold', 'cold-zero', 'cold-whiteout' -and -not $driverNotShown) {
+if (($Scenario -in 'cold', 'cold-zero', 'cold-whiteout' -and -not $driverNotShown) -or ($Scenario -eq 'signal' -and -not $signalNotShown -and -not $launch2Missing)) {
     $coldRx = "\[$C\] COLD raw=(\d+(?:\.\d+)?) applied=(-?\d+(?:\.\d+)?) factor=(\S+) .*avg_ms=(\S+) "
     $last = @($lines | Where-Object { $_ -match $coldRx })[-1]
     if ($last -and $last -match $coldRx) {
@@ -354,8 +437,82 @@ if ($Scenario -in 'cold', 'cold-zero', 'cold-whiteout' -and -not $driverNotShown
     } else { Fail 'a COLD summary line' }
 }
 
+
+# Story 8: computed checks. Numbers are read with the invariant culture (the log's decimal point).
+function ToNum([string] $v) { $x = 0.0; if ([double]::TryParse($v, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$x)) { return $x } return $null }
+$hitRx = "\[$C\] HIT enemy=(\S+) via=(\S+) stock=(\S+) scaled=(\S+) rolled=(\S+) applied=(\S+) hp=(\S+) kind=(\S+)\s*$"
+function Get-Hits([string[]] $ls, [string] $enemy) {
+    @($ls | Where-Object { $_ -match $hitRx } | ForEach-Object {
+        $null = $_ -match $hitRx
+        if ($Matches[1] -eq $enemy) {
+            [pscustomobject]@{ Via = $Matches[2]; Stock = (ToNum $Matches[3]); Scaled = (ToNum $Matches[4]); Rolled = (ToNum $Matches[5]); Applied = (ToNum $Matches[6]); Hp = (ToNum $Matches[7]); Kind = $Matches[8]; Raw = $Matches[4] + '/' + $Matches[5] }
+        }
+    })
+}
+$spreadNotShown = $null
+if ($Scenario -eq 'spread' -and -not $driverNotShown) {
+    # The Meek's rolled values (the roll itself: a survivable cap on the real-attack route never changes rolled).
+    $meek = @(Get-Hits $lines 'meek' | Where-Object { $_.Kind -in 'hit', 'survivable' })
+    $n = $meek.Count
+    if ($n -lt 200) { Fail "spread: at least 200 Meek HIT lines (kind hit or survivable), found $n" }
+    else {
+        Pass "spread: $n Meek HIT lines"
+        $notScaled = @($meek | Where-Object { $_.Scaled -ne 25 })
+        if ($notScaled.Count) { Fail "spread: every Meek hit scaled=25 (Normal, Enemy Damage Default), found $($notScaled.Count) others, e.g. scaled=$($notScaled[0].Scaled)" } else { Pass 'spread: every Meek hit scaled=25' }
+        $r = @($meek | ForEach-Object { $_.Rolled })
+        $mean = ($r | Measure-Object -Average).Average
+        $sq = 0.0; foreach ($v in $r) { $sq += ($v - $mean) * ($v - $mean) }
+        $sd = [Math]::Sqrt($sq / ($n - 1))
+        $out = @($r | Where-Object { $_ -lt 15 -or $_ -gt 35 })
+        $inv = [Globalization.CultureInfo]::InvariantCulture
+        if ([Math]::Abs($mean - 25) -le 1) { Pass ([string]::Format($inv, 'spread: mean of rolled {0:N3} (25 +- 1)', $mean)) } else { Fail ([string]::Format($inv, 'spread: mean of rolled {0:N3}, want 25 +- 1', $mean)) }
+        if ($sd -ge 4 -and $sd -le 6) { Pass ([string]::Format($inv, 'spread: sample sd of rolled {0:N3} (4..6)', $sd)) } else { Fail ([string]::Format($inv, 'spread: sample sd of rolled {0:N3}, want 4..6', $sd)) }
+        if ($out.Count -eq 0) { Pass ([string]::Format($inv, 'spread: every rolled value in 15..35 (min {0}, max {1})', ($r | Measure-Object -Minimum).Minimum, ($r | Measure-Object -Maximum).Maximum)) }
+        else { Fail ([string]::Format($inv, 'spread: rolled value {0} outside 15..35 ({1} outside)', $out[0], $out.Count)) }
+    }
+    # Environmental hits are never rolled: Difficulty's only one is frostbite (logged only when Frostbite Damage is set).
+    $env = @(Get-Hits $lines 'frostbite')
+    if (-not $env.Count) { Write-Host 'warn: spread: no HIT enemy=frostbite line (spread=20 alone sets no frostbite): "an environmental hit is never rolled" not shown in game'; $warned++ }
+    else {
+        $rolledEnv = @($env | Where-Object { $_.Rolled -ne $_.Scaled })
+        if ($rolledEnv.Count) { Fail "spread: an environmental hit was rolled (frostbite scaled/rolled $($rolledEnv[0].Raw))" } else { Pass "spread: $($env.Count) frostbite hits, rolled = scaled (never rolled)" }
+    }
+}
+if ($Scenario -eq 'spread-grab' -and -not $driverNotShown) {
+    $grabRx = "\[$C\] GRAB enemy=meek hp=26 E=25 game=e decision=s flip=101 victim=local spare=yes\s*$"
+    $g = @($lines | Where-Object { $_ -match $grabRx }).Count
+    if ($g -ge 20) { Pass "spread-grab: $g survivable Meek grabs at Health 26" } else { Fail "spread-grab: at least 20 'GRAB enemy=meek hp=26 E=25 game=e decision=s flip=101', found $g" }
+    $surv = @(Get-Hits $lines 'meek' | Where-Object { $_.Kind -eq 'survivable' -and $_.Hp -eq 26 })
+    if ($surv.Count -ge 20) { Pass "spread-grab: $($surv.Count) survivable Meek hits at hp=26" } else { Fail "spread-grab: at least 20 survivable Meek HITs at hp=26, found $($surv.Count)" }
+    $over = @($surv | Where-Object { $_.Applied -gt 25 -or ($_.Hp - $_.Applied) -lt 1 })
+    if ($over.Count) { Fail "spread-grab: a survivable hit left less than 1 HP: applied=$($over[0].Applied) at hp=$($over[0].Hp) (rolled $($over[0].Rolled))" }
+    elseif ($surv.Count) { Pass "spread-grab: every survivable hit applied <= 25 (max $(($surv | Measure-Object Applied -Maximum).Maximum); rolled up to $(($surv | Measure-Object Rolled -Maximum).Maximum))" }
+    $ok = @($lines | Where-Object { $_ -match "\[$D\] OK spread-grab Meek #\d+ hit took " }).Count
+    if ($ok -ge 20) { Pass "spread-grab: the driver saw Health >= 1 after $ok grabs" } else { Fail "spread-grab: the driver's OK line for 20 grabs, found $ok" }
+}
+if ($Scenario -eq 'signal' -and -not $launch2Missing -and -not $signalNotShown) {
+    # MATCH start: exactly the six values from the screen (a difference names the knob; a knob not set there too).
+    $m = @($lines | Where-Object { $_ -match "\[$C\] MATCH start knobs=(.*?)\s*$" } | ForEach-Object { $null = $_ -match "\[$C\] MATCH start knobs=(.*?)\s*$"; $Matches[1] })
+    if ($m.Count) {
+        $got = @{}
+        foreach ($kv in ($m[0] -split ' ')) { if ($kv -match '^([^=]+)=(.*)$') { $got[$Matches[1]] = $Matches[2] } }
+        $diff = @()
+        foreach ($kv in $K8) { if ($got[$kv[0]] -ne $kv[1]) { $diff += "$($kv[0]): got $(if ($got.ContainsKey($kv[0])) { $got[$kv[0]] } else { 'Default' }), want $($kv[1])" } }
+        foreach ($k in $got.Keys) { if (-not ($K8 | Where-Object { $_[0] -eq $k })) { $diff += "$k`: got $($got[$k]), not set on the screen (dev.lua?)" } }
+        if ($diff.Count) { Fail "signal: MATCH start knobs differ from the screen's: $($diff -join '; ')" } else { Pass "signal: MATCH start knobs are the screen's ($K8Text)" }
+    }
+    $mh = @(Get-Hits $lines 'meek' | Where-Object { $_.Hp -eq 100 -and $_.Kind -in 'hit', 'survivable' })
+    if (-not $mh.Count) { Fail 'signal: a Meek HIT at hp=100 (the grab at full Health)' }
+    elseif ($mh[0].Applied -ge 15 -and $mh[0].Applied -le 35 -and $mh[0].Scaled -eq 25) { Pass "signal: the Meek's grab at full Health took $($mh[0].Applied) (25 +- spread: 15..35)" }
+    else { Fail "signal: the Meek's grab at full Health took $($mh[0].Applied) (scaled $($mh[0].Scaled)), want 15..35 of 25" }
+    $sh = @(Get-Hits $lines 'stalker' | Where-Object { $_.Hp -eq 100 })
+    if (-not $sh.Count) { Fail 'signal: a Stalker HIT at hp=100' }
+    elseif ($sh[0].Applied -ge 30 -and $sh[0].Applied -le 70 -and $sh[0].Scaled -eq 50) { Pass "signal: the Stalker's grab took $($sh[0].Applied) (50 +- spread: 30..70)" }
+    else { Fail "signal: the Stalker's grab took $($sh[0].Applied) (scaled $($sh[0].Scaled)), want 30..70 of 50" }
+}
+
 if ($failed) { Write-Host "$failed check(s) failed."; exit 1 }
-$notShown = @($lines | Where-Object { $_ -match "\[$([regex]::Escape("${name}Driver"))\] (NOTSHOWN |END result=NOTSHOWN)" })
+$notShown = @(@($lines1) + @($lines) | Where-Object { $_ -match "\[$([regex]::Escape("${name}Driver"))\] (NOTSHOWN |END result=NOTSHOWN)" })
 if ($coldNotShown) { $notShown += "NOTSHOWN $coldNotShown" }
 if ($notShown.Count) {
     $notShown | ForEach-Object { Write-Host "not shown: $($_ -replace '^.*?NOTSHOWN ', '')" }

@@ -32,6 +32,13 @@
   anything is deployed. The time limit defaults to the host's 900 s times 1.5. It doesn't take
   the workspace's dumps\vm.lock: whoever starts it takes the lock around it (tools/vm/README.md, "The VM lock").
   test/run-pair.ps1 (the pair scenarios) is separate and unchanged.
+  Story 8: spread and spread-grab run like the story 3 scenarios (host limit 2400 s). signal, no-core and old-core are
+  VM only (refused on the host before anything is deployed). signal is two VM launches of the same copy (signal-a,
+  then signal-b only after launch 1's PASS; the copy's saves are kept between them), neither with a dev.lua, judged
+  once by check.ps1 -Scenario signal -Log <signal-b.vm.log> -FirstLog <signal-a.vm.log>. no-core stages no core;
+  old-core stages an older core package already on disk (-OldCorePackage, else the first mods\Nucleus\build\package-*
+  whose version dependsOn refuses; none: "SKIPPED", exit 3, nothing run); both deploy Difficulty with -Force and the
+  driver only waits on the menu (host limit 300 s).
 .EXAMPLE
   ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario flip
   ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario default -Target vm
@@ -39,18 +46,24 @@
 param(
     [Parameter(Mandatory)] [string] $Instance,
     [Parameter(Mandatory)] [ValidateSet('scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite',
-                 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen')] [string] $Scenario,
-    [int] $TimeoutSec = 0, # 0: 900 on the host, x1.5 in the VM
+                 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen', 'spread', 'spread-grab',
+                 'signal', 'no-core', 'old-core')] [string] $Scenario,
+    [int] $TimeoutSec = 0, # 0: the scenario's host limit (900; spread and spread-grab 2400; no-core and old-core 300), x1.5 in the VM
     [ValidateSet('host', 'vm')] [string] $Target = 'host',
+    [string] $OldCorePackage, # old-core: a core package folder (Mods\Nucleus, LogicMods\Nucleus.pak) older than dependsOn; default: the first under mods\Nucleus\build\package-*
     [switch] $AllowOtherDrivers # run even when another runner's test mod is enabled in the copy (tools/run-guard)
 )
 $ErrorActionPreference = 'Stop'
-# Story 7's screen needs real mouse input (click, drag, type), which only the VM runner serves.
-if ($Scenario -eq 'screen' -and $Target -ne 'vm') {
-    Write-Host "refused: scenario 'screen' needs real clicks, a drag and typing, which only the VM runner serves; pass -Target vm."
+# Story 7's screen and story 8's signal need real mouse input (click, drag, type), which only the VM runner serves;
+# story 8's no-core and old-core change which core the copy has, which only the VM run puts back by itself.
+$vmOnly = @{ 'screen' = 'real clicks, a drag and typing'; 'signal' = 'real clicks, drags and typing over two launches'
+             'no-core' = 'a copy without core'; 'old-core' = 'a copy with an older core' }
+if ($vmOnly.ContainsKey($Scenario) -and $Target -ne 'vm') {
+    Write-Host "refused: scenario '$Scenario' needs $($vmOnly[$Scenario]), which only the VM runner serves; pass -Target vm."
     exit 1
 }
-$hostTimeout = 900
+$hostTimeouts = @{ 'spread' = 2400; 'spread-grab' = 2400; 'no-core' = 300; 'old-core' = 300 }
+$hostTimeout = if ($hostTimeouts.ContainsKey($Scenario)) { $hostTimeouts[$Scenario] } else { 900 }
 if ($TimeoutSec -le 0 -and $Target -eq 'host') { $TimeoutSec = $hostTimeout }
 $CoreName = 'Nucleus'
 $here    = $PSScriptRoot
@@ -97,27 +110,82 @@ function Invoke-Deploy([string[]] $a) {
     if ($LASTEXITCODE -ne 0) { throw "deploy.ps1 $($a -join ' ') failed (exit $LASTEXITCODE)" }
 }
 
+# Story 8's old-core: a core package already on disk (never built here) whose version dependsOn refuses.
+function Find-OldCorePackage {
+    . (Join-Path $here 'deploy-lib.ps1')
+    $range = (@((Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json).dependsOn) | Where-Object { "$($_.id)" -like "*.$($CoreName.ToLowerInvariant())" } | Select-Object -First 1).version
+    $candidates = if ($OldCorePackage) { @($OldCorePackage) } else {
+        @(Get-ChildItem (Join-Path $root "mods\$CoreName\build") -Directory -Filter 'package-*' -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object FullName)
+    }
+    foreach ($c in $candidates) {
+        $mj = Join-Path $c "Mods\$CoreName\mod.json"
+        if (-not (Test-Path $mj) -or -not (Test-Path (Join-Path $c "LogicMods\$CoreName.pak"))) { continue }
+        $v = $null
+        try { $v = (Get-Content $mj -Raw | ConvertFrom-Json).version } catch { }
+        if ($v -and -not (Test-CaretRange -Version $v -Range $range)) { return [pscustomobject]@{ Path = (Resolve-Path $c).Path; Version = $v; Range = $range } }
+    }
+    return $null
+}
+
 if ($Target -eq 'vm') {
     . (Join-Path $root 'tools\vm\vm-sp.ps1')
     # Core comes from the host's own build/package, installed by core's own deploy.ps1 (never built here).
     $coreDeploy = Join-Path $root "mods\$CoreName\deploy.ps1"
     if (-not (Test-Path $coreDeploy)) { throw "$CoreName's deploy.ps1 not found at $coreDeploy (the VM run installs core from its build/package)." }
+    $old = $null
+    if ($Scenario -eq 'old-core') {
+        $old = Find-OldCorePackage
+        if (-not $old) { Write-Host "SKIPPED: old-core needs a $CoreName package older than dependsOn already on disk (mods\$CoreName\build\package-*, or -OldCorePackage); none found. Nothing was run."; exit 3 }
+        Write-Host "old-core: $CoreName $($old.Version) from $($old.Path) (dependsOn $($old.Range))"
+    }
+    # One VM launch of a driver scenario (signal: two, signal-a then signal-b, the saves kept in between).
+    function Invoke-VmLaunch([string] $launch, [string] $kept) {
+        Remove-Item $kept -ErrorAction SilentlyContinue
+        # A refusal of the guard (the VM copy's mods.txt, in the stage) ends the run before anything is installed there.
+        try {
+            $run = Invoke-NNBSpRun -Instance $inst -TestMod $driver -Mods $CoreName, $driver, $name -Paks "$CoreName.pak" `
+                -EndPattern "\[$driver\] END result=" -TimeoutSec (Get-NNBSpTimeout $hostTimeout $TimeoutSec) -LogOut $kept -Prepare {
+                    param($stage)
+                    $refusal = Get-RunGuardRefusal -Workspace $root -Instance $stage -Owner 'difficulty' -Bypass:$AllowOtherDrivers -Vm
+                    if ($refusal) { throw $refusal }
+                    if ($Scenario -eq 'old-core') {
+                        # The older core, copied as its own deploy.ps1 would (its files, its pak, the first mods.txt line).
+                        $sMods = Join-Path $stage 'NuclearNightmare\Binaries\Win64\ue4ss\Mods'
+                        Copy-Item (Join-Path $old.Path "Mods\$CoreName") $sMods -Recurse -Force
+                        Copy-Item (Join-Path $old.Path "LogicMods\$CoreName.pak") (Join-Path $stage 'NuclearNightmare\Content\Paks\LogicMods') -Force
+                        $txt = Join-Path $sMods 'mods.txt'
+                        Set-Content $txt (@("$CoreName : 1") + @(Get-Content $txt | Where-Object { $_ -notmatch "^\s*$CoreName\s*:" }))
+                        Write-Host "$CoreName $($old.Version) staged (old-core)"
+                    } elseif ($Scenario -ne 'no-core') {
+                        & pwsh -NoProfile -NonInteractive -File $coreDeploy -Instance $stage -Staged
+                        if ($LASTEXITCODE -ne 0) { throw "$CoreName's deploy.ps1 failed in the stage (exit $LASTEXITCODE)" }
+                    }
+                    $script:deployInst = $stage
+                    # no-core, old-core: Difficulty's deploy.ps1 refuses without core or with too old a core; -Force installs anyway.
+                    $a = if ($Scenario -in 'no-core', 'old-core') { @('-Force', '-Test', '-Scenario', $Scenario) } else { @('-Test', '-PreCore', '-Scenario', $launch) }
+                    Invoke-Deploy $a
+                }
+        } catch { if ("$($_.Exception.Message)".StartsWith('refused: ')) { Write-Host $_.Exception.Message; exit 1 }; throw }
+        Write-Host "VM run ($launch): $($run.Result)"
+        $run
+    }
+    if ($Scenario -eq 'signal') {
+        # Launch 1 sets the rows and saves DT8-SIGNAL; launch 2 (the same VM copy, its saves kept: vm-sp.ps1 puts back
+        # only mods, paks and mods.txt) selects it and hosts. Judged once, on both logs.
+        $keptA = Join-Path $outDir 'signal-a.vm.log'
+        $keptB = Join-Path $outDir 'signal-b.vm.log'
+        Remove-Item $keptB -ErrorAction SilentlyContinue
+        $runA = Invoke-VmLaunch 'signal-a' $keptA
+        if (-not $runA.Log) { Write-Host 'No UE4SS.log from the VM (launch 1).'; exit 1 }
+        if (Select-String -Path $keptA -Pattern "\[$driver\] END result=PASS " -Quiet) {
+            $runB = Invoke-VmLaunch 'signal-b' $keptB
+            if (-not $runB.Log) { Write-Host 'No UE4SS.log from the VM (launch 2).' }
+        } else { Write-Host 'Launch 1 did not end with PASS; launch 2 not run (check.ps1 judges launch 1).' }
+        & pwsh -NoProfile -NonInteractive -File (Join-Path $here 'check.ps1') -Log $keptB -FirstLog $keptA -Scenario $Scenario -Target vm
+        exit $LASTEXITCODE
+    }
     $kept = Join-Path $outDir "$Scenario.vm.log"
-    Remove-Item $kept -ErrorAction SilentlyContinue
-    # A refusal of the guard (the VM copy's mods.txt, in the stage) ends the run before anything is installed there.
-    try {
-        $run = Invoke-NNBSpRun -Instance $inst -TestMod $driver -Mods $CoreName, $driver, $name -Paks "$CoreName.pak" `
-            -EndPattern "\[$driver\] END result=" -TimeoutSec (Get-NNBSpTimeout $hostTimeout $TimeoutSec) -LogOut $kept -Prepare {
-                param($stage)
-                $refusal = Get-RunGuardRefusal -Workspace $root -Instance $stage -Owner 'difficulty' -Bypass:$AllowOtherDrivers -Vm
-                if ($refusal) { throw $refusal }
-                & pwsh -NoProfile -NonInteractive -File $coreDeploy -Instance $stage -Staged
-                if ($LASTEXITCODE -ne 0) { throw "$CoreName's deploy.ps1 failed in the stage (exit $LASTEXITCODE)" }
-                $script:deployInst = $stage
-                Invoke-Deploy @('-Test', '-PreCore', '-Scenario', $Scenario)
-            }
-    } catch { if ("$($_.Exception.Message)".StartsWith('refused: ')) { Write-Host $_.Exception.Message; exit 1 }; throw }
-    Write-Host "VM run: $($run.Result)"
+    $run = Invoke-VmLaunch $Scenario $kept
     if (-not $run.Log) { Write-Host 'No UE4SS.log from the VM.'; exit 1 }
     & pwsh -NoProfile -NonInteractive -File (Join-Path $here 'check.ps1') -Log $kept -Scenario $Scenario -Target vm
     exit $LASTEXITCODE

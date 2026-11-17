@@ -346,6 +346,130 @@ Expect ($screen + @(D 'MATCH start knobs=all Default')) 'screen' 1 'screen: a ma
 $screenNs = @(Without $screen 'END result|ROWS change|ROWS follow difficulty=[01]|PRESETS (save|select|delete)|SCPRESET|SCDRAG') + @((DR 'NOTSHOWN save DT7-A: the game''s preset count didn''t grow'), (DR 'END result=NOTSHOWN checks=40 failures=0 notshown=1 dead=false'))
 Expect $screenNs 'screen' 2 'screen: a handler not driven -> not shown' 'NOT SHOWN'
 
+# ---------------------------------------------------------------- story 8: spread (200 rolled Meek hits)
+# Ten values with mean 25 and sd about 4.9 (over 200: 4.93), min 17, max 33; repeated 20 times.
+$base10 = @(17, 19, 21, 23, 24, 26, 27, 29, 31, 33)
+function SpreadHits([double[]] $vals, [string] $kind = 'hit', [string] $scaled = '25') {
+    @($vals | ForEach-Object { D ("HIT enemy=meek via=ApplyLockedDamage stock=25 scaled=$scaled rolled={0} applied={0} hp=100 kind=$kind" -f ([string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', $_))) })
+}
+$vals200 = @(1..20 | ForEach-Object { $base10 }) | ForEach-Object { [double]$_ }
+$spreadDriver = @((DR 'SPREADMODE direct'), (DR 'SPREADRUN end mode=direct hits=200 mean=25.000 sd=4.932 min=17.00 max=33.00'),
+    (DR 'OK spread 200 hits, every loss in 15..35 (min 17.00, max 33.00; mean 25.00, sd 4.93)'))
+$spread = Story3 'spread' 'spread=20' (SpreadHits $vals200) $spreadDriver
+Expect $spread 'spread' 0 'spread: 200 rolled hits, mean 25, sd 4.9, 17..33 -> passes (frostbite soft)' '(?s)warn: spread: no HIT enemy=frostbite.*All checks passed \(1 soft'
+Expect (Story3 'spread' 'spread=20' (SpreadHits ($vals200 | ForEach-Object { $_ + 1.5 })) $spreadDriver) 'spread' 1 'spread: mean 26.5 -> fails naming the mean' 'mean of rolled 26\.500'
+Expect (Story3 'spread' 'spread=20' (SpreadHits ($vals200 | ForEach-Object { 25 + ($_ - 25) * 0.6 })) $spreadDriver) 'spread' 1 'spread: sd about 3 -> fails naming the sd' 'sample sd of rolled 2\.9'
+$wide10 = @(15, 15, 16, 18, 25, 25, 32, 34, 35, 35)
+Expect (Story3 'spread' 'spread=20' (SpreadHits (@(1..20 | ForEach-Object { $wide10 }) | ForEach-Object { [double]$_ })) $spreadDriver) 'spread' 1 'spread: sd about 8 (inside 15..35) -> fails naming the sd' 'sample sd of rolled 8\.'
+$outlier = @($vals200); $outlier[7] = 35.5
+Expect (Story3 'spread' 'spread=20' (SpreadHits $outlier) $spreadDriver) 'spread' 1 'spread: one rolled 35.5 -> fails naming the value' 'rolled value 35\.5 outside 15\.\.35'
+Expect (Story3 'spread' 'spread=20' (SpreadHits ($vals200[0..149])) $spreadDriver) 'spread' 1 'spread: 150 hits with the driver''s PASS -> fails' 'at least 200 Meek HIT lines'
+$spreadFew = Story3 'spread' 'spread=20' (SpreadHits ($vals200[0..149])) @((DR 'NOTSHOWN spread: only 150 of 200 hits (real route)'))
+$spreadFew = $spreadFew -replace 'END result=PASS checks=3 failures=0 notshown=0', 'END result=NOTSHOWN checks=1 failures=0 notshown=1'
+Expect $spreadFew 'spread' 2 'spread: 150 hits, driver NOTSHOWN -> exit 2 (not shown, never passed)' 'NOT SHOWN'
+Expect (Story3 'spread' 'spread=20' (SpreadHits $vals200 -scaled '50') $spreadDriver) 'spread' 1 'spread: hits not scaled 25 -> fails' 'scaled=25'
+Expect (Story3 'spread' 'spread=20' (SpreadHits $vals200 -kind 'survivable') $spreadDriver) 'spread' 0 'spread: the real route''s survivable hits count (rolled is the roll)' 'All checks passed'
+Expect ($spread + @(D 'HIT enemy=meek via=ApplyLockedDamage stock=25 scaled=25 rolled=25 applied=100 hp=100 kind=execution')) 'spread' 1 'spread: an execution -> fails' 'kind=execution'
+Expect ($spread -replace 'MATCH start knobs=spread=20', 'MATCH start knobs=enemyDamage=25 spread=20') 'spread' 1 'spread: other knobs -> fails' 'MATCH start'
+$frostOk = @(D 'HIT enemy=frostbite via=frostbite stock=1 scaled=1 rolled=1 applied=1 hp=90 kind=hit')
+Expect ($spread + $frostOk) 'spread' 0 'spread: a frostbite hit with rolled = scaled passes' 'never rolled'
+Expect ($spread + @(D 'HIT enemy=frostbite via=frostbite stock=1 scaled=1 rolled=1.2 applied=1.2 hp=90 kind=hit')) 'spread' 1 'spread: a rolled frostbite hit -> fails' 'environmental hit was rolled'
+
+# ---------------------------------------------------------------- story 8: spread-grab (20 grabs at Health 26)
+$grabs20 = @(1..20 | ForEach-Object {
+    $r = [string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', 10 + $_ * 1.7)   # 11.7 .. 44
+    $a = [string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', [Math]::Min(10 + $_ * 1.7, 25))
+    (D 'GRAB enemy=meek hp=26 E=25 game=e decision=s flip=101 victim=local spare=yes')
+    (D 'RESTORE enemy=meek hp=101 -> 26 via=multicast')
+    (D "HIT enemy=meek via=ApplyLockedDamage stock=100 scaled=25 rolled=$r applied=$a hp=26 kind=survivable")
+    (DR "OK spread-grab Meek #$_ hit took $a HP from 26.00 (want at most 25.00, Health >= 1) via ApplyLockedDamage, hp now 1.00")
+})
+$sgrab = Story3 'spread-grab' 'enemyDamage=25 spread=50' $grabs20 @()
+Expect $sgrab 'spread-grab' 0 'spread-grab: 20 survivable grabs, rolled up to 44, applied at most 25 -> passes' 'All checks passed'
+Expect ($sgrab -replace 'rolled=44 applied=25 hp=26', 'rolled=44 applied=26 hp=26') 'spread-grab' 1 'spread-grab: one applied 26 (Health 0) -> fails' 'left less than 1 HP: applied=26'
+$sgrab19 = @($sgrab | Where-Object { $_ -notmatch 'Meek #20 ' })
+$iLastGrab = -1; for ($i = 0; $i -lt $sgrab19.Count; $i++) { if ($sgrab19[$i] -match 'GRAB enemy=meek') { $iLastGrab = $i } }
+$sgrab19 = @($sgrab19[0..($iLastGrab - 1)]) + @($sgrab19[($iLastGrab + 3)..($sgrab19.Count - 1)])
+Expect $sgrab19 'spread-grab' 1 'spread-grab: 19 grabs -> fails' 'at least 20'
+Expect ($sgrab + @(D 'GRAB enemy=meek hp=26 E=25 game=e decision=e flip=none victim=local spare=yes')) 'spread-grab' 1 'spread-grab: an execution decision -> fails' 'decision=e'
+Expect ($sgrab + @(DR 'DEATH the player died (case Meek #4)')) 'spread-grab' 1 'spread-grab: a death -> fails' 'DEATH'
+Expect ($sgrab + @(DR 'FAIL spread-grab Meek #3 hit took 26.00 HP from 26.00 (want at most 25.00, Health >= 1) via ApplyLockedDamage, hp now 0.00')) 'spread-grab' 1 'spread-grab: a driver FAIL (Health 0) -> fails' 'FAIL'
+$sgrabNs = @(Without $sgrab 'Meek #(1[1-9]|20) |END result') + @((DR 'NOTSHOWN Meek #11: no grab seen'), (DR 'END result=NOTSHOWN checks=10 failures=0 notshown=1 dead=false'))
+Expect $sgrabNs 'spread-grab' 2 'spread-grab: a Meek that never grabbed -> not shown' 'NOT SHOWN'
+
+# ---------------------------------------------------------------- story 8: signal (two launches, the screen's values)
+$k8 = 'enemyDamage=25 spread=20 revives=8 cold=0 frostbite=0 dmg.stalker=200'
+$sigA = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 19'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
+    (DR 'SCENARIO signal-a'), (DR 'DEVLUA absent C:\nn\x\Difficulty\Scripts\dev.lua'),
+    (DR 'OK SIGDEV no dev.lua in Difficulty''s Scripts (the values come only from the screen, the preset and the capture)'),
+    (D 'PRESETS open presets=1 entries=1 changed=false'),
+    (D 'ROWS follow difficulty=0 classified=2 enemyDamage=100 cold=200 revives=6'),
+    (DR 'OK SIGDIFF Nightmare by real clicks: Diffculty 0, shown Nightmare, Enemy Damage hint 100 (want 0, Nightmare, 100)'),
+    (D 'ROWS change enemyDamage=25 rows=enemyDamage=25'), (DR 'OK SIGTYPE enemyDamage typed 25: box ''25'' bar 25'),
+    (D 'ROWS change spread=20 rows=enemyDamage=25;spread=20'), (DR 'OK SIGTYPE spread typed 20: box ''20'' bar 20'),
+    (D 'ROWS change dmg.stalker=200 rows=enemyDamage=25;spread=20;dmg.stalker=200'), (DR 'OK SIGTYPE dmg.stalker typed 200: box ''200'' bar 200'),
+    (D 'ROWS change cold=0 rows=enemyDamage=25;spread=20;cold=0;dmg.stalker=200'), (DR 'OK SIGDRAG cold dragged to the start: box ''0'' bar 0 (want 0)'),
+    (D 'ROWS change frostbite=0 rows=enemyDamage=25;spread=20;cold=0;frostbite=0;dmg.stalker=200'), (DR 'OK SIGDRAG frostbite dragged to the start: box ''0'' bar 0 (want 0)'),
+    (D 'ROWS change revives=8 rows=enemyDamage=25;spread=20;revives=8;cold=0;frostbite=0;dmg.stalker=200'), (DR 'SIGDRAG revives dragged to 8: box ''8'' bar 8'),
+    (DR 'OK SIGROWS before the save: every row shows its value and the screen is on Nightmare (Diffculty 0, shown Nightmare)'),
+    (D "PRESETS save index=1 name=DT8-SIGNAL knobs=$k8"), (DR 'OK SIGSAVED DT8-SIGNAL is in the game''s presets'),
+    (DR 'END result=PASS checks=12 failures=0 notshown=0 dead=false'))
+$sigB = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 19'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
+    (DR 'SCENARIO signal-b'), (DR 'DEVLUA absent C:\nn\x\Difficulty\Scripts\dev.lua'),
+    (DR 'OK SIGFOUND DT8-SIGNAL is in the game''s presets after the restart (presets across a restart)'),
+    (D "PRESETS select index=1 name=DT8-SIGNAL knobs=$k8"),
+    (DR 'OK SIGROWS after the select: every row shows its value and the screen is on Nightmare (Diffculty 0, shown Nightmare)'),
+    (DR 'SIGSESSION advertise=false lan=false friendsOnly=true'), (DR 'OK SIGSESSION CreateSteamSession friends-only (advertise=false friendsOnly=true)'),
+    (D "PRESETS capture knobs=$k8"), (U 'LoadMap /Game/Maps/SmallLoweIsland/SmallMap'), (D 'WORLD host=true standalone=false map=SmallMap'),
+    (D "MATCH start knobs=$k8"), (DR 'WHITEOUT disabled=true director=1 phase=0'), (D 'TOKENS start limit=6 N=8 count=-2'),
+    (D 'GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes'), (D 'RESTORE enemy=meek hp=101 -> 100 via=multicast'),
+    (D 'HIT enemy=meek via=ApplyLockedDamage stock=100 scaled=25 rolled=22.4 applied=22.4 hp=100 kind=survivable'),
+    (DR 'OK signal-b Meek #1 hit took 22.40 HP (want 15.00..35.00) via ApplyLockedDamage, hp now 77.60'),
+    (D 'HIT enemy=stalker via=ApplyStalkerDamage stock=100 scaled=50 rolled=57.1 applied=57.1 hp=100 kind=survivable'),
+    (DR 'OK signal-b Stalker #2 hit took 57.10 HP (want 30.00..70.00) via ApplyStalkerDamage, hp now 42.90'),
+    (D 'COLD raw=0.1500 applied=0 factor=0 polls=40 writes=38 players=1 avg_ms=0.031 clock=core'),
+    (DR 'OK signal-b Temperature stayed at its start outdoors for 60 s (max 0.0008, want <= 0.005)'),
+    (DR 'OK SIGTOKENS the computer''s text is ''Reinforcement Tokens 8'' (got Reinforcement Tokens 8)'),
+    (D 'WORLD host=false standalone=true map=NewMainMenu'), (DR 'OK SIGCLEAN no DT8- preset left (deleted 1)'),
+    (DR 'END result=PASS checks=14 failures=0 notshown=0 dead=false'))
+function RunSignal([string[]] $a, [string[]] $b, [bool] $noB = $false) {
+    $pa = Join-Path $tmp "signal-a-$([guid]::NewGuid().ToString('N').Substring(0, 6)).log"
+    $pb = Join-Path $tmp "signal-b-$([guid]::NewGuid().ToString('N').Substring(0, 6)).log"
+    Set-Content $pa $a
+    if (-not $noB) { Set-Content $pb $b }
+    $out = & pwsh -NoProfile -NonInteractive -File $check -Log $pb -FirstLog $pa -Scenario signal -Target vm 2>&1 | Out-String
+    @{ Code = $LASTEXITCODE; Out = $out }
+}
+function ExpectSignal([string[]] $a, [string[]] $b, [int] $code, [string] $name, [string] $mustSay, [bool] $noB = $false) {
+    $r = RunSignal $a $b $noB
+    $ok = $r.Code -eq $code -and (-not $mustSay -or $r.Out -match $mustSay)
+    if ($ok) { $script:passed++ } else { $script:failed++; Write-Host "FAIL $name (exit $($r.Code), want $code)"; Write-Host ($r.Out -split "`n" | Where-Object { $_ -match 'FAIL|warn' } | Out-String) }
+}
+ExpectSignal $sigA $sigB 0 'signal: both launches as written -> passes' 'All checks passed'
+ExpectSignal $sigA ($sigB -replace "MATCH start knobs=$([regex]::Escape($k8))", 'MATCH start knobs=enemyDamage=25 spread=20 revives=8 cold=50 frostbite=0 dmg.stalker=200') 1 'signal: MATCH knobs differ -> fails naming the knob' 'cold: got 50, want 0'
+ExpectSignal $sigA ($sigB -replace "MATCH start knobs=$([regex]::Escape($k8))", "MATCH start knobs=$k8 dmg.meek=50") 1 'signal: a knob the screen didn''t set -> fails naming it' 'dmg\.meek: got 50, not set on the screen'
+ExpectSignal $sigA ($sigB -replace 'DEVLUA absent', 'DEVLUA present') 1 'signal: dev.lua present in launch 2 -> fails' 'DEVLUA'
+ExpectSignal ($sigA -replace 'DEVLUA absent', 'DEVLUA present') $sigB 1 'signal: dev.lua present in launch 1 -> fails' 'launch 1: .*DEVLUA'
+$sigBNoPreset = @(Without $sigB 'SIGFOUND|PRESETS select|SIGROWS|SIGSESSION|PRESETS capture|LoadMap|host=true|MATCH|WHITEOUT|TOKENS|GRAB|RESTORE|HIT|OK signal-b|COLD|SIGTOKENS|END result') + @(
+    (DR 'FAIL SIGFOUND DT8-SIGNAL is in the game''s presets after the restart (presets across a restart)'), (DR 'END result=FAIL checks=1 failures=1 notshown=0 dead=false'))
+ExpectSignal $sigA $sigBNoPreset 1 'signal: launch 2 can''t find DT8-SIGNAL -> fails (presets across a restart)' 'SIGFOUND'
+ExpectSignal $sigA @() 1 'signal: launch 1 passed but no launch 2 log -> fails' 'launch 2: no log' $true
+$sigAFail = @(Without $sigA 'SIGSAVED|END result') + @((DR 'FAIL SIGSAVED DT8-SIGNAL is in the game''s presets'), (DR 'END result=FAIL checks=12 failures=1 notshown=0 dead=false'))
+ExpectSignal $sigAFail @() 1 'signal: launch 1 failed, launch 2 not run -> fails on launch 1' 'launch 1: .*SIGSAVED' $true
+ExpectSignal (Without $sigA 'OK SIGDRAG frostbite') $sigB 1 'signal: only one value dragged -> fails' 'at least two values dragged'
+ExpectSignal (Without $sigA 'PRESETS save') $sigB 1 'signal: no DT8-SIGNAL save line -> fails' 'PRESETS save'
+ExpectSignal (Without $sigA 'ROWS change spread=20') $sigB 1 'signal: no spread row change in launch 1 -> fails' 'ROWS change spread=20'
+ExpectSignal $sigA (Without $sigB 'PRESETS capture') 1 'signal: no capture -> fails' 'PRESETS capture'
+ExpectSignal $sigA ($sigB -replace 'rolled=22\.4 applied=22\.4', 'rolled=40 applied=40') 1 'signal: a Meek grab taking 40 -> fails' 'Meek''s grab at full Health took 40'
+ExpectSignal $sigA ($sigB -replace 'scaled=50 rolled=57\.1 applied=57\.1', 'scaled=100 rolled=100 applied=99') 1 'signal: a stock Stalker hit -> fails' 'Stalker''s grab took 99'
+ExpectSignal $sigA ($sigB -replace 'N=8 count=-2', 'N=6 count=0') 1 'signal: tokens not 8 -> fails' 'N=8'
+ExpectSignal $sigA ($sigB -replace 'advertise=false lan=false', 'advertise=true lan=false') 1 'signal: a public session -> fails' 'SIGSESSION'
+ExpectSignal $sigA ($sigB -replace 'COLD raw=0\.1500 applied=0', 'COLD raw=0.1500 applied=0.0300') 1 'signal: the meter rose -> fails' 'COLD applied'
+ExpectSignal $sigA ($sigB -replace 'COLD raw=0\.1500', 'COLD raw=0.0000') 2 'signal: never cooled (raw 0) -> not shown' 'NOT SHOWN'
+$sigBNs = @(Without $sigB 'GRAB|RESTORE|HIT enemy|OK signal-b Meek|OK signal-b Stalker|END result') + @((DR "NOTSHOWN Meek #1: the Meek didn't hit in 120 s"), (DR 'END result=NOTSHOWN checks=10 failures=0 notshown=1 dead=false'))
+ExpectSignal $sigA $sigBNs 2 'signal: the Meek never hit -> not shown' 'NOT SHOWN'
+ExpectSignal $sigA (Without $sigB 'SIGCLEAN') 0 'signal: the clean-up line is soft' 'warn: launch 2: \?'
+
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)
 exit $(if ($script:failed) { 1 } else { 0 })

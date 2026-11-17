@@ -58,6 +58,23 @@
 --                   Enemy Damage 17 saved on Hard, None (rows kept), the screen on Easy, DT7-A (17, Default rows follow
 --                   its Hard), DT7-A deleted; one more open starts Default on Normal. Screenshots screen-rows,
 --                   screen-nightmare, screen-preset.
+-- Story 8 (the epic's success checks):
+--   spread          Normal, Damage Spread 20: 200 Meek standard hits at full Health (refilled between hits), straight
+--                   through the hooked static NNEnemyAttackContext:ApplyLockedDamage(<an idle spawned Meek>, 25) after
+--                   TryBeginAttack locks the player (one probe call first: when it doesn't lower Health, real attacks
+--                   instead, with the scenario's longer time limit). check.ps1 judges Difficulty's rolled values.
+--   spread-grab     Nightmare, Enemy Damage 25, Spread 50: 20 Meek grabs, Health set to 26 before each (test only):
+--                   each survivable, each leaving Health >= 1 (at most 25 taken).
+--   signal-a        (VM, real input; launch 1 of signal) the create-world screen: Nightmare by real clicks on the
+--                   Difficulty picker, Enemy Damage 25, Damage Spread 20 and Stalker 200 typed, Cold Exposure 0 and
+--                   Frostbite Damage 0 dragged to the slider's start, Reinforcement Tokens 8 dragged (typed if the drag
+--                   lands elsewhere); saved as preset DT8-SIGNAL (leftover DT8-* deleted first). No dev.lua.
+--   signal-b        (VM; launch 2, saves kept) DT8-SIGNAL selected, every row checked, a friends-only solo match
+--                   hosted with the screen's Create button (real click): a Meek grab at full Health (15..35 taken), a
+--                   Stalker grab (30..70), 60 s outdoors without the meter rising, the computer's text 8 tokens; then
+--                   back to the menu, DT8-SIGNAL deleted. No dev.lua.
+--   no-core, old-core  (menu only) waits for the menu world and 20 s, so the run reaches the menu; Difficulty's one
+--                   line is check.ps1's.
 -- White Outs: every scenario sets the game instance's DisableWhiteOuts before the match (cold-whiteout clears it) and
 -- logs one WHITEOUT line after the start; check.ps1 requires disabled=true, or disabled=false for cold-whiteout.
 -- Lines: OK / FAIL <check>; NOTSHOWN <case> (the driver couldn't make the case happen: not a pass);
@@ -95,7 +112,22 @@ local SCENARIOS = {
     ["presets"] = { diff = 2, special = "presets", cases = {} },
     -- Story 7: the rows on the create-world screen (the main menu only; real input, VM only).
     ["screen"] = { diff = 2, special = "screen", cases = {} },
+    -- Story 8.
+    ["spread"] = { diff = 2, special = "spread", n = 200, cases = {} },
+    ["spread-grab"] = { diff = 0, cases = {} }, -- 20 grab cases, below
+    ["signal-a"] = { diff = 2, special = "signal-a", cases = {} },
+    ["signal-b"] = { diff = 0, special = "signal-b", cases = {
+        { enemy = MEEK, lo = 15, hi = 35, grab = true }, -- Enemy Damage 25, Spread 20: 25 +- 2 sigma
+        { enemy = STALKER, lo = 30, hi = 70 },           -- Stalker 200 %: 50 +- 2 sigma
+    } },
+    ["no-core"] = { diff = 2, special = "menu", cases = {} },
+    ["old-core"] = { diff = 2, special = "menu", cases = {} },
 }
+-- spread-grab: 20 Meek grabs, each at Health 26 (E 25: survivable; the hit takes at most 25).
+for _ = 1, 20 do
+    local t = SCENARIOS["spread-grab"].cases
+    t[#t + 1] = { enemy = MEEK, base = 26, maxLoss = 25, grab = true }
+end
 local SC = SCENARIOS[SCENARIO or ""]
 say("SCENARIO %s", tostring(SCENARIO))
 if not SC then say("END result=FAIL checks=0 failures=1 reason=unknown scenario '%s'", tostring(SCENARIO)) return end
@@ -203,8 +235,14 @@ local function onHit(via, attacker)
     local hp = m and hpOf(m)
     c.judged = true
     c.hitAt = os.clock()
-    local loss = hp and (100 - hp) or nil
-    check(loss ~= nil and math.abs(loss - c.want) <= c.tol, "%s %s hit took %s HP (want %s) via %s, hp now %s", SCENARIO, c.label, fmt1(loss), fmt1(c.want), via, fmt1(hp))
+    local loss = hp and ((c.base or 100) - hp) or nil
+    if c.lo then -- a rolled hit: within the knob's 2-sigma range
+        check(loss ~= nil and loss >= c.lo - 0.05 and loss <= c.hi + 0.05, "%s %s hit took %s HP (want %s..%s) via %s, hp now %s", SCENARIO, c.label, fmt1(loss), fmt1(c.lo), fmt1(c.hi), via, fmt1(hp))
+    elseif c.maxLoss then -- a survivable grab from c.base: at most maxLoss taken, never below 1 HP
+        check(loss ~= nil and hp >= 1 and loss <= c.maxLoss + 0.05, "%s %s hit took %s HP from %s (want at most %s, Health >= 1) via %s, hp now %s", SCENARIO, c.label, fmt1(loss), fmt1(c.base), fmt1(c.maxLoss), via, fmt1(hp))
+    else
+        check(loss ~= nil and math.abs(loss - c.want) <= c.tol, "%s %s hit took %s HP (want %s) via %s, hp now %s", SCENARIO, c.label, fmt1(loss), fmt1(c.want), via, fmt1(hp))
+    end
 end
 
 local function installHooks()
@@ -219,6 +257,7 @@ local function installHooks()
     end, function()
         S.nested = S.nested - 1
         if S.lockedMine then
+            S.lockedHits, S.lockedAt = (S.lockedHits or 0) + 1, os.clock()
             S.lockedMine = false
             local c = S.case
             if c and not c.judged and c.actor and S.lockedAttackerPath == c.actor then onHit("ApplyLockedDamage", nil) end
@@ -355,6 +394,8 @@ step("travel", function()
     GS():OpenLevel(pc(), FName(MATCH_MAP), true, "listen")
     return after(3), 5
 end)
+-- signal-b keeps the steps from here on (it reaches the match through the screen's Create button, not OpenLevel).
+local MATCH_WORLD_IDX = #steps + 1
 step("match world", function() return function() return worldName():find("SmallMap", 1, true) ~= nil end, 150, "match world" end)
 step("touchdown", function() say("TOUCHDOWN requesting Enter") return request("key ENTER"), 20, "touchdown key" end)
 step("pawn", function()
@@ -407,6 +448,10 @@ for i, c in ipairs(SC.cases) do
         local okS, x = pcall(spawnInFront, cls)
         if not check(okS and valid(x), "SPAWN %s %s", c.label, okS and pathOf(x) or tostring(x)) then S.case = nil return end
         c.actor = pathOf(x)
+        if c.base then -- test only: the grab is decided at this Health (spread-grab)
+            local okH = pcall(function() p.Health = c.base end)
+            say("SETHP %s -> %s before %s ok=%s (test only)", fmt1(hpOf(p)), fmt1(c.base), c.label, tostring(okH))
+        end
         local t = os.clock()
         return function()
             local m = me()
@@ -431,7 +476,7 @@ for i, c in ipairs(SC.cases) do
                 pcall(function() mode = num(m.CharacterMovement.MovementMode) end)
                 check(playing ~= true and mode == 1, "%s %s moving again 6 s after the grab (PlayingMontage=%s movement=%s montage=%s hp=%s)", SCENARIO, c.label, tostring(playing), tostring(mode), montageOf(m), fmt1(hpOf(m)))
             end
-            local done = c.judged and (not c.moves or c.moveChecked) and (not c.survivable or c.grabs)
+            local done = c.judged and (not c.moves or c.moveChecked) and (not c.survivable or c.grabs) and (not c.grab or c.grabs)
             if done then return true end
             if os.clock() - t > 120 then return true end
             return false
@@ -440,7 +485,7 @@ for i, c in ipairs(SC.cases) do
     step("despawn " .. c.label, function()
         if S.dead then return end
         if not c.judged then S.notShown = S.notShown + 1 say("NOTSHOWN %s: the %s didn't hit in 120 s", c.label, c.enemy.name)
-        elseif c.survivable and not c.grabs then S.notShown = S.notShown + 1 say("NOTSHOWN %s: no grab seen", c.label) end
+        elseif (c.survivable or c.grab) and not c.grabs then S.notShown = S.notShown + 1 say("NOTSHOWN %s: no grab seen", c.label) end
         S.case = nil
         local x = c.actor and StaticFindObject(c.actor)
         if valid(x) then pcall(function() x:K2_DestroyActor() end) end
@@ -459,9 +504,26 @@ local function temperatureOf(ch) local ok, t = pcall(function() return num(ch.Te
 -- Natural enemies are cleared every 2 s during a phase (no enemy case runs in story 4).
 local function keepClear(st) if os.clock() - (st.clearAt or 0) >= 2 then st.clearAt = os.clock() clearOthers(nil) end end
 
-if SC.special == "cold" then
+-- The computer's own text (GetText_3: "Reinforcement Tokens <limit - count>") from a widget never shown.
+local function tokenText()
+    local cls = loadClass(NUKE_UI)
+    if not cls then return nil, "class not loaded" end
+    local wbl = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local okW, w = pcall(function() return wbl:Create(pc(), cls, pc()) end)
+    if not okW or not valid(w) then return nil, "Create failed: " .. tostring(w) end
+    local okT, t = pcall(function() return w:GetText_3() end)
+    local s
+    if okT then
+        if type(t) == "string" then s = t else pcall(function() s = t:ToString() end) end
+    end
+    pcall(function() w:RemoveFromParent() end)
+    if not s then return nil, "GetText_3 failed: " .. tostring(t) end
+    return s
+end
+-- The cold phase (cold, cold-zero, cold-whiteout; signal-b with cfg.factor 0): cfg = { factor, whiteouts }.
+local function addColdSteps(cfg)
     local P = { }
-    if SC.whiteouts then
+    if cfg.whiteouts then
         step("storm", function()
             local b = director()
             if not b then
@@ -498,7 +560,7 @@ if SC.special == "cold" then
         local t = temperatureOf(m)
         if not check(t ~= nil, "%s Temperature readable (%s)", SCENARIO, tostring(t)) then return end
         P.t0, P.start, P.max, P.last, P.samples, P.outside, P.path = os.clock(), t, t, t, 0, 0, pathOf(m)
-        say("COLDRUN start Temperature=0 (test only), %d s outdoors, factor %s", COLD_SECONDS, tostring(SC.factor))
+        say("COLDRUN start Temperature=0 (test only), %d s outdoors, factor %s", COLD_SECONDS, tostring(cfg.factor))
         return function()
             local p = me()
             if not p then if gone() then S.dead = true return true end return false end
@@ -510,7 +572,7 @@ if SC.special == "cold" then
             if readBool(p, "IsInInside") == true or readBool(p, "InsideEnoughToStopFreezing") == true or readBool(p, "CanTakeTemperature") ~= true then
                 P.outside = P.outside + 1
             end
-            if SC.whiteouts then
+            if cfg.whiteouts then
                 local b = director()
                 if not b or phaseOf(b) ~= STORM_PHASE then P.stormOff = (P.stormOff or 0) + 1 end
             end
@@ -528,12 +590,12 @@ if SC.special == "cold" then
             say("NOTSHOWN cold: the player was not outdoors on foot throughout (%d of %d samples; pawn changed %s)", P.outside, P.samples, tostring(P.changed == true))
             return
         end
-        if SC.whiteouts and (P.stormOff or 0) > 0 then
+        if cfg.whiteouts and (P.stormOff or 0) > 0 then
             S.notShown = S.notShown + 1
             say("NOTSHOWN cold-whiteout: the storm phase didn't last the %d s (%d of %d samples outside it)", COLD_SECONDS, P.stormOff, P.samples)
             return
         end
-        if SC.factor == 0 then
+        if cfg.factor == 0 then
             check(P.max <= 0.005, "%s Temperature stayed at its start outdoors for %.0f s (max %.4f, want <= 0.005)", SCENARIO, secs, P.max)
             return
         end
@@ -543,8 +605,8 @@ if SC.special == "cold" then
             return
         end
         -- A quarter of Nightmare's stock range for this time, +-10% (the weather sets where in the range).
-        local lo, hi = secs * SC.factor / STOCK_COOL_SLOW * 0.9, secs * SC.factor / STOCK_COOL_FAST * 1.1
-        if SC.whiteouts then
+        local lo, hi = secs * cfg.factor / STOCK_COOL_SLOW * 0.9, secs * cfg.factor / STOCK_COOL_FAST * 1.1
+        if cfg.whiteouts then
             if rise > hi then
                 check(true, "%s rise %.4f in %.0f s above a quarter of Nightmare's stock range (up to %.4f): the storm cooled, scaled by the knob", SCENARIO, rise, secs, hi)
             else
@@ -555,7 +617,9 @@ if SC.special == "cold" then
         end
         check(rise >= lo and rise <= hi, "%s rise %.4f in %.0f s within a quarter of Nightmare's stock (%.4f..%.4f)", SCENARIO, rise, secs, lo, hi)
     end)
-elseif SC.special == "frost" then
+end
+if SC.special == "cold" then addColdSteps(SC) end
+if SC.special == "frost" then
     local P = {}
     step("frostbite", function()
         local m = me()
@@ -646,22 +710,6 @@ elseif SC.special == "tokens" then
         pcall(function() dis = g["Disable Reinforcement"] end)
         pcall(function() cm = num(g["Classified Minium"]) end)
         return cnt, dis, cm
-    end
-    -- The computer's own text (GetText_3: "Reinforcement Tokens <limit - count>") from a widget never shown.
-    local function tokenText()
-        local cls = loadClass(NUKE_UI)
-        if not cls then return nil, "class not loaded" end
-        local wbl = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
-        local okW, w = pcall(function() return wbl:Create(pc(), cls, pc()) end)
-        if not okW or not valid(w) then return nil, "Create failed: " .. tostring(w) end
-        local okT, t = pcall(function() return w:GetText_3() end)
-        local s
-        if okT then
-            if type(t) == "string" then s = t else pcall(function() s = t:ToString() end) end
-        end
-        pcall(function() w:RemoveFromParent() end)
-        if not s then return nil, "GetText_3 failed: " .. tostring(t) end
-        return s
     end
     local function textCheck(left, when)
         local s, why = tokenText()
@@ -817,6 +865,180 @@ elseif SC.special == "tokens" then
         check(cnt == SC.limit, "%s count after N reinforcements is the limit %d (got %s)", SCENARIO, SC.limit, tostring(cnt))
         textCheck(0, "after N reinforcements")
     end)
+end
+
+-- ---------------------------------------------------------------- story 8: the match part of signal-b, spread, menu
+if SC.special == "signal-b" then
+    -- After the grab cases: 60 s outdoors with Cold Exposure 0 (the meter never rises), then the computer's text.
+    addColdSteps({ factor = 0 })
+    step("sig: tokens text", function()
+        local s, why = tokenText()
+        say("TEXT signal %s", tostring(s or why))
+        check(s == "Reinforcement Tokens 8", "SIGTOKENS the computer's text is 'Reinforcement Tokens 8' (got %s)", tostring(s or why))
+    end)
+end
+
+-- spread: 200 standard Meek hits at full Health. The direct route (one probe first) calls the hooked static
+-- ApplyLockedDamage with an idle Meek as the attacker after TryBeginAttack locked the local player; the real route lets
+-- a spawned Meek attack. Health is refilled to 100 between hits (test only; the real route only outside a grab
+-- window). check.ps1 judges Difficulty's rolled values; the driver's own losses are logged and bounded.
+if SC.special == "spread" then
+    local CTX = "/Script/NuclearNightmare.Default__NNEnemyAttackContext"
+    local P = { losses = {}, mode = nil }
+    local function ctx() return StaticFindObject(CTX) end
+    local function meek() local x = P.actor and StaticFindObject(P.actor) return alive(x) and x or nil end
+    local function stats(t)
+        local n, sum, sq, lo, hi = #t, 0, 0, math.huge, -math.huge
+        for _, v in ipairs(t) do sum = sum + v if v < lo then lo = v end if v > hi then hi = v end end
+        local mean = n > 0 and sum / n or 0
+        for _, v in ipairs(t) do sq = sq + (v - mean) ^ 2 end
+        return n, mean, n > 1 and math.sqrt(sq / (n - 1)) or 0, lo, hi
+    end
+    -- An idle Meek: spawned, its controller unpossessed, so it only serves as the attacker.
+    local function spawnIdle()
+        local cls = loadClass(MEEK.path)
+        if not cls then return nil, "class not loaded" end
+        local p = me()
+        local loc, fwd = p:K2_GetActorLocation(), p:GetActorForwardVector()
+        local at = { X = loc.X + fwd.X * 1500, Y = loc.Y + fwd.Y * 1500, Z = loc.Z + 50 }
+        local xf = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = at, Scale3D = { X = 1, Y = 1, Z = 1 } }
+        local x = GS():BeginDeferredActorSpawnFromClass(p, cls, xf, 1, nil, 1)
+        if not valid(x) then return nil, "BeginDeferredActorSpawnFromClass returned no actor" end
+        GS():FinishSpawningActor(x, xf, 1)
+        local okC, ctl = pcall(function() return x:GetController() end)
+        if okC and valid(ctl) then pcall(function() ctl:UnPossess() end) end
+        return x
+    end
+    -- One direct hit: refill, lock, ApplyLockedDamage(meek, 25), complete. Returns the Health lost (nil: no hit).
+    local function directHit()
+        local m, x, c = me(), meek(), ctx()
+        if not (m and x and c) then return nil, "no player, Meek or attack context" end
+        pcall(function() m.Health = 100 end)
+        local okB, eB = pcall(function() c:TryBeginAttack(x, m, 5.0) end)
+        local okA, eA = pcall(function() c:ApplyLockedDamage(x, 25.0) end)
+        pcall(function() c:CompleteAttack(x) end)
+        local hp = hpOf(m)
+        if not (okB and okA) then
+            return nil, ("TryBeginAttack ok=%s %s; ApplyLockedDamage ok=%s %s"):format(tostring(okB), okB and "" or tostring(eB), tostring(okA), okA and "" or tostring(eA))
+        end
+        if not hp or hp > 99.95 then return nil, "Health still " .. fmt1(hp) end
+        return 100 - hp
+    end
+    step("spread: idle Meek", function()
+        if not me() then if gone() then S.dead = true end return end
+        clearOthers(nil)
+        refill("before spread")
+        local ok, x, why = pcall(spawnIdle)
+        if not check(ok and valid(x), "SPAWN spread idle Meek %s", ok and (valid(x) and pathOf(x) or tostring(why)) or tostring(x)) then P.abort = true return end
+        P.actor = pathOf(x)
+        return after(2), 4
+    end)
+    step("spread: probe", function()
+        if P.abort or S.dead then return end
+        local loss, why = directHit()
+        say("SPREAD probe direct ApplyLockedDamage: loss=%s %s", fmt1(loss), loss and "" or tostring(why))
+        if loss then
+            P.mode = "direct"
+            P.losses[#P.losses + 1] = loss
+        else
+            P.mode = "real"
+            local d = meek()
+            if d then pcall(function() d:K2_DestroyActor() end) end
+            P.actor = nil
+        end
+        say("SPREADMODE %s", P.mode)
+        refill("after the probe")
+        return after(1), 3
+    end)
+    step("spread: hits", function()
+        if P.abort or S.dead then return end
+        local t0 = os.clock()
+        if P.mode == "direct" then
+            return function()
+                if not me() then if gone() then S.dead = true return true end return false end
+                if os.clock() - (P.clearAt or 0) >= 2 then P.clearAt = os.clock() clearOthers(P.actor) end
+                local loss, why = directHit()
+                if loss then P.losses[#P.losses + 1] = loss
+                else
+                    P.misses = (P.misses or 0) + 1
+                    if P.misses <= 5 then say("SPREAD direct hit missed: %s", tostring(why)) end
+                end
+                if #P.losses >= SC.n then return true end
+                if (P.misses or 0) > 50 then say("SPREAD direct route stopped after %d misses", P.misses) return true end
+                return false
+            end, 400, "spread: " .. SC.n .. " direct hits"
+        end
+        -- Real attacks: a Meek in front; each locked hit on the player is counted by the ApplyLockedDamage hook.
+        S.lockedHits = 0
+        return function()
+            local m = me()
+            if not m then if gone() then S.dead = true return true end return false end
+            pcall(function() m.Temperature = 0 end)
+            -- A Meek grab can start an infection that ends the player minutes later (VM run 2026-11-17: the pawn
+            -- gone after 45 grabs): its timer is cleared (test only, logged).
+            local okA, act = pcall(function() return KSL():K2_IsTimerActive(m, "BecomeInfected") end)
+            local okI, inf = pcall(function() return m["StartedInfection?"] end)
+            if (okA and act == true) or (okI and inf == true) then
+                local okC = pcall(function() KSL():K2_ClearTimer(m, "BecomeInfected") end)
+                local okW = pcall(function() m["StartedInfection?"] = false end)
+                P.infections = (P.infections or 0) + 1
+                say("INFECTCLEAR #%d timer=%s started=%s cleared=%s/%s (test only)", P.infections, tostring(act), tostring(inf), tostring(okC), tostring(okW))
+            end
+            if os.clock() - (P.clearAt or 0) >= 2 then P.clearAt = os.clock() clearOthers(P.actor) end
+            if (S.lockedHits or 0) > #P.losses then
+                local hp = hpOf(m)
+                P.losses[#P.losses + 1] = hp and (100 - hp) or -1
+                S.lockedHits = #P.losses
+            end
+            -- Refill half a second after each hit: on Normal at full Health every Meek grab is the game's own
+            -- survivable one (no flip, so no temporary Health to restore), and the Meek grabs again about every 7 s.
+            if S.lockedAt and os.clock() - S.lockedAt >= 0.5 then
+                local hp = hpOf(m)
+                if hp and hp > 0 and hp < 100 then refill("spread real route") end
+            end
+            if not meek() then
+                local cls = loadClass(MEEK.path)
+                local ok, x = pcall(spawnInFront, cls)
+                if ok and valid(x) then P.actor = pathOf(x) end
+            elseif os.clock() - (P.pokeAt or 0) >= 10 then
+                P.pokeAt = os.clock()
+                local x2 = meek()
+                for _, fn in ipairs({ "SeePlayerServer", "SeeCharacter", "SeePlayer" }) do
+                    if pcall(function() x2[fn](x2, m) end) then break end
+                end
+            end
+            return #P.losses >= SC.n or os.clock() - t0 > 2200
+        end, 2250, "spread: " .. SC.n .. " real hits"
+    end)
+    step("spread: verdict", function()
+        local x = meek()
+        if x then pcall(function() x:K2_DestroyActor() end) end
+        refill("after spread")
+        if S.dead or P.abort then return end
+        local n, mean, sd, lo, hi = stats(P.losses)
+        say("SPREADRUN end mode=%s hits=%d mean=%.3f sd=%.3f min=%.2f max=%.2f", tostring(P.mode), n, mean, sd, n > 0 and lo or 0, n > 0 and hi or 0)
+        if n < SC.n then
+            S.notShown = S.notShown + 1
+            say("NOTSHOWN spread: only %d of %d hits (%s route)", n, SC.n, tostring(P.mode))
+            return
+        end
+        -- The driver's own view on the direct route (one hit per refill): every loss inside 15..35 (25 +- 2 sigma).
+        -- Difficulty's rolled values are check.ps1's; the real route's losses can overlap a refill, so they are logged only.
+        if P.mode == "direct" then
+            check(lo >= 14.95 and hi <= 35.05, "spread %d hits, every loss in 15..35 (min %.2f, max %.2f; mean %.2f, sd %.2f)", n, lo, hi, mean, sd)
+        else
+            check(true, "spread %d real hits counted (losses logged only)", n)
+        end
+    end)
+end
+
+-- no-core, old-core: the menu only. Difficulty stops itself (its one line is check.ps1's); the driver only proves the
+-- run reached the menu and stayed 20 s there.
+if SC.special == "menu" then
+    steps = {}
+    step("menu", function() return function() return worldName():find("NewMainMenu", 1, true) ~= nil end, 240, "menu world" end)
+    step("menu: 20 s", function() return after(20), 25 end)
+    step("menu: reached", function() check(true, "MENU %s reached the menu world and stayed 20 s", SCENARIO) end)
 end
 
 -- ---------------------------------------------------------------- story 6: presets (menu only)
@@ -1037,7 +1259,10 @@ end
 -- follows), then a preset: Cold cleared, Enemy Damage 17 saved as DT7-A on Hard, 40 typed, None (rows unchanged), the
 -- screen put on Easy, DT7-A (17 again, Default rows follow DT7-A's Hard), DT7-A deleted; CONFIRM, Back and one more
 -- open that starts Default on Normal. Difficulty's own ROWS lines are judged by check.ps1. Never clicks Create.
-if SC.special == "screen" then
+if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b" then
+    -- signal-b keeps the match steps (from "match world" on: the grab cases, cold and the computer's text) as its tail.
+    local tail = {}
+    if SC.special == "signal-b" then for i = MATCH_WORLD_IDX, #steps do tail[#tail + 1] = steps[i] end end
     steps = {}
     local CS_CLASS = "/Game/Graphics/MainMenu/CreateServer.CreateServer_C"
     local CS_SHORT, MENU_SHORT, START = "CreateServer_C", "MainMenu_C", "UI_Button_Master"
@@ -1281,6 +1506,7 @@ if SC.special == "screen" then
         click("Back " .. label, function() return prop(screen(), "Back") end)
         sstep("sc: closed " .. label, function() return function() return screen() == nil end, 10, "screen closed " .. label end)
     end
+    if SC.special == "screen" then
     Z.picks = 0
     for n = 1, OPENS do
         openOnce(n)
@@ -1486,6 +1712,281 @@ if SC.special == "screen" then
         if cs then pcall(function() cs:RemoveFromParent() end) say("CLOSE the screen removed") end
         return after(1), 3
     end)
+    else
+    -- ------------------------------------------------------------ story 8: signal (two launches, saves kept)
+    -- signal-a sets the rows on the screen the way a player would and saves DT8-SIGNAL; signal-b (the next launch)
+    -- selects it, checks every row and hosts a friends-only solo match through the screen's Create button; the match
+    -- part (grabs, cold, the computer's text) is the generic tail kept above. No dev.lua in either launch.
+    local SIG = "DT8-SIGNAL"
+    local SIGPREFIX = "DT8-"
+    local H_CREATE = "BndEvt__CreateServer_Create_K2Node_ComponentBoundEvent_3_OnButtonClickedEvent__DelegateSignature"
+    local MAPSAVE = "/Game/Graphics/MainMenu/MapSelect_Save.MapSelect_Save_C"
+    -- The values the screen gets, in the rows' own text (the box shows what the model holds).
+    local WANT = { { "enemyDamage", "25" }, { "spread", "20" }, { "revives", "8" }, { "cold", "0" }, { "frostbite", "0" },
+                   { "dmg.stalker", "200" } }
+    local KMIN = { enemyDamage = 0, spread = 0, revives = 0, cold = 0, frostbite = 0, ["dmg.stalker"] = 0 }
+    local KMAX = { enemyDamage = 200, spread = 50, revives = 20, cold = 400, frostbite = 20, ["dmg.stalker"] = 500 }
+    local G = { fixRevives = false, sessionAt = nil }
+    -- A step that asks for real input only when cond() holds (otherwise it does nothing).
+    local function reqIf(label, cond, cmdOf, settle)
+        sstep("sig: " .. label, function()
+            if cond and not cond() then return end
+            local cmd = cmdOf()
+            if not check(cmd ~= nil, "SCPOINT %s has a point on screen", label) then Z.abort = true return end
+            say("SCREQ %s: %s", label, cmd)
+            return request(cmd), 40, label
+        end)
+        sstep("sig: settle " .. label, function() if cond and not cond() then return end return after(settle or 1.2), (settle or 1.2) + 3 end)
+    end
+    -- The settings list scrolled so a row is in view (its centre), before a click, a drag or typing on it.
+    local function scrollTo(key)
+        sstep("sig: scroll to " .. key, function()
+            local s = screen()
+            local sb = s and rootOf(s) and findIn(rootOf(s), "ScrollBox_54")
+            local r = rowW(key)
+            if sb and r then pcall(function() sb:ScrollWidgetIntoView(r, false, 2, 0) end) end
+            return after(1), 3
+        end)
+    end
+    local function typeRow(key, text, cond)
+        scrollTo(key)
+        reqIf("type " .. key .. " focus", cond, function()
+            local x, y = pointOf(prop(sliderW(key), "Box"), 0.85, 0.5)
+            if x then return string.format("click %d %d", x, y) end
+        end)
+        reqIf("type " .. key .. " text", cond, function() return "type " .. text end, 0.8)
+        reqIf("type " .. key .. " enter", cond, function() return "key ENTER" end)
+        sstep("sig: typed " .. key, function()
+            if cond and not cond() then return end
+            local val, box = sstate(key)
+            check(box == text and near(val, tonumber(text)), "SIGTYPE %s typed %s: box '%s' bar %s", key, text, tostring(box), fmtv(val))
+        end)
+    end
+    -- A real drag on a row's slider from its thumb to the value's point (target "min": past the bar's left end).
+    local function dragRow(key, target)
+        scrollTo(key)
+        reqIf("drag " .. key, nil, function()
+            local bar = prop(sliderW(key), "Bar")
+            local val = sstate(key)
+            local span = KMAX[key] - KMIN[key]
+            local from = ((val or KMIN[key]) - KMIN[key]) / span
+            local x1, y = pointOf(bar, from, 0.5)
+            local r = bar and absR(bar)
+            if not (x1 and r) then return nil end
+            local x2 = target == "min" and math.floor(r.l - 40) or select(1, pointOf(bar, (target - KMIN[key]) / span, 0.5))
+            return string.format("drag %d %d %d %d", x1, y, x2, y)
+        end, 1.5)
+    end
+    local function rowsCheck(tag)
+        sstep("sig: rows " .. tag, function()
+            local bad = {}
+            for _, kv in ipairs(WANT) do
+                local val, box = sstate(kv[1])
+                if box ~= kv[2] or not near(val, tonumber(kv[2])) then bad[#bad + 1] = ("%s box '%s' bar %s (want %s)"):format(kv[1], tostring(box), fmtv(val), kv[2]) end
+            end
+            local d, opt = diffState()
+            check(#bad == 0 and d == 0, "SIGROWS %s: every row shows its value and the screen is on Nightmare (Diffculty %s, shown %s)%s", tag, tostring(d), tostring(opt),
+                #bad > 0 and (": " .. table.concat(bad, "; ")) or "")
+        end)
+    end
+    local function devLua()
+        sstep("sig: dev.lua", function()
+            local dir = scriptDir:gsub("[/\\][^/\\]+[/\\]Scripts$", "")
+            local path = dir .. "\\" .. ME:gsub("Driver$", "") .. "\\Scripts\\dev.lua"
+            local f = io.open(path, "r")
+            if f then f:close() end
+            say("DEVLUA %s %s", f and "present" or "absent", path)
+            check(f == nil, "SIGDEV no dev.lua in %s's Scripts (the values come only from the screen, the preset and the capture)", ME:gsub("Driver$", ""))
+        end)
+    end
+    local function deleteOurs(tag)
+        sstep("sig: delete " .. tag, function()
+            local n = 0
+            drive("delete " .. SIGPREFIX .. "* (" .. tag .. ")", function(cs)
+                for _ = 1, 20 do
+                    local left
+                    for _, nm in ipairs(presetNames(cs)) do if nm:sub(1, #SIGPREFIX) == SIGPREFIX then left = nm break end end
+                    if not left or not deletePreset(cs, left) then break end
+                    n = n + 1
+                end
+            end)
+            say("CLEANUP deleted %d %s preset(s) (%s)", n, SIGPREFIX, tag)
+            return after(1), 3
+        end)
+    end
+
+    devLua()
+    openOnce(1)
+    if SC.special == "signal-a" then
+        deleteOurs("leftovers")
+        configure("signal")
+        -- Nightmare by real clicks on the Difficulty picker's next arrow (Normal -> Hard -> Nightmare).
+        for k = 1, 3 do
+            reqIf("Nightmare click " .. k, function() return diffState() ~= 0 end, function()
+                local x, y = pointOf(prop(prop(screen(), "MultipleSelectBox_6"), "Button"), 0.5, 0.5)
+                if x then return string.format("click %d %d", x, y) end
+            end)
+        end
+        sstep("sig: Nightmare", function()
+            local d, opt, hint = diffState()
+            check(d == 0 and opt == "Nightmare" and hint == "100", "SIGDIFF Nightmare by real clicks: Diffculty %s, shown %s, Enemy Damage hint %s (want 0, Nightmare, 100)", tostring(d), tostring(opt), tostring(hint))
+        end)
+        typeRow("enemyDamage", "25")
+        typeRow("spread", "20")
+        typeRow("dmg.stalker", "200")
+        -- Two drags to the slider's start (Cold Exposure 0, Frostbite Damage 0) and one to a value (Tokens 8).
+        for _, key in ipairs({ "cold", "frostbite" }) do
+            dragRow(key, "min")
+            sstep("sig: dragged " .. key, function()
+                local val, box = sstate(key)
+                check(box == "0" and near(val, 0), "SIGDRAG %s dragged to the start: box '%s' bar %s (want 0)", key, tostring(box), fmtv(val))
+            end)
+        end
+        dragRow("revives", 8)
+        sstep("sig: dragged revives", function()
+            local val, box = sstate("revives")
+            local okD = box == "8" and near(val, 8)
+            say("SIGDRAG revives dragged to 8: box '%s' bar %s%s", tostring(box), fmtv(val), okD and "" or " (typed next)")
+            G.fixRevives = not okD
+        end)
+        typeRow("revives", "8", function() return G.fixRevives end)
+        rowsCheck("before the save")
+        shot("signal-rows")
+        sstep("sig: save", function()
+            drive("save " .. SIG, function(cs)
+                local before = #presetNames(cs)
+                local okN = pcall(function() cs.PresetName = SIG end)
+                if not okN or str(cs.PresetName) ~= SIG then cs[H_TEXT](cs, FText(SIG)) say("NAME set through the text-changed handler") end
+                cs[H_SAVE](cs)
+                if #presetNames(cs) ~= before + 1 then error("the game's preset count didn't grow") end
+            end)
+            return after(1.5), 4
+        end)
+        sstep("sig: saved", function()
+            local cs = screen()
+            local found = false
+            for _, n in ipairs(cs and presetNames(cs) or {}) do if n == SIG then found = true end end
+            check(found, "SIGSAVED %s is in the game's presets", SIG)
+        end)
+        confirmBack("signal")
+    else
+        -- signal-b: the preset saved by launch 1, after a restart.
+        configure("signal")
+        sstep("sig: select", function()
+            local cs = screen()
+            local pos
+            for i, n in ipairs(cs and presetNames(cs) or {}) do if n == SIG then pos = i end end
+            if not check(pos ~= nil, "SIGFOUND %s is in the game's presets after the restart (presets across a restart)", SIG) then Z.abort = true return end
+            drive("select " .. SIG, function(c) selectAt(c, pos, SIG) end)
+            return after(1.5), 4
+        end)
+        rowsCheck("after the select")
+        shot("signal-select")
+        -- Before hosting (test only, logged): Tower Island (the MapType save slot the screen's own map buttons write),
+        -- a friends-only session, no lobby countdown, no White Outs. Never clicks Create unless FriendsOnly reads true.
+        sstep("sig: host settings", function()
+            local cs = screen()
+            if not cs then Z.abort = true S.notShown = S.notShown + 1 say("NOTSHOWN signal: no create-world screen") return end
+            local okF = pcall(function() cs.FriendsOnly = true end)
+            local fo = try(function() return cs.FriendsOnly end)
+            local okL = pcall(function() cs["Lobby Minutes"] = 0 end)
+            local okW = false
+            for _, gi in ipairs(FindAllOf("BP_GameInstance_C") or {}) do
+                if notDefault(gi) then okW = pcall(function() gi.DisableWhiteOuts = true end) end
+            end
+            local okM, typ = pcall(function()
+                local gs = GS()
+                local sg = gs:LoadGameFromSlot("MapType", 0)
+                if not valid(sg) then
+                    local cls = loadClass(MAPSAVE)
+                    sg = gs:CreateSaveGameObject(cls)
+                end
+                local was = num(sg.Type)
+                if was ~= 2 then sg.Type = 2 gs:SaveGameToSlot(sg, "MapType", 0) end
+                return was
+            end)
+            say("SIGHOST FriendsOnly=%s (set %s) LobbyMinutes=0 set=%s DisableWhiteOuts set=%s MapType was %s -> 2 ok=%s (test only)",
+                tostring(fo), tostring(okF), tostring(okL), tostring(okW), tostring(typ), tostring(okM))
+            if not check(fo == true, "SIGFRIENDS the screen's FriendsOnly reads true before Create (a friends-only lobby)") then Z.abort = true end
+            -- A Blueprint function's UE4SS hook runs its first callback after the body (the second one never runs).
+            hook("/Game/FirstPerson/Blueprints/BP_GameInstance.BP_GameInstance_C:CreateSteamSession", function(_, _, advertise, _, lan, friendsOnly)
+                -- get() turns false into nil; these are booleans, read as they are.
+                local function b(prm) local ok, v = pcall(function() return prm:get() end) if ok then return v end return nil end
+                local a, l, f = b(advertise), b(lan), b(friendsOnly)
+                G.sessionAt = os.clock()
+                say("SIGSESSION advertise=%s lan=%s friendsOnly=%s", tostring(a), tostring(l), tostring(f))
+                check(a == false and f == true, "SIGSESSION CreateSteamSession friends-only (advertise=%s friendsOnly=%s)", tostring(a), tostring(f))
+            end)
+            return after(1), 3
+        end)
+        click("CONFIRM signal", function() return prop(screen(), "Create_3") end)
+        -- The screen's own Create button, a real click; the handler only if no session started within 15 s.
+        reqIf("Create", function() return G.sessionAt == nil end, function()
+            local x, y = pointOf(prop(screen(), "Create"), 0.5, 0.5)
+            if x then return string.format("click %d %d", x, y) end
+        end, 1)
+        sstep("sig: session", function()
+            local t0 = os.clock()
+            return function()
+                if G.sessionAt then say("SIGCREATE via=click") return true end
+                if os.clock() - t0 < 15 then return false end
+                if not screen() then -- the click took the screen away (the travel began): no handler call
+                    say("SIGCREATE the screen is gone 15 s after the click, but no CreateSteamSession seen")
+                    return true
+                end
+                local fo = try(function() return screen().FriendsOnly end)
+                if fo ~= true then check(false, "SIGCREATE no session after the click, and FriendsOnly no longer reads true: not hosting") Z.abort = true return true end
+                say("SIGCREATE no session 15 s after the click; the Create handler instead")
+                drive("Create (handler)", function(cs) cs[H_CREATE](cs) end)
+                return true
+            end, 25, "the session after Create"
+        end)
+        sstep("sig: session started", function()
+            return function() return G.sessionAt ~= nil end, 30, "CreateSteamSession"
+        end)
+        -- The match part, skipped when hosting was refused or failed (Z.abort: a FAIL or NOTSHOWN is already logged).
+        for _, s in ipairs(tail) do
+            local fn = s.fn
+            steps[#steps + 1] = { name = s.name, fn = function() if Z.abort then return end return fn() end }
+        end
+        -- Back to the menu, DT8-SIGNAL deleted on the screen (opened without the menu's buttons, as story 6 does).
+        step("sig: back to the menu", function()
+            say("SIGBACK OpenLevel NewMainMenu")
+            pcall(function() GS():OpenLevel(pc(), FName("NewMainMenu"), true, "") end)
+            return function() return worldName():find("NewMainMenu", 1, true) ~= nil end, 120, "menu world after the match"
+        end)
+        step("sig: menu settle", function() return after(12), 15 end)
+        step("sig: open for cleanup", function()
+            local p = pc()
+            local cls = loadClass(CS_CLASS)
+            local ok, err = pcall(function()
+                local w = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary"):Create(p, cls, p)
+                if not valid(w) then error("WidgetBlueprintLibrary:Create returned no widget") end
+                w:AddToViewport(0)
+            end)
+            say("SIGCLEAN open ok=%s %s", tostring(ok), ok and "" or tostring(err))
+            return after(3), 5
+        end)
+        step("sig: delete " .. SIG, function()
+            local cs = screen()
+            local n = 0
+            if cs then
+                for _ = 1, 20 do
+                    local left
+                    for _, nm in ipairs(presetNames(cs)) do if nm:sub(1, #SIGPREFIX) == SIGPREFIX then left = nm break end end
+                    if not left or not pcall(deletePreset, cs, left) then break end
+                    n = n + 1
+                end
+            end
+            local still = false
+            for _, nm in ipairs(cs and presetNames(cs) or {}) do if nm:sub(1, #SIGPREFIX) == SIGPREFIX then still = true end end
+            say("CLEANUP deleted %d %s preset(s) at the end", n, SIGPREFIX)
+            check(cs ~= nil and not still, "SIGCLEAN no %s preset left (deleted %d)", SIGPREFIX, n)
+            if cs then pcall(function() cs:RemoveFromParent() end) end
+            return after(1), 3
+        end)
+    end
+    end
 end
 
 -- ---------------------------------------------------------------- runner (game thread, every 250 ms)

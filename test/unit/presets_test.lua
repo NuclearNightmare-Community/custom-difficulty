@@ -22,7 +22,7 @@ local function setup(o)
     logs = {}
     local function say(level, fmt, ...) logs[#logs + 1] = (level == "info" and "" or (level:upper() .. " ")) .. string.format(fmt, ...) end
     local said = {}
-    P = presets.new{ say = say, name = "Difficulty", fs = o.realFs and nil or D,
+    P = presets.new{ say = say, name = "Difficulty", fs = D,
                      warnOnce = function(k, fmt, ...) if not said[k] then said[k] = true say("warn", fmt, ...) end end }
     if o.missing then for _, k in ipairs(o.missing) do W.missing[presets.PATHS[k]] = true end end
     P:onLoadMap()

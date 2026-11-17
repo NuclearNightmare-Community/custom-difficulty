@@ -64,8 +64,6 @@ do -- oversized: 300 entries, and a 300 KiB file
     eq(#e, 256, "300 entries: the first 256 only")
     eq(e[256].name, "P255", "the 256th entry is P255")
     eq(#p, 1, "300 entries: one problem")
-    t = { HDR }
-    local line = "0\tN\t" .. ("cold=50;"):rep(100) .. "\n" -- about 810 bytes, ignored entries > 32 per line
     local big = ("0\tBig\tcold=1\n"):rep(math.ceil(300 * 1024 / 14))
     e, p = sc.parse(HDR .. big)
     eq(#e, 256, "300 KiB: at most 256 entries")

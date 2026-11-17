@@ -7,12 +7,21 @@
 --   client-grab        (B, VM) flips the decision for its own player (not while a Psycho is alive: that case is the
 --                      execution whose recovery is observed); logs what it sees of both players.
 --   client-observe     (B, VM) logs only (an unmodded B as far as the grab decision goes).
---   host-spawn         (A, host; story 5) spawns a Meek, Mimic, Psycho, Watcher and Stalker in front of B, one at a
---                      time (no Husk: a survivable Husk grab infects by design). Never flips and never touches damage:
---                      the real Difficulty does both. Refills B to 100 HP between cases, only outside a grab window,
---                      and revives B through the radio (Reinformant) when it died.
+--   host-spawn         (A, host; stories 5 and 11) spawns a Meek, Mimic, Psycho, Stalker and Watcher (last) in front
+--                      of B, one at a time (no Husk: a survivable Husk grab infects by design). Never flips and never
+--                      touches damage: the real Difficulty does both. Before each spawn it refills the host (only when
+--                      alive) and teleports it at least 2500 cm from B (MOVE host), so B is the enemies' only target.
+--                      hp <= 0 is dead: a case ends as died then, and no Health write ever touches such a body. Refills
+--                      B to 100 HP between cases, only outside a grab window and only while alive. A dead B is revived
+--                      specifically: after its real death (B's controller no longer holds the case's character, up to
+--                      30 s), ReinforceSpecficPlayer(<B's dead character>), then Reinformant() every 5 s (up to 6
+--                      tries) until B has a new character; a playable-monster B is a FAIL at once. The host is revived
+--                      the same way when it has no character. Clears infection timers (story 2's hook).
 --   client-watch       (B, VM; story 5) logs only: each grab on B with its montage, and B's montage, PlayingMontage,
 --                      movement mode and Health 6 s and 12 s later (AFTERGRAB). The real Difficulty (or none) decides.
+--                      Clears infection timers like the host.
+-- Every role's GRAB #n line on a Watcher ends with target=<me|other|none> attacked=<me|other|none>, read from that
+-- Watcher in the multicast hook (story 11).
 --   host-revive        (A, host) reinforcement steps (item 4): dies three times; sets TimesUsedReinforcements and
 --                      Disable Reinforcement from Lua; revives B through the radio; logs every count.
 --   client-revive      (B, VM) opens the military computer through its own ServerInteract, logs the reinforcement
@@ -120,6 +129,18 @@ local function other()
     end
 end
 local function isOther(ch) local o = other() return o ~= nil and valid(ch) and pathOf(ch) == pathOf(o) end
+-- me / other / none: who a player reference names (the Watcher's Target and AttackedPlayer).
+local function whoP(ch) if isMe(ch) then return "me" elseif isOther(ch) then return "other" end return "none" end
+-- The remote player's controller and whatever it possesses (host only; any class: Spectator_C, a playable monster).
+local function remoteController()
+    for _, c in ipairs(FindAllOf("PlayerController") or {}) do
+        if valid(c) and notDefault(c) then
+            local ok, l = pcall(function() return c:IsLocalPlayerController() end)
+            if ok and not l then return c end
+        end
+    end
+end
+local function remotePawn() return pawnOf(remoteController()) end
 local function who(ch) if isMe(ch) then return "me" elseif isOther(ch) then return "other" end return valid(ch) and nameOf(ch) or "none" end
 -- Every controller's pawn and every first-person character, to see what replaced a character that disappeared.
 local function whereAre(tag)
@@ -241,12 +262,13 @@ local ENEMY_OF = {}
 for _, c in ipairs(CASES) do ENEMY_OF[c.path:match("%.([^.]+)$")] = c.name end
 for _, n in ipairs({ "Stalker_AI_C", "SlugQueen_AI_C", "ApexPredatorAI_C", "Worm_AI_C", "BabyWorm_AI_C", "BP_BatEnemy_C", "Dog_Infected_AI_C" }) do ENEMY_OF[n] = n end
 -- Story 5 (host-spawn): every grab-class enemy but the Husk, each on B, never flipped here.
+-- Story 11: the Watcher last, so a regression there can't cascade into the other cases.
 local SPAWN_CASES = {
     { name = "Meek", path = "/Game/AI/SCP_AI.SCP_AI_C", target = "other", flip = false, wanted = 1 },
     { name = "Mimic", path = "/Game/AI/Mimic_AI.Mimic_AI_C", target = "other", flip = false, wanted = 1 },
     { name = "Psycho", path = "/Game/AI/MadPatent_AI.MadPatent_AI_C", target = "other", flip = false, wanted = 1 },
-    { name = "Watcher", path = "/Game/AI/EyeMonster_AI.EyeMonster_AI_C", target = "other", flip = false, wanted = 1 },
     { name = "Stalker", path = "/Game/AI/Stalker_AI.Stalker_AI_C", target = "other", flip = false, wanted = 1 },
+    { name = "Watcher", path = "/Game/AI/EyeMonster_AI.EyeMonster_AI_C", target = "other", flip = false, wanted = 1 },
 }
 ENEMY_OF["Stalker_AI_C"] = "Stalker"
 local function enemyName(o) return valid(o) and (ENEMY_OF[classOf(o)] or classOf(o)) or "none" end
@@ -312,7 +334,7 @@ local function infectionTick()
     end
 end
 
--- noInfect (story 5's roles): no infection hook, which clears an infection timer (story 2's probe only).
+-- noInfect: no infection hook (it clears an infection timer; every role installs it since story 11).
 local function installGrabHooks(noInfect)
     if not noInfect then installInfectionHook() end
     hook(FPC_PATH .. ":HasPerk", function(self, perk)
@@ -343,8 +365,16 @@ local function installGrabHooks(noInfect)
             if valid(victim) then restore(pathOf(victim), "multicast") end
             local dNow = "?"
             pcall(function() dNow = tostring(num(gameState().Diffculty)) end)
-            say("GRAB #%d %s %s victim=%s hpSeen=%s hpNow=%s montage=%s diff=%s (start %s)", S.seq, enemyName(attacker), g.fn:match(":(.+)$"),
-                who(victim), fmt1(hpSeen), fmt1(hpOf(victim)), valid(victim) and montageOf(victim) or "?", dNow, tostring(S.diff))
+            -- Story 11: a Watcher's chase Target and AttackedPlayer, read here (after the body), at the end of the line.
+            local wf = ""
+            if valid(attacker) and classOf(attacker) == "EyeMonster_AI_C" then
+                local t, ap
+                pcall(function() t = attacker.Target end)
+                pcall(function() ap = attacker.AttackedPlayer end)
+                wf = string.format(" target=%s attacked=%s", whoP(t), whoP(ap))
+            end
+            say("GRAB #%d %s %s victim=%s hpSeen=%s hpNow=%s montage=%s diff=%s (start %s)%s", S.seq, enemyName(attacker), g.fn:match(":(.+)$"),
+                who(victim), fmt1(hpSeen), fmt1(hpOf(victim)), valid(victim) and montageOf(victim) or "?", dNow, tostring(S.diff), wf)
             if isMe(victim) then S.grabsOnMe = S.grabsOnMe + 1 S.ownGrabAt = { t = os.clock(), n = 0, seq = S.seq } end
             if isOther(victim) then S.hostGrabAt = { t = os.clock(), n = 0, seq = S.seq } end
             local c = S.case
@@ -551,22 +581,102 @@ local function buildHostGrab()
     end)
 end
 
--- Story 5: the host spawns, the real Difficulty decides. B dead -> the radio's Reinformant, then the next case.
-local function reviveB(tag)
-    step(tag .. ": B alive", function()
-        if other() then return end
-        whereAre(tag .. " B dead")
-        local r = radio()
-        local ok, err = false, "no radio"
-        if r then ok, err = pcall(function() r:Reinformant() end) end
-        say("REVIVE %s radio:Reinformant() ok=%s %s", tag, tostring(ok), ok and "" or tostring(err))
-        local t0 = os.clock()
+-- Story 5: the host spawns, the real Difficulty decides. Story 11: the host out of B's way, hp <= 0 is dead, and a dead
+-- player is revived specifically (never a refilled corpse, never the wrong player).
+local MONSTER = "BP_ThirdPersonCharacter_C" -- the playable-monster pawn: not in the reinforcement queue
+local HOST_AWAY = 2500                      -- cm: the host's least distance from B at each spawn
+local AWAY_OFFSETS = { { 2600, 0, 100 }, { -2600, 0, 100 }, { 0, 2600, 100 }, { 0, -2600, 100 }, { 1900, 1900, 100 },
+                       { -1900, -1900, 100 }, { 1900, -1900, 100 }, { -1900, 1900, 100 }, { 2600, 0, 600 },
+                       { -2600, 0, 600 }, { 0, 2600, 600 }, { 0, -2600, 600 } }
+local function dead(ch) local h = hpOf(ch) return h ~= nil and h <= 0 end
+local function distance(a, b)
+    local ok, d = pcall(function()
+        local x, y = a:K2_GetActorLocation(), b:K2_GetActorLocation()
+        return math.sqrt((x.X - y.X) ^ 2 + (x.Y - y.Y) ^ 2 + (x.Z - y.Z) ^ 2)
+    end)
+    return ok and d or nil
+end
+-- The host at least HOST_AWAY from B: K2_TeleportTo around B, several directions, each one measured.
+local function moveHost(b)
+    local m = me()
+    if not m then check(false, "MOVE host: no host character") return end
+    local d = distance(m, b)
+    if d and d >= HOST_AWAY then say("MOVE host %.0f cm from B (already)", d) return end
+    local okL, loc = pcall(function() return b:K2_GetActorLocation() end)
+    local okR, rot = pcall(function() return m:K2_GetActorRotation() end)
+    if okL and okR then
+        for i, o in ipairs(AWAY_OFFSETS) do
+            local okT, r = pcall(function() return m:K2_TeleportTo({ X = loc.X + o[1], Y = loc.Y + o[2], Z = loc.Z + o[3] }, rot) end)
+            d = distance(m, b)
+            if d and d >= HOST_AWAY then say("MOVE host %.0f cm from B (try %d)", d, i) return end
+            say("MOVE try %d teleport ok=%s returned=%s: %s cm from B", i, tostring(okT), tostring(r), d and string.format("%.0f", d) or "?")
+        end
+    end
+    check(false, "MOVE host: no teleport reached %d cm from B (%s cm)", HOST_AWAY, d and string.format("%.0f", d) or "?")
+end
+
+-- revive(tag, whom): whom "B" (other(), B's controller, the dead path S.bPath) or "host" (me(), the local controller,
+-- S.hostPath). Nothing to do while that player has a live character. Else: wait up to 30 s for the real death (the
+-- controller no longer holds the dead character); a playable monster is a FAIL at once; then
+-- ReinforceSpecficPlayer(<dead character>), and Reinformant() every 5 s, up to 6 tries, until a new character is there.
+-- The checker's line contract (difficulty-scenarios.ps1, unchanged): per B death exactly one line matching
+-- "^REVIVE .* radio:Reinformant\(\)", per B revive exactly one "REVIVE <tag> B back after <n> s"; the retries (RETRY)
+-- and the host's lines (REVIVE-HOST) match neither.
+local function revive(tag, whom)
+    local isB = whom == "B"
+    local function char() if isB then return other() end return me() end
+    local function held() if isB then return remotePawn() end return pawnOf(pc()) end
+    local pre = isB and "REVIVE" or "REVIVE-HOST"
+    step(tag .. ": " .. whom .. " alive", function()
+        local c = char()
+        if c and not dead(c) then return end
+        local deadPath = isB and S.bPath or S.hostPath
+        if c then deadPath = pathOf(c) end
+        whereAre(tag .. " " .. whom .. " dead")
+        local t0, t1, tries, nextTry, phase = os.clock(), nil, 0, nil, "death"
         return function()
-            if other() then say("REVIVE %s B back after %.0f s", tag, os.clock() - t0) return true end
+            local now = os.clock()
+            local p = held()
+            if p and classOf(p) == MONSTER then
+                check(false, "%s %s: %s is a playable monster (%s); no revive possible", pre, tag, whom, pathOf(p))
+                return true
+            end
+            if phase == "death" then
+                local holds = p ~= nil and deadPath ~= nil and pathOf(p) == deadPath
+                if holds and now - t0 < 30 then return false end
+                if holds then say("%s-WAIT %s %s's controller still holds %s after 30 s", pre, tag, whom, deadPath) end
+                local r = radio()
+                local corpse = deadPath and StaticFindObject(deadPath)
+                local ok, err = false, r and "the dead character is gone" or "no radio"
+                if r and valid(corpse) then ok, err = pcall(function() r:ReinforceSpecficPlayer(corpse) end) end
+                say("%s %s %s dead after %.0f s: radio:ReinforceSpecficPlayer(%s) ok=%s %s; radio:Reinformant() every 5 s as the fallback",
+                    pre, tag, whom, now - t0, whom, tostring(ok), ok and "" or tostring(err))
+                phase, t1, nextTry = "back", now, now + 5
+                return false
+            end
+            local c2 = char()
+            if c2 and pathOf(c2) ~= deadPath and not dead(c2) then
+                say("%s %s %s back after %.0f s", pre, tag, whom, now - t1)
+                return true
+            end
+            if now >= nextTry then
+                if tries >= 6 then
+                    check(false, "%s %s: %s not back after ReinforceSpecficPlayer and %d Reinformant() tries", pre, tag, whom, tries)
+                    whereAre(tag .. " " .. whom .. " not back")
+                    return true
+                end
+                tries, nextTry = tries + 1, now + 5
+                local r = radio()
+                local ok, err = false, "no radio"
+                if r then ok, err = pcall(function() r:Reinformant() end) end
+                say("RETRY %s %s Reinformant #%d ok=%s %s", tag, whom, tries, tostring(ok), ok and "" or tostring(err))
+            end
             return false
-        end, 120, tag .. ": B revived"
+        end, 100, tag .. ": " .. whom .. " revived"
     end)
 end
+-- B first (the case's player), then the host if it has no character.
+local function reviveB(tag) revive(tag, "B") revive(tag, "host") end
 local function buildHostSpawn()
     waitMatch()
     step("other present", function() return function() return other() ~= nil end, 600, "the other player's character" end)
@@ -585,15 +695,23 @@ local function buildHostSpawn()
         S.diff = ok and d or S.diff
         say("STARTED Diffculty=%s", tostring(d))
     end)
-    step("hooks", function() installGrabHooks(true) S.guard = true end)
+    -- Story 11: story 2's infection hook too (it clears the BecomeInfected timer), so infection doesn't end a case.
+    step("hooks", function() installGrabHooks(false) S.guard = true end)
     for _, c in ipairs(SPAWN_CASES) do
         local label = c.name .. " on B"
         reviveB("before " .. c.name)
         step("spawn " .. label, function()
             local target = other()
-            if not target then check(false, "CASE %s: no target", label) whereAre("no target") return end
+            if not target or dead(target) then check(false, "CASE %s: no live target", label) whereAre("no target") return end
+            S.bPath = pathOf(target)
+            local m = me()
+            if m then S.hostPath = pathOf(m) end
+            -- The host: refilled only while alive, then out of the enemies' reach.
+            local hh = m and hpOf(m)
+            if hh and hh > 0 and hh < 100 then pcall(function() m.Health = 100 end) say("REFILL me hp %.2f -> 100 (before the spawn)", hh) end
+            moveHost(target)
             local h = hpOf(target)
-            if h and h < 100 then pcall(function() target.Health = 100 end) say("REFILL other hp %.2f -> 100 (between cases)", h) end
+            if h and h > 0 and h < 100 then pcall(function() target.Health = 100 end) say("REFILL other hp %.2f -> 100 (between cases)", h) end
             local cls = loadClass(c.path)
             if not check(cls ~= nil, "CLASS %s", c.path) then return end
             c.grabs = 0
@@ -605,7 +723,11 @@ local function buildHostSpawn()
             local t0 = os.clock()
             return function()
                 local tg = other()
-                if not tg then say("CASE %s: B died (grabs=%d)", label, c.grabs or 0) c.died = true return true end
+                if not tg or dead(tg) then
+                    say("CASE %s: B died (grabs=%d hp=%s)", label, c.grabs or 0, tg and fmt1(hpOf(tg)) or "none")
+                    c.died = true
+                    return true
+                end
                 if os.clock() - (c.clearAt or 0) >= 2 then c.clearAt = os.clock() clearNatural(c.actor) end
                 if os.clock() - (c.seeAt or 0) >= 10 and (c.grabs or 0) == 0 then
                     c.seeAt = os.clock()
@@ -637,7 +759,8 @@ local function buildHostSpawn()
         step("refill after " .. label, function()
             local o = other()
             local h = o and hpOf(o)
-            if o and h and h < 100 then pcall(function() o.Health = 100 end) say("REFILL other hp %.2f -> 100 (after the case)", h) end
+            -- Never a body at hp <= 0 (a refilled corpse stays frozen, or turns into a playable monster).
+            if o and h and h > 0 and h < 100 then pcall(function() o.Health = 100 end) say("REFILL other hp %.2f -> 100 (after the case)", h) end
         end)
     end
     reviveB("final")
@@ -651,7 +774,7 @@ end
 
 local function buildClientGrab()
     waitMatch()
-    step("ready", function() installGrabHooks(ROLE == "client-watch") signal("bready") end)
+    step("ready", function() installGrabHooks(false) signal("bready") end)
     step("until done", function()
         return function() return has("done") end, 1500, "the host's done signal"
     end)

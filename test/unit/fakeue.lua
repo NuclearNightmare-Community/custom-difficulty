@@ -170,8 +170,14 @@ function F.screen(W, names)
     local function items()
         local list = { "None" }
         for _, n in ipairs(S.names) do list[#list + 1] = n end
+        -- S.itemsDelta = 1 adds an item, -1 drops the last (the selector out of step with Presets); S.badItem = i
+        -- makes item i non-text.
+        if S.itemsDelta == 1 then list[#list + 1] = "Extra" elseif S.itemsDelta == -1 then list[#list] = nil end
         local arr = { GetArrayNum = function() return #list end }
-        return setmetatable(arr, { __index = function(_, i) return list[i] and fstr(list[i]) or nil end })
+        return setmetatable(arr, { __index = function(_, i)
+            if i == S.badItem and list[i] then return {} end
+            return list[i] and fstr(list[i]) or nil
+        end })
     end
     local box = {}
     setmetatable(box, { __index = function(_, k)
@@ -221,6 +227,7 @@ function F.fs()
     local function failing(op, p) local pat = D.fail[op] return pat ~= nil and tostring(p):find(pat) ~= nil end
     D.read = function(p, max)
         D.log[#D.log + 1] = "read " .. p
+        if failing("read", p) then return nil, p .. ": Permission denied" end
         local t = D.files[p]
         if t == nil then return nil, p .. ": No such file or directory" end
         return t:sub(1, max)

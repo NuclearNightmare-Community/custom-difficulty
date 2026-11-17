@@ -49,6 +49,11 @@ function FS.read(path, max)
     if not ok then return nil, s end
     return s or ""
 end
+-- Whether a read error means the file doesn't exist (io.open's message: "<path>: No such file or directory").
+function M.notFound(err)
+    local e = tostring(err)
+    return e:find("No such file", 1, true) ~= nil or e:find("cannot find", 1, true) ~= nil
+end
 function FS.write(path, text)
     local f, err = io.open(path, "wb")
     if not f then return nil, err end
@@ -192,8 +197,14 @@ function A:onOpen(screen)
     if not count then self:say("warn", "sidecar: the screen's presets can't be read; presets not synced for this open") return end
     local names, whyN = presetNames(screen, count)
     if not names then self:say("warn", "sidecar: %s; presets not synced for this open", tostring(whyN)) return end
-    self.path = dir .. "SaveGames/" .. self.o.name .. "_WorldPresets.txt"
-    local text = self.fs.read(self.path, sidecar.MAX_BYTES + 1)
+    local path = dir .. "SaveGames/" .. self.o.name .. "_WorldPresets.txt"
+    local text, errR = self.fs.read(path, sidecar.MAX_BYTES + 1)
+    if text == nil and not M.notFound(errR) then
+        -- It exists but can't be read (locked, denied): rewriting it would lose its values.
+        self:say("warn", "sidecar: %s can't be read (%s); presets not synced for this open", path, tostring(errR))
+        return
+    end
+    self.path = path
     local fromBak = false
     if text == nil then
         text = self.fs.read(self.path .. ".bak", sidecar.MAX_BYTES + 1)
@@ -340,10 +351,11 @@ end
 function A:retryHooks(left)
     if self:tryHooks() == 0 then return end
     if left <= 0 then self:say("debug", "PRESETS some hooks still missing; retried at the next LoadMap") return end
-    pcall(ExecuteInGameThreadWithDelay, M.HOOK_RETRY_MS, function()
+    local okD, errD = pcall(ExecuteInGameThreadWithDelay, M.HOOK_RETRY_MS, function()
         local ok, err = pcall(self.retryHooks, self, left - 1)
         if not ok then self.o.warnOnce("presets-retry", "PRESETS hook retry failed: %s", tostring(err)) end
     end)
+    if not okD then self.o.warnOnce("presets-retry", "PRESETS hook retry could not be scheduled: %s", tostring(errD)) end
 end
 
 -- At ready and after every LoadMap: register what's missing, retried a few times.

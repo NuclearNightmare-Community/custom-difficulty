@@ -255,6 +255,80 @@ do -- an interrupted write left only the .bak: it is read and the file restored
     ok(D.files[FILE .. ".bak"] == nil, "the .bak removed after the write")
 end
 
+do -- the sidecar exists but can't be read (locked, denied): one WARN, no write, the file intact
+    setup()
+    D.files[FILE] = HDR .. "0\tA\tcold=5\n"
+    D.fail.read = "Presets%.txt$"
+    local S = F.screen(W, { "A", "B" })
+    S:open()
+    eq(count("^WARN sidecar: .* can't be read %(.*Permission denied%); presets not synced for this open$"), 1, "unreadable file: one WARN")
+    eq(writes(), 0, "unreadable file: no write")
+    eq(D.files[FILE], HDR .. "0\tA\tcold=5\n", "unreadable file: intact")
+    S:save("C")
+    S:select(1)
+    S:update()
+    S:delete()
+    eq(writes(), 0, "unreadable file: later hooks in the same open write nothing")
+    eq(D.files[FILE], HDR .. "0\tA\tcold=5\n", "unreadable file: still intact")
+end
+do -- the selector out of step with Presets (an extra item, a dropped one, a non-text item) at open
+    for _, case in ipairs({ { "itemsDelta", 1, "the selector has 4 items for 2 presets" }, { "itemsDelta", -1, "the selector has 2 items for 2 presets" },
+                            { "badItem", 2, "selector item 2 is not text" } }) do
+        setup()
+        local S = F.screen(W, { "A", "B" })
+        S[case[1]] = case[2]
+        S:open()
+        eq(count("^WARN sidecar: " .. case[3]:gsub("%p", "%%%0") .. "; presets not synced for this open$"), 1, case[3] .. ": one WARN at open")
+        eq(writes(), 0, case[3] .. ": no write at open")
+        S:save("C")
+        S:select(1)
+        S:update()
+        S:delete()
+        eq(writes(), 0, case[3] .. ": the later hooks of the open write nothing")
+        eq(count("^PRESETS save"), 0, case[3] .. ": no save line")
+    end
+end
+do -- a save, then a delete, that find the selector out of step: not synced, and nothing more for that open
+    setup()
+    local S = F.screen(W, { "A" })
+    S:open()
+    local w = writes()
+    S.itemsDelta = 1
+    S:save("B")
+    eq(count("^WARN sidecar: the selector has 4 items for 2 presets; save not synced$"), 1, "save out of step: one WARN")
+    eq(writes(), w, "save out of step: no write")
+    S.itemsDelta = nil
+    S:save("C")
+    S:select(1)
+    S:update()
+    S:delete()
+    eq(writes(), w, "after a save not synced: the open's later hooks write nothing")
+
+    setup()
+    S = F.screen(W, { "A", "B" })
+    S:open()
+    w = writes()
+    S:select(1)
+    S.badItem = 2
+    S:delete()
+    eq(count("^WARN sidecar: selector item 2 is not text; delete not synced$"), 1, "delete out of step: one WARN")
+    eq(writes(), w, "delete out of step: no write")
+    S.badItem = nil
+    S:save("C")
+    S:select(1)
+    S:update()
+    eq(writes(), w, "after a delete not synced: the open's later hooks write nothing")
+end
+do -- the retry can't be scheduled: one WARN naming the error
+    setup{ missing = { "construct" } }
+    W.later = {}
+    ExecuteInGameThreadWithDelay = function() error("no delay: boom") end
+    P:onLoadMap()
+    P:onLoadMap()
+    eq(count("^WARN PRESETS hook retry could not be scheduled: .*no delay: boom"), 1, "retry not scheduled: one WARN")
+    F.install(W)
+end
+
 -- ---------------------------------------------------------------- the real file system (io/os), temp dir
 do
     local base = os.tmpname()

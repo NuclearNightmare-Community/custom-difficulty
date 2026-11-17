@@ -319,8 +319,12 @@ if ($Scenario -eq 'screen' -and -not $screenNotShown) {
         else { Fail "ROWS change enemyDamage in order: got $($seq -join ', '), want $($want -join ', ')" }
     }
     # The select of DT7-A (saved on Hard, selected with the screen on Easy): the next ROWS follow line is Hard's.
-    $isel = -1
-    for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match "\[$C\] PRESETS select index=\d+ name=DT7-A ") { $isel = $i } }
+    # The first select after the driver's SCEASY (a later select, before the delete, is followed by the next open's line).
+    $isel, $easy = -1, $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match "\[$D\] OK SCEASY ") { $easy = $true }
+        elseif ($easy -and $lines[$i] -match "\[$C\] PRESETS select index=\d+ name=DT7-A ") { $isel = $i; break }
+    }
     $next = if ($isel -ge 0) { @($lines[($isel + 1)..($lines.Count - 1)] | Where-Object { $_ -match "\[$C\] ROWS follow " })[0] } else { $null }
     if ($next -and $next -match "\[$C\] ROWS follow difficulty=1 classified=1 enemyDamage=50 cold=133 revives=4\s*$") { Pass 'after the DT7-A select the Default rows follow its Hard (ROWS follow difficulty=1 ... cold=133)' }
     else { Fail "after the DT7-A select the Default rows follow its Hard: want 'ROWS follow difficulty=1 classified=1 enemyDamage=50 cold=133 revives=4' next, got '$next'" }

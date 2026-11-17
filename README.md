@@ -342,11 +342,11 @@ dragged value, 57, 200, default, 17, 40 (with `rows=enemyDamage=57` after 57: wh
 `classified=1 ... revives=4`, the Easy one before the select and DT7-A's Hard one right after it, the `DT7-A` save
 and select with `enemyDamage=17`, a None select, the driver's `SCSTEP`, `SCCLASS`, `SCPRESETDIFF` and `SCREOPEN`, and no
 ERROR or WARN.
-**Status 2026-11-17:** the first version of the scenario (without the per-open picker clicks, the Classified
-Minimum click, Frostbite 2.3, the Easy-then-preset check and the final reopen) passed in the VM at 1280x720 on V8.2.3 build 26601774 with Nucleus 0.15.0 (`END result=PASS`,
-113 checks; `check.ps1` all passed, the one soft check a `hud slow tick` WARN); screenshots
+**Status 2026-11-17:** passed in the VM at 1280x720 on V8.2.3 build 26601774 with Nucleus 0.15.0 (`END result=PASS`,
+205 checks, real clicks on every open, the Classified Minimum arrow, Frostbite 2.3 -> 2.5, the Easy-then-preset check
+and the final reopen; `check.ps1` all passed, the one soft check a `hud slow tick` WARN); screenshots
 `dumps/v8.2.3-build26601774/vm/sp-screen-rows.png`, `sp-screen-nightmare.png`, `sp-screen-preset.png`. `presets` re-run
-the same day on Nucleus 0.15.0: PASS (36 checks). The extended scenario has not run in the VM yet.
+the same day on Nucleus 0.15.0: PASS (36 checks).
 
 Every match scenario sets `BP_GameInstance_C.DisableWhiteOuts` before the match and logs one
 `WHITEOUT disabled=<GameState value> director=<n> phase=<Phase>`; `check.ps1` requires `disabled=true` in every

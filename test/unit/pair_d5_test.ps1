@@ -112,6 +112,34 @@ try {
     $r = Get-DpD5Report -Kind unmodded
     Ok ((($r.D5.Misses -join ';') -match 'revived 0 of 1') -and (($r.D5.Misses -join ';') -match 'lines on a machine without')) 'unmodded: B not revived, Difficulty lines on B: both fail' (($r.D5.Misses) -join '; ')
 
+    # Story 11: the checker is unchanged, so the new lines must keep its contract.
+    # The driver's Watcher GRAB line ends with target/attacked; Difficulty's WATCHER line is its own line.
+    $hw = @(); $vw = @('[Difficulty] READY version=0.1.0 Nucleus=0.12.0 need=0.12.0'); $i = 0
+    foreach ($e in $rows.Keys) {
+        $r0 = $rows[$e]; $i++
+        $hw += "[Difficulty] GRAB enemy=$r0 hp=100 E=25 game=e decision=s flip=101 victim=client spare=yes"
+        $vw += "[Difficulty] GRAB enemy=$r0 hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes"
+        $wf = ''
+        if ($e -eq 'Watcher') { $hw += '[Difficulty] WATCHER target=client attacked=client'; $vw += '[Difficulty] WATCHER target=local attacked=local'; $wf = ' target=me attacked=me' }
+        $vw += "[DifficultyPair] GRAB #$i $e AttackMulti victim=me hpSeen=100.00 hpNow=100.00 montage=AM_Punch diff=0 (start 0)$wf"
+        $vw += "[DifficultyPair] AFTERGRAB #$i me 6 s: montage=none PlayingMontage=false movement=1 hp=75.00"
+    }
+    Logs ($hw + '[DifficultyPair] MOVE host 2601 cm from B (try 1)' + $ends) ($vw + $vEnds)
+    $r = Get-DpD5Report -Kind modded
+    Ok ($r.Verdict -eq 'PASS') 'story 11: the Watcher fields and the WATCHER line keep a clean modded run passing' (($r.D5.Misses) -join '; ')
+    # The revive lines: one death line with radio:Reinformant(), retries and the host's revive match neither pattern.
+    $hp11 = @('[DifficultyPair] REVIVE before Mimic B dead after 12 s: radio:ReinforceSpecficPlayer(B) ok=true ; radio:Reinformant() every 5 s as the fallback',
+              '[DifficultyPair] RETRY before Mimic B Reinformant #1 ok=true ', '[DifficultyPair] RETRY before Mimic B Reinformant #2 ok=true ',
+              '[DifficultyPair] REVIVE-HOST before Mimic host dead after 0 s: radio:ReinforceSpecficPlayer(host) ok=true ; radio:Reinformant() every 5 s as the fallback',
+              '[DifficultyPair] REVIVE-HOST before Mimic host back after 3 s',
+              '[DifficultyPair] REVIVE before Mimic B back after 9 s')
+    Logs ($h + $hp11 + $ends) ($v + $vEnds)
+    $r = Get-DpD5Report -Kind unmodded
+    Ok ($r.Verdict -eq 'PASS') 'story 11: one B death, retries and a host revive: B revived 1 of 1' (($r.D5.Misses) -join '; ')
+    Logs ($h + $hp11[0..4] + $ends) ($v + $vEnds)
+    $r = Get-DpD5Report -Kind unmodded
+    Ok ((($r.D5.Misses -join ';') -match 'revived 0 of 1')) 'story 11: a B death without its back line still fails' (($r.D5.Misses) -join '; ')
+
     # vanilla host
     Logs ($ends) (@('[Difficulty] READY version=0.1.0 Nucleus=0.12.0 need=0.12.0', '[Difficulty] host has no Difficulty, inactive (no-state)',
                    '[DifficultyPair] GRAB #1 Meek Attack victim=me hpSeen=100.00 hpNow=100.00 montage=AM_StabAndDump diff=0 (start 0)') + $vEnds)

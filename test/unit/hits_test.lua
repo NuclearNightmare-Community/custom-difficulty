@@ -1288,7 +1288,8 @@ do -- the client's attacker: GetLockedVictim unset -> the nearest grab-class AI 
     T.locked = {}
     T.meek._loc = { X = 5000, Y = 0, Z = 0 }
     W.fire(HASPERK, W.p(T.me), W.p(39))
-    ok(line("^GRAB enemy=%? hp=100 E=25 "), "client attacker: none within 10 m -> no row (enemy % 100)", dump())
+    ok(line("^GRAB enemy=unknown%(none%) hp=100 E=25 .* why=no%-grab%-ai%-near$"), "client attacker: none within 10 m -> no row (enemy % 100), named unknown", dump())
+    eq(count("enemy=%?"), 0, "client attacker: never enemy=?")
 end
 do -- the client's Stalker grab: the presentation pre-hook flips; PlayDamageEvent's hook restores
     clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
@@ -1409,6 +1410,73 @@ do -- a modded client's execution decision from the host's values (low Health): 
     eq(meekGrab(T.me), "e", "client low Health: execution (20 - 25 <= 0)")
     eq(count("^GRAB enemy=meek hp=20 E=25 game=e decision=e flip=none victim=local spare=yes$"), 1, "client low Health: GRAB line", dump())
     eq(runDelayed(hits.RECOVER_DELAY), 1, "client low Health: recovery check scheduled")
+end
+
+-- ---------------------------------------------------------------- story 11: the Watcher's grab, the attacker named
+local WATCHER_ATTACK = "/Game/AI/EyeMonster_AI.EyeMonster_AI_C:AttackMulti"
+-- A Watcher in W.all (near both players unless loc is given).
+local function addWatcher(loc)
+    T.watcher = actor("EyeMonster_AI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.EyeMonster_AI_C_1", { loc = loc or { X = 150, Y = 0, Z = 0 } })
+    W.all.EyeMonster_AI_C = { T.watcher }
+    return T.watcher
+end
+-- A Watcher grab as EyeMonster_AI_C:AttackMulti runs it: AttackedPlayer = the grabbed character, HasPerk(0x27) on the
+-- chase Target, the decision from AttackedPlayer's Health, then the multicast hook (after the body). opts.noLock: no
+-- locked victim (a client); opts.noMulticast: the hook doesn't come.
+local function watcherGrab(target, attacked, opts)
+    opts = opts or {}
+    local w = T.watcher
+    rawset(w, "Target", target)
+    rawset(w, "AttackedPlayer", attacked)
+    if not opts.noLock then T.locked[w._path] = attacked end
+    W.fire(HASPERK, W.p(target), W.p(39))
+    local picked = (attacked._hp - ({ [0] = 100, 50, 25, 17 })[T.gs.Diffculty] <= 0) and "e" or "s"
+    if not opts.noMulticast then W.fire(WATCHER_ATTACK, W.p(w), W.p(0), W.p(attacked)) end
+    return picked
+end
+do -- the host, solo shape (Target == AttackedPlayer == its own player): enemy=watcher, both fields local
+    setup{ knobs = "enemyDamage=25", diff = 0, net = F.net() }
+    addWatcher()
+    eq(watcherGrab(T.me, T.me), "s", "watcher solo: survivable")
+    eq(T.me._hp, 100, "watcher solo: restored in the multicast hook")
+    eq(count("^GRAB enemy=watcher hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "watcher solo: GRAB line", dump())
+    eq(count("^WATCHER target=local attacked=local$"), 1, "watcher solo: WATCHER line", dump())
+end
+do -- the host: the Watcher's Target is B, its locked victim the host: the attacker is still named (no enemy=?)
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    net.compat[T.ps[2]] = true
+    addWatcher()
+    rawset(T.watcher, "Target", T.other)
+    rawset(T.watcher, "AttackedPlayer", T.me)
+    T.locked[T.watcher._path] = T.me
+    W.fire(HASPERK, W.p(T.other), W.p(39))
+    ok(line("^GRAB enemy=watcher hp=100 E=25 "), "watcher Target only: attacker named from the Watcher's Target", dump())
+    eq(count("^WATCHER target=client attacked=local$"), 1, "watcher Target only: target=client attacked=local", dump())
+    eq(count("enemy=%?"), 0, "watcher Target only: never enemy=?")
+end
+do -- a modded client, its own player both Target and attacked: enemy=watcher, WATCHER line from its own read
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    addWatcher()
+    eq(watcherGrab(T.me, T.me, { noLock = true }), "s", "client watcher: survivable")
+    eq(count("^GRAB enemy=watcher hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "client watcher: GRAB line", dump())
+    eq(count("^WATCHER target=local attacked=local$"), 1, "client watcher: WATCHER line", dump())
+end
+do -- no attacker found on the host: enemy=unknown(<class>) with the reason, never enemy=?
+    setup{ knobs = "enemyDamage=25", diff = 0, net = F.net() }
+    W.all.Stalker_AI_C = {}
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    ok(line("^GRAB enemy=unknown%(SCP_AI_C%) hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes why=no%-locked%-victim$"), "unknown: the nearest grab AI's class and the reason", dump())
+    eq(count("^WATCHER "), 0, "unknown: no WATCHER line")
+    runDelayed(hits.RESTORE_DELAY)
+    T.now = T.now + 30
+    T.meek._loc = { X = 5000, Y = 0, Z = 0 }
+    T.me._hp = 100
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    ok(line("^GRAB enemy=unknown%(none%) .* why=no%-grab%-ai%-near$"), "unknown: none near", dump())
+    eq(count("enemy=%?"), 0, "unknown: never enemy=?")
+    runDelayed(hits.RESTORE_DELAY)
+    ok(line("^RESTORE enemy=unknown%(none%) "), "unknown: the RESTORE label names it too", dump())
 end
 
 -- ---------------------------------------------------------------- the source: rules from AGENTS.md

@@ -33,6 +33,7 @@ local FPC = "/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPerson
 local GAMESTATE = "/Game/FirstPerson/Blueprints/BP_FirstPersonGameState.BP_FirstPersonGameState_C"
 local RADIO = "/Game/Gameplay/ClassifiedMaterials/BP_Radio.BP_Radio_C"
 local FP_SHORT = "BP_FirstPersonCharacter_C"
+local WATCHER = "EyeMonster_AI_C"
 M.RADIO = RADIO
 -- The radio's server events: each adds 1 to TimesUsedReinforcements on the host (the callback runs after the body).
 M.RADIO_EVENTS = { "ReinforceSpecficPlayer", "SpawnReinforcementMethod2", "SpawnReinforcmentSpectator" }
@@ -277,44 +278,94 @@ end
 
 function A:rowOf(o) return M.CLASS_ROW[classOf(o) or ""] end
 
--- The grab's attacker for victim v at HasPerk(0x27): the AI whose locked victim is v, else the Stalker (its
--- presentation source, or the nearest live Stalker). Returns path, row, short class (any may be nil).
+-- The grab's attacker for victim v at HasPerk(0x27): the AI whose locked victim is v, else a Watcher whose chase Target
+-- is v (story 11: the Watcher calls HasPerk(0x27) on its Target, and its locked victim may be another player), else the
+-- Stalker (its presentation source, or the nearest live Stalker). Returns path, row, short class, the attacker object
+-- (for this callback only; any may be nil).
 -- client (story 5): HasPerk(0x27) on a client is always one of the five AI grabs, and GetLockedVictim may not be set
 -- there, so the fallback is the nearest of those AI within CLIENT_RANGE; nothing found: no row (enemy % 100).
 function A:grabAttacker(v, vpath, client)
     local ctx = cdo(CTX_CDO)
-    local best, bestD, bestShort
+    local best, bestD, bestShort, bestObj
+    local watcher
     for _, g in ipairs(M.GRABS) do
         for _, a in ipairs(FindAllOf(g.short) or {}) do
             local ap = pathOf(a)
             if ap and not ap:find("Default__", 1, true) and self:alive(a) then
                 local lv
                 if ctx then pcall(function() lv = ctx:GetLockedVictim(a) end) end
-                if exists(lv) and pathOf(lv) == vpath then return ap, M.CLASS_ROW[g.short], g.short end
+                if exists(lv) and pathOf(lv) == vpath then return ap, M.CLASS_ROW[g.short], g.short, a end
+                if g.short == WATCHER and not watcher then
+                    local t
+                    pcall(function() t = a.Target end)
+                    if exists(t) and pathOf(t) == vpath then watcher = { ap, a } end
+                end
                 if client then
                     local d = dist(a, v)
-                    if d and d <= M.CLIENT_RANGE and (not bestD or d < bestD) then best, bestD, bestShort = ap, d, g.short end
+                    if d and d <= M.CLIENT_RANGE and (not bestD or d < bestD) then best, bestD, bestShort, bestObj = ap, d, g.short, a end
                 end
             end
         end
     end
+    if watcher then return watcher[1], M.CLASS_ROW[WATCHER], WATCHER, watcher[2] end
     if client then
-        if best then return best, M.CLASS_ROW[bestShort], bestShort end
-        return nil, nil, nil
+        if best then return best, M.CLASS_ROW[bestShort], bestShort, bestObj end
+        return nil, nil, nil, nil
     end
     local src
     if ctx then pcall(function() src = ctx:GetStalkerPresentationSource(v) end) end
-    if exists(src) and self:alive(src) then return pathOf(src), self:rowOf(src), classOf(src) end
-    local best, bestD
+    if exists(src) and self:alive(src) then return pathOf(src), self:rowOf(src), classOf(src), src end
+    local best, bestD, bestObj
     for _, s in ipairs(FindAllOf("Stalker_AI_C") or {}) do
         local sp = pathOf(s)
         if sp and not sp:find("Default__", 1, true) and self:alive(s) then
             local d = dist(s, v)
-            if d and d <= M.STALKER_RANGE and (not bestD or d < bestD) then best, bestD = sp, d end
+            if d and d <= M.STALKER_RANGE and (not bestD or d < bestD) then best, bestD, bestObj = sp, d, s end
         end
     end
-    if best then return best, "stalker", "Stalker_AI_C" end
-    return nil, nil, nil
+    if best then return best, "stalker", "Stalker_AI_C", bestObj end
+    return nil, nil, nil, nil
+end
+
+-- enemyText(row, short, v) -> the GRAB line's enemy field and, when the attacker isn't known, the reason (story 11:
+-- never "enemy=?"). unknown(<class>): the nearest of the five AI grab classes within CLIENT_RANGE of v (none: "none";
+-- a Stalker that close was already named by grabAttacker).
+function A:enemyText(row, short, v)
+    if row then return row, nil end
+    if short then return "unknown(" .. short .. ")", "no-row" end
+    local near, nearD
+    for _, g in ipairs(M.GRABS) do
+        local sh = g.short
+        for _, a in ipairs(FindAllOf(sh) or {}) do
+            local ap = pathOf(a)
+            if ap and not ap:find("Default__", 1, true) and self:alive(a) then
+                local d = dist(a, v)
+                if d and d <= M.CLIENT_RANGE and (not nearD or d < nearD) then near, nearD = sh, d end
+            end
+        end
+    end
+    if near then return "unknown(" .. near .. ")", "no-locked-victim" end
+    return "unknown(none)", "no-grab-ai-near"
+end
+
+-- whoIs(o, myp) -> "local" (this machine's own player), "client" (another player character) or "none".
+function A:whoIs(o, myp)
+    if not exists(o) then return "none" end
+    local p = pathOf(o)
+    if not p then return "none" end
+    if myp and p == myp then return "local" end
+    if classOf(o) == FP_SHORT then return "client" end
+    return "none"
+end
+
+-- watcherLine(attacker, myp): a Watcher grab's Target and AttackedPlayer, read from that Watcher at decision time
+-- (story 11). Its own line right after the GRAB line, so the GRAB line keeps the format the pair checks match.
+function A:watcherLine(attacker, short, myp)
+    if short ~= WATCHER or attacker == nil then return end
+    local t, ap
+    pcall(function() t = attacker.Target end)
+    pcall(function() ap = attacker.AttackedPlayer end)
+    self.o.say("info", "WATCHER target=%s attacked=%s", self:whoIs(t, myp), self:whoIs(ap, myp))
 end
 
 -- Bat and Infected Dog rules for a CallDamageEvent with no context (knob-mechanics.md enemy table).
@@ -529,12 +580,12 @@ function A:onHasPerk(selfp, perk)
     self:noteGrab(v, vpath, nil) -- the host before its match start or after a back-off: the recovery only
 end
 
--- flipFor(v, vpath, hp, g, row): the temporary Health for decision g (when it differs from the game's), restored in
+-- flipFor(v, vpath, hp, g, enemy): the temporary Health for decision g (when it differs from the game's), restored in
 -- the grab multicast's hook or on the next tick. Returns the flip text for the GRAB line.
-function A:flipFor(v, vpath, hp, g, row)
+function A:flipFor(v, vpath, hp, g, enemy)
     if not g.flip then return "none" end
     if not setHp(v, g.flip) then error("could not write the temporary Health on " .. vpath) end
-    self.st.pending[vpath] = { saved = hp, temp = g.flip, label = "enemy=" .. (row or "?") }
+    self.st.pending[vpath] = { saved = hp, temp = g.flip, label = "enemy=" .. tostring(enemy) }
     self:later(vpath)
     return F(g.flip)
 end
@@ -560,7 +611,7 @@ end
 
 -- The host's grab on any victim: its own player, or a client spared by presence; anyone else keeps the game's decision.
 function A:hostGrab(v, vpath, isLocal)
-    local apath, row, short = self:grabAttacker(v, vpath)
+    local apath, row, short, aobj = self:grabAttacker(v, vpath)
     if short then self:needClassHooks(short) end
     local values = self.st.values
     if not damage.acts(values, row) then
@@ -580,10 +631,13 @@ function A:hostGrab(v, vpath, isLocal)
         if isLocal then self:noteGrab(v, vpath, nil) end
         return
     end
-    local flip = self:flipFor(v, vpath, hp, g, row)
+    local enemy, unknown = self:enemyText(row, short, v)
+    local flip = self:flipFor(v, vpath, hp, g, enemy)
     self.st.grabs[vpath] = { kind = g.decision == "s" and "survivable" or "execution", attacker = apath, row = row, at = self.clock() }
-    self.o.say("info", "GRAB enemy=%s hp=%s E=%s game=%s decision=%s flip=%s victim=%s spare=%s", row or "?", F(hp), F(g.E),
-        g.game, g.decision, flip, isLocal and "local" or "client", spare and "yes" or ("no(" .. tostring(why) .. ")"))
+    self.o.say("info", "GRAB enemy=%s hp=%s E=%s game=%s decision=%s flip=%s victim=%s spare=%s%s", enemy, F(hp), F(g.E),
+        g.game, g.decision, flip, isLocal and "local" or "client", spare and "yes" or ("no(" .. tostring(why) .. ")"),
+        unknown and (" why=" .. unknown) or "")
+    self:watcherLine(aobj, short, isLocal and vpath or self:myPath(v))
     if isLocal then self:noteGrab(v, vpath, g.decision) end
 end
 
@@ -622,12 +676,12 @@ end
 function A:clientGrab(v, vpath, attacker)
     local values = self:hostValues()
     if not values then self:noteGrab(v, vpath, nil) return end
-    local apath, row, short
+    local apath, row, short, aobj
     if attacker ~= nil and self:alive(attacker) then
-        apath, short = pathOf(attacker), classOf(attacker)
+        apath, short, aobj = pathOf(attacker), classOf(attacker), attacker
         row = M.CLASS_ROW[short or ""]
     else
-        apath, row, short = self:grabAttacker(v, vpath, true)
+        apath, row, short, aobj = self:grabAttacker(v, vpath, true)
     end
     if short then self:needClassHooks(short) end
     local hp = hpOf(v)
@@ -635,9 +689,11 @@ function A:clientGrab(v, vpath, attacker)
     if not damage.acts(values, row) or not hp or not d then self:noteGrab(v, vpath, nil) return end
     local g = damage.grab(hp, values, d, row, true)
     if not g then self:noteGrab(v, vpath, nil) return end
-    local flip = self:flipFor(v, vpath, hp, g, row)
-    self.o.say("info", "GRAB enemy=%s hp=%s E=%s game=%s decision=%s flip=%s victim=local spare=yes", row or "?", F(hp), F(g.E),
-        g.game, g.decision, flip)
+    local enemy, unknown = self:enemyText(row, short, v)
+    local flip = self:flipFor(v, vpath, hp, g, enemy)
+    self.o.say("info", "GRAB enemy=%s hp=%s E=%s game=%s decision=%s flip=%s victim=local spare=yes%s", enemy, F(hp), F(g.E),
+        g.game, g.decision, flip, unknown and (" why=" .. unknown) or "")
+    self:watcherLine(aobj, short, vpath)
     self:noteGrab(v, vpath, g.decision)
 end
 

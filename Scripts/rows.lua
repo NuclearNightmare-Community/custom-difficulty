@@ -69,7 +69,7 @@ M.HELP = {
         "Default: 0 on every difficulty.", range("spread"), FOLLOW }, "\n"),
     revives = table.concat({ "Reinforcement tokens the team can use in a match.",
         "Default follows Classified Minimum: Nightmare 2, Hard 4, Normal 6, Easy 8.", range("revives"),
-        "Empty = follow Difficulty (Classified Minimum)." }, "\n"),
+        "Empty = follow Classified Minimum." }, "\n"),
     cold = table.concat({ "How fast players freeze, in % of Normal's rate. 0 = never freezes.",
         "Default: Nightmare 200, Hard 133, Normal 100, Easy 50.", range("cold"), FOLLOW }, "\n"),
     frostbite = table.concat({ "HP lost per second at a full freeze meter.",
@@ -180,7 +180,7 @@ end
 -- Every slider's default and hint follow diff and cm (core moves only the Default ones).
 function A:follow(diff, cm)
     local defs, problems = M.defaults(diff, cm)
-    for _, p in ipairs(problems) do self.o.warnOnce("rows-index", "ROWS %s", p) end
+    for _, p in ipairs(problems) do self.o.warnOnce(p:match("^Difficulty") and "rows-index-diff" or "rows-index-cm", "ROWS %s", p) end
     for _, key in ipairs(M.ORDER) do
         local h = self.sliderH[key]
         if h then
@@ -221,23 +221,27 @@ local function childAt(w, i)
 end
 
 -- Whether the open screen's widget tree has a widget named name: a bounded depth-first walk from the root (at most
--- WALK_MAX widgets, WALK_DEPTH levels). nil when the tree can't be read.
+-- WALK_MAX widgets looked at or waiting, WALK_DEPTH levels). nil when the tree can't be read or the budget ran out
+-- before the walk was done (unknown, never "missing").
 function M.hasNamed(screen, name)
     local ok, root = pcall(function() return screen.WidgetTree.RootWidget end)
     if not ok or root == nil then return nil end
-    local ws, ds, seen = { root }, { 0 }, 0
-    while #ws > 0 and seen < M.WALK_MAX do
+    local ws, ds, seen, cut = { root }, { 0 }, 0, false
+    while #ws > 0 do
+        if seen >= M.WALK_MAX then return nil end
         local w, d = ws[#ws], ds[#ds]
         ws[#ws], ds[#ds] = nil, nil
         seen = seen + 1
         if nameOf(w) == name then return true end
         if d < M.WALK_DEPTH then
             for i = childCount(w) - 1, 0, -1 do
+                if #ws >= M.WALK_MAX then cut = true break end
                 local c = childAt(w, i)
                 if c then ws[#ws + 1], ds[#ds + 1] = c, d + 1 end
             end
         end
     end
+    if cut then return nil end
     return false
 end
 

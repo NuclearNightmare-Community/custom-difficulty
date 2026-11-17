@@ -50,11 +50,14 @@
 -- Story 7 (menu only, no match; VM only: real clicks, a drag and typing through run.ps1 -Target vm):
 --   screen          ten opens of the create-world screen by real clicks on START GAME and Back: the 19 rows in
 --                   VerticalBox_202 (knob rows at children 2-6 after Overlay_28, per-enemy rows right after
---                   Overlay_738, the game rows in the order read at Construct, one widget each); an eleventh open with
---                   CONFIGURE: a drag on Enemy Damage, 57 / 999 / empty typed, Cold 150, Nightmare through the
---                   Difficulty picker's handler (Default hints follow, Cold kept), a real click on the picker's arrow,
---                   a preset DT7-A with Enemy Damage 17, None (rows kept), DT7-A (17), DT7-A deleted. Screenshots
---                   screen-rows, screen-nightmare, screen-preset.
+--                   Overlay_738, the game rows in the order read at Construct, one widget each), and on each open the
+--                   Difficulty picker's arrows clicked for real (next, then back); an eleventh open with CONFIGURE: a
+--                   drag on Enemy Damage, 57 / 999 / empty typed, Cold 150, Frostbite 2.3 (2.5), Nightmare through the
+--                   Difficulty picker's handler (Default hints follow, Cold kept), a real click on that picker's arrow
+--                   and on the Classified Minimum picker's (tokens hint follows), Cold cleared, a preset DT7-A with
+--                   Enemy Damage 17 saved on Hard, None (rows kept), the screen on Easy, DT7-A (17, Default rows follow
+--                   its Hard), DT7-A deleted; one more open starts Default on Normal. Screenshots screen-rows,
+--                   screen-nightmare, screen-preset.
 -- White Outs: every scenario sets the game instance's DisableWhiteOuts before the match (cold-whiteout clears it) and
 -- logs one WHITEOUT line after the start; check.ps1 requires disabled=true, or disabled=false for cold-whiteout.
 -- Lines: OK / FAIL <check>; NOTSHOWN <case> (the driver couldn't make the case happen: not a pass);
@@ -1026,11 +1029,14 @@ end
 -- Real input through run.ps1 -Target vm (tools/vm/vm-sp.ps1: click, drag, type, key, shot). Ten opens by real clicks on
 -- START GAME and Back: the 19 rows in VerticalBox_202 in the wanted order against the game's own order (read in a
 -- Construct hook, before core attaches anything): the knob rows at children 2-6 right after Overlay_28, the per-enemy
--- rows right after Overlay_738, the game rows in their stock order, one widget per row. An eleventh open: CONFIGURE,
--- a screenshot, a drag on Enemy Damage, 57 / 999 / empty typed into its box, a custom Cold, Nightmare through the
--- Difficulty picker's own handler (Default hints follow, Cold keeps its value), a real click on that picker's prev arrow
--- (it still works and the rows follow), then a preset: Enemy Damage 17 saved as DT7-A, 40 typed, None (rows unchanged),
--- DT7-A (17 again), DT7-A deleted. Difficulty's own ROWS lines are judged by check.ps1. Never clicks Create.
+-- rows right after Overlay_738, the game rows in their stock order, one widget per row; then CONFIGURE and real clicks
+-- on the Difficulty picker's next and previous arrows (the value changes and comes back), CONFIRM and Back. An eleventh
+-- open: CONFIGURE, a screenshot, a drag on Enemy Damage, 57 / 999 / empty typed into its box, a custom Cold, 2.3 typed
+-- into Frostbite (2.5), Nightmare through the Difficulty picker's own handler (Default hints follow, Cold keeps its
+-- value), a real click on that picker's prev arrow and on the Classified Minimum picker's next arrow (the tokens row
+-- follows), then a preset: Cold cleared, Enemy Damage 17 saved as DT7-A on Hard, 40 typed, None (rows unchanged), the
+-- screen put on Easy, DT7-A (17 again, Default rows follow DT7-A's Hard), DT7-A deleted; CONFIRM, Back and one more
+-- open that starts Default on Normal. Difficulty's own ROWS lines are judged by check.ps1. Never clicks Create.
 if SC.special == "screen" then
     steps = {}
     local CS_CLASS = "/Game/Graphics/MainMenu/CreateServer.CreateServer_C"
@@ -1251,15 +1257,54 @@ if SC.special == "screen" then
             Z.allOk = Z.allOk and okOrder and stock and one and new
         end)
     end
+    -- CONFIGURE shows the settings list (hidden until then), scrolled to its start.
+    local function configure(label)
+        click("CONFIGURE " .. label, function() return prop(screen(), "Button_216") end)
+        sstep("sc: configure " .. label, function()
+            local s = screen()
+            local sb = s and rootOf(s) and findIn(rootOf(s), "ScrollBox_54")
+            if sb then pcall(function() sb:ScrollToStart() end) end
+            local vis = try(function() return prop(s, "Overlay_0"):GetVisibility() end)
+            check(vis ~= nil and vis ~= 1 and vis ~= 2, "SCCONFIG %s: CONFIGURE shows the world settings (Overlay_0 visibility %s)", label, tostring(vis))
+            return after(1.5), 4
+        end)
+    end
+    -- The screen's Diffculty, the Difficulty picker's shown option and Enemy Damage's hint.
+    local function diffState()
+        local cs = screen()
+        local _, _, hint = sstate("enemyDamage")
+        return cs and num(try(function() return cs.Diffculty end)), cs and str(try(function() return cs.MultipleSelectBox_6.SelectedOption end)), hint
+    end
+    -- One CONFIRM and Back (CONFIRM hides the settings again, so Back is reachable).
+    local function confirmBack(label)
+        click("CONFIRM " .. label, function() return prop(screen(), "Create_3") end)
+        click("Back " .. label, function() return prop(screen(), "Back") end)
+        sstep("sc: closed " .. label, function() return function() return screen() == nil end, 10, "screen closed " .. label end)
+    end
+    Z.picks = 0
     for n = 1, OPENS do
         openOnce(n)
-        click("Back " .. n, function() return prop(screen(), "Back") end)
-        sstep("sc: closed " .. n, function() return function() return screen() == nil end, 10, "screen closed " .. n end)
+        -- The game's Difficulty picker works on every open: next (Normal -> Hard), then back (Hard -> Normal).
+        configure(tostring(n))
+        click("Difficulty next " .. n, function() return prop(prop(screen(), "MultipleSelectBox_6"), "Button") end)
+        sstep("sc: picked " .. n, function()
+            local d, opt, hint = diffState()
+            local okN = check(d == 1 and opt == "Hard" and hint == "50", "SCPICK open %d next: Diffculty %s, shown %s, Enemy Damage hint %s (want 1, Hard, 50)", n, tostring(d), tostring(opt), tostring(hint))
+            Z.pickNext = okN
+        end)
+        click("Difficulty prev " .. n, function() return prop(prop(screen(), "MultipleSelectBox_6"), "Button_60") end)
+        sstep("sc: picked back " .. n, function()
+            local d, opt, hint = diffState()
+            local okP = check(d == 2 and opt == "Normal" and hint == "25", "SCPICK open %d prev: Diffculty %s, shown %s, Enemy Damage hint %s (want 2, Normal, 25)", n, tostring(d), tostring(opt), tostring(hint))
+            if okP and Z.pickNext then Z.picks = Z.picks + 1 end
+        end)
+        confirmBack(tostring(n))
     end
     sstep("sc: ten opens", function()
         local k = 0
         for _ in pairs(Z.paths) do k = k + 1 end
         check(Z.allOk and k == OPENS and Z.snaps >= OPENS, "SCTEN %d opens by real clicks: every row once, in order, the game rows in stock order; %d distinct row widgets, %d Construct snapshots", OPENS, k, Z.snaps)
+        check(Z.picks == OPENS, "SCPICKTEN the Difficulty picker changed its value by real clicks (and back) on %d of %d opens", Z.picks, OPENS)
     end)
 
     -- The eleventh open: the settings shown, then the real input.
@@ -1277,15 +1322,7 @@ if SC.special == "screen" then
         say("CLEANUP deleted %d leftover %s preset(s)", n, PREFIX)
         return after(1), 3
     end)
-    click("CONFIGURE", function() return prop(screen(), "Button_216") end)
-    sstep("sc: configure", function()
-        local s = screen()
-        local sb = s and rootOf(s) and findIn(rootOf(s), "ScrollBox_54")
-        if sb then pcall(function() sb:ScrollToStart() end) end
-        local vis = try(function() return prop(s, "Overlay_0"):GetVisibility() end)
-        check(vis ~= nil and vis ~= 1 and vis ~= 2, "SCCONFIG CONFIGURE shows the world settings (Overlay_0 visibility %s)", tostring(vis))
-        return after(1.5), 4
-    end)
+    configure(tostring(OPENS + 1))
     shot("screen-rows")
 
     -- Enemy Damage: a drag, then 57, 999 and empty typed into its box. Difficulty's ROWS change lines are check.ps1's.
@@ -1319,6 +1356,12 @@ if SC.special == "screen" then
     sstep("sc: cold 150", function()
         local val, box = sstate("cold")
         check(box == "150" and near(val, 150), "SCTYPE cold 150: box '%s' bar %s", tostring(box), fmtv(val))
+    end)
+    -- The 0.5 step in game: 2.3 typed into Frostbite Damage becomes 2.5 (check.ps1: ROWS change frostbite=2.5).
+    typeInto("frostbite 2.3", "frostbite", "2.3")
+    sstep("sc: frostbite 2.3", function()
+        local val, box = sstate("frostbite")
+        check((box == "2.5" or box == "2,5") and near(val, 2.5), "SCSTEP frostbite 2.3 typed: box '%s' bar %s (want 2.5)", tostring(box), fmtv(val))
     end)
 
     -- Nightmare through the Difficulty picker's own handler: the Default rows follow, the custom Cold stays.
@@ -1354,8 +1397,21 @@ if SC.special == "screen" then
         check(d == 1 and opt == "Hard", "SCPICKER a real click on the Difficulty picker's arrow: Diffculty %s, shown %s (want 1, Hard)", tostring(d), tostring(opt))
         check(hint == "50", "SCPICKER the Default Enemy Damage row follows the picker: hint %s (want 50)", tostring(hint))
     end)
+    -- The Classified Minimum picker (MultipleSelectBox): a real click on its next arrow (Normal -> Hard, index 1); the
+    -- Default Reinforcement Tokens row follows (6 -> 4; check.ps1: ROWS follow ... classified=1).
+    click("Classified next", function() return prop(prop(screen(), "MultipleSelectBox"), "Button") end)
+    sstep("sc: classified check", function()
+        local cs = screen()
+        local cm = cs and num(try(function() return cs["Minium Classified"] end))
+        local opt = cs and str(try(function() return cs.MultipleSelectBox.SelectedOption end))
+        local val, box, hint = sstate("revives")
+        check(cm == 1 and opt == "Hard", "SCCLASS a real click on the Classified Minimum picker's arrow: Minium Classified %s, shown %s (want 1, Hard)", tostring(cm), tostring(opt))
+        check(box == "" and hint == "4" and near(val, 4), "SCCLASS the Default Reinforcement Tokens row follows: hint %s, slider at %s, box '%s' (want 4)", tostring(hint), fmtv(val), tostring(box))
+    end)
 
-    -- A preset: Enemy Damage 17 saved as DT7-A; 40 typed; None leaves the rows; DT7-A brings 17 back.
+    -- A preset: Enemy Damage 17 (Cold back to Default) saved as DT7-A on Hard; 40 typed; None leaves the rows; the
+    -- screen put on Easy; DT7-A brings 17 back and the Default rows follow its Hard.
+    typeInto("cold empty", "cold", "")
     typeInto("ed 17", "enemyDamage", "17")
     sstep("sc: save", function()
         drive("save " .. PREFIX .. "A", function(cs)
@@ -1376,6 +1432,23 @@ if SC.special == "screen" then
         local val, box = sstate("enemyDamage")
         check(box == "40" and near(val, 40), "SCNONE None leaves the rows: Enemy Damage box '%s' bar %s (want 40)", tostring(box), fmtv(val))
     end)
+    sstep("sc: Easy", function()
+        drive("Difficulty Easy (handler)", function(cs)
+            local msb = cs.MultipleSelectBox_6
+            local idx
+            local items = msb.Items
+            for i = 1, math.min(items:GetArrayNum(), 16) do if str(items[i]) == "Easy" then idx = i - 1 end end
+            if not idx then error("no Easy option") end
+            msb:SetSelectedOption(idx)
+            cs[H_DIFF](cs, "Easy", idx)
+        end)
+        return after(1), 3
+    end)
+    sstep("sc: Easy check", function()
+        local d = diffState()
+        local _, _, ch = sstate("cold")
+        check(d == 3 and ch == "50", "SCEASY the screen on Easy before the select: Diffculty %s, Cold hint %s (want 3, 50)", tostring(d), tostring(ch))
+    end)
     sstep("sc: select A", function()
         drive("select " .. PREFIX .. "A", function(cs)
             local pos
@@ -1388,13 +1461,26 @@ if SC.special == "screen" then
     sstep("sc: select A check", function()
         local val, box = sstate("enemyDamage")
         check(box == "17" and near(val, 17), "SCPRESET DT7-A shows Enemy Damage 17: box '%s' bar %s", tostring(box), fmtv(val))
+        local d = diffState()
+        local cv, cb, ch = sstate("cold")
+        check(d == 1 and cb == "" and ch == "133" and near(cv, 133), "SCPRESETDIFF the Default rows follow DT7-A's Hard: Diffculty %s, Cold box '%s' hint %s slider %s (want 1, empty, 133)",
+            tostring(d), tostring(cb), tostring(ch), fmtv(cv))
     end)
     shot("screen-preset")
     sstep("sc: delete A", function()
         drive("delete " .. PREFIX .. "A", function(cs) if not deletePreset(cs, PREFIX .. "A") then error("no preset " .. PREFIX .. "A") end end)
         return after(1), 3
     end)
-    click("Back final", function() return prop(screen(), "Back") end)
+    -- One more real Back and START GAME: the rows start Default on Normal again (story 6's rule).
+    confirmBack("final")
+    openOnce(OPENS + 2)
+    sstep("sc: reopen check", function()
+        local _, eb, eh = sstate("enemyDamage")
+        local _, cb, ch = sstate("cold")
+        check(eb == "" and eh == "25" and cb == "" and ch == "100", "SCREOPEN a new open starts Default on Normal: Enemy Damage box '%s' hint %s, Cold box '%s' hint %s (want empty 25, empty 100)",
+            tostring(eb), tostring(eh), tostring(cb), tostring(ch))
+    end)
+    click("Back reopen", function() return prop(screen(), "Back") end)
     step("sc: close", function()
         local cs = screen()
         if cs then pcall(function() cs:RemoveFromParent() end) say("CLOSE the screen removed") end

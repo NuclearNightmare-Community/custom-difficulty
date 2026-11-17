@@ -324,19 +324,29 @@ create-world screen ten times by real clicks on START GAME and Back. On each ope
 against the game's own order read in a `Construct` hook (`SCSNAP`, before core attaches anything): the five knob
 rows at children 2-6 right after `Overlay_28`, the fourteen per-enemy rows right after `Overlay_738`, every game row
 in its stock order, one widget per row, a new row widget, Enemy Damage empty with the hint 25 (`SCORDER`, `SCSTOCK`,
-`SCONE`, `SCNEW`; `SCTEN` sums the ten). An eleventh open: leftover `DT7-*` presets deleted, CONFIGURE, screenshot
+`SCONE`, `SCNEW`; `SCTEN` sums the ten). On each of the ten opens it also clicks CONFIGURE, then the Difficulty
+picker's next arrow for real (Hard, Enemy Damage hint 50) and its previous arrow (Normal, 25), then CONFIRM and Back
+(`SCPICK`; `SCPICKTEN` sums them). An eleventh open: leftover `DT7-*` presets deleted, CONFIGURE, screenshot
 `screen-rows`, a real drag on Enemy Damage (`SCDRAG`), 57 / 999 / empty typed into its box (57, 200, Default with the
-hint 25), Cold 150, Nightmare through the Difficulty picker's own handler (Enemy Damage's hint 100 and slider at 100,
-Cold still 150; screenshot `screen-nightmare`), a real click on the picker's previous arrow (Hard, hint 50), then
-Enemy Damage 17 saved as `DT7-A`, 40 typed, None (still 40), `DT7-A` (17; screenshot `screen-preset`), `DT7-A`
-deleted, Back. `check.ps1 -Scenario screen -Target vm` needs the running checks, the driver's PASS and `SCTEN`, one
-`ROWS declared 19`, Enemy Damage's `ROWS change` lines in the order dragged value, 57, 200, default, 17, 40 (with
-`rows=enemyDamage=57` after 57: what a capture would encode), `ROWS change cold=150`, the Nightmare and Hard
-`ROWS follow` lines, the `DT7-A` save and select with `enemyDamage=17`, a None select, and no ERROR or WARN.
-**Status 2026-11-17:** passed in the VM at 1280x720 on V8.2.3 build 26601774 with Nucleus 0.15.0 (`END result=PASS`,
+hint 25), Cold 150, 2.3 typed into Frostbite Damage (2.5, the 0.5 step; `SCSTEP`), Nightmare through the Difficulty
+picker's own handler (Enemy Damage's hint 100 and slider at 100, Cold still 150; screenshot `screen-nightmare`), a
+real click on the picker's previous arrow (Hard, hint 50), a real click on the Classified Minimum picker's next arrow
+(Hard, Reinforcement Tokens hint 6 -> 4; `SCCLASS`), then Cold cleared, Enemy Damage 17 saved as `DT7-A` (on Hard),
+40 typed, None (still 40), the screen put on Easy through the Difficulty handler (`SCEASY`), `DT7-A` (17, and the
+Default Cold row follows DT7-A's Hard: hint 133; `SCPRESET`, `SCPRESETDIFF`; screenshot `screen-preset`), `DT7-A`
+deleted, CONFIRM and Back, then one more real START GAME open whose Enemy Damage and Cold boxes are empty with
+Normal's hints 25 and 100 (`SCREOPEN`), and Back. `check.ps1 -Scenario screen -Target vm` needs the running checks,
+the driver's PASS, `SCTEN` and `SCPICKTEN`, one `ROWS declared 19`, Enemy Damage's `ROWS change` lines in the order
+dragged value, 57, 200, default, 17, 40 (with `rows=enemyDamage=57` after 57: what a capture would encode),
+`ROWS change cold=150` and `ROWS change frostbite=2.5`, the Nightmare and Hard `ROWS follow` lines, one with
+`classified=1 ... revives=4`, the Easy one before the select and DT7-A's Hard one right after it, the `DT7-A` save
+and select with `enemyDamage=17`, a None select, the driver's `SCSTEP`, `SCCLASS`, `SCPRESETDIFF` and `SCREOPEN`, and no
+ERROR or WARN.
+**Status 2026-11-17:** the first version of the scenario (without the per-open picker clicks, the Classified
+Minimum click, Frostbite 2.3, the Easy-then-preset check and the final reopen) passed in the VM at 1280x720 on V8.2.3 build 26601774 with Nucleus 0.15.0 (`END result=PASS`,
 113 checks; `check.ps1` all passed, the one soft check a `hud slow tick` WARN); screenshots
 `dumps/v8.2.3-build26601774/vm/sp-screen-rows.png`, `sp-screen-nightmare.png`, `sp-screen-preset.png`. `presets` re-run
-the same day on Nucleus 0.15.0: PASS (36 checks).
+the same day on Nucleus 0.15.0: PASS (36 checks). The extended scenario has not run in the VM yet.
 
 Every match scenario sets `BP_GameInstance_C.DisableWhiteOuts` before the match and logs one
 `WHITEOUT disabled=<GameState value> director=<n> phase=<Phase>`; `check.ps1` requires `disabled=true` in every

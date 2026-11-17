@@ -980,8 +980,9 @@ if SC.special == "spread" then
                 P.losses[#P.losses + 1] = hp and (100 - hp) or -1
                 S.lockedHits = #P.losses
             end
-            -- Refill outside a grab window (8 s after the last hit).
-            if S.lockedAt and os.clock() - S.lockedAt >= 8 then
+            -- Refill half a second after each hit: on Normal at full Health every Meek grab is the game's own
+            -- survivable one (no flip, so no temporary Health to restore), and the Meek grabs again about every 7 s.
+            if S.lockedAt and os.clock() - S.lockedAt >= 0.5 then
                 local hp = hpOf(m)
                 if hp and hp > 0 and hp < 100 then refill("spread real route") end
             end
@@ -996,8 +997,8 @@ if SC.special == "spread" then
                     if pcall(function() x2[fn](x2, m) end) then break end
                 end
             end
-            return #P.losses >= SC.n or os.clock() - t0 > 1700
-        end, 1750, "spread: " .. SC.n .. " real hits"
+            return #P.losses >= SC.n or os.clock() - t0 > 2200
+        end, 2250, "spread: " .. SC.n .. " real hits"
     end)
     step("spread: verdict", function()
         local x = meek()
@@ -1897,8 +1898,11 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
             say("SIGHOST FriendsOnly=%s (set %s) LobbyMinutes=0 set=%s DisableWhiteOuts set=%s MapType was %s -> 2 ok=%s (test only)",
                 tostring(fo), tostring(okF), tostring(okL), tostring(okW), tostring(typ), tostring(okM))
             if not check(fo == true, "SIGFRIENDS the screen's FriendsOnly reads true before Create (a friends-only lobby)") then Z.abort = true end
-            hook("/Game/FirstPerson/Blueprints/BP_GameInstance.BP_GameInstance_C:CreateSteamSession", function() end, function(_, _, advertise, _, lan, friendsOnly)
-                local a, l, f = get(advertise), get(lan), get(friendsOnly)
+            -- A Blueprint function's UE4SS hook runs its first callback after the body (the second one never runs).
+            hook("/Game/FirstPerson/Blueprints/BP_GameInstance.BP_GameInstance_C:CreateSteamSession", function(_, _, advertise, _, lan, friendsOnly)
+                -- get() turns false into nil; these are booleans, read as they are.
+                local function b(prm) local ok, v = pcall(function() return prm:get() end) if ok then return v end return nil end
+                local a, l, f = b(advertise), b(lan), b(friendsOnly)
                 G.sessionAt = os.clock()
                 say("SIGSESSION advertise=%s lan=%s friendsOnly=%s", tostring(a), tostring(l), tostring(f))
                 check(a == false and f == true, "SIGSESSION CreateSteamSession friends-only (advertise=%s friendsOnly=%s)", tostring(a), tostring(f))
@@ -1916,6 +1920,10 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
             return function()
                 if G.sessionAt then say("SIGCREATE via=click") return true end
                 if os.clock() - t0 < 15 then return false end
+                if not screen() then -- the click took the screen away (the travel began): no handler call
+                    say("SIGCREATE the screen is gone 15 s after the click, but no CreateSteamSession seen")
+                    return true
+                end
                 local fo = try(function() return screen().FriendsOnly end)
                 if fo ~= true then check(false, "SIGCREATE no session after the click, and FriendsOnly no longer reads true: not hosting") Z.abort = true return true end
                 say("SIGCREATE no session 15 s after the click; the Create handler instead")

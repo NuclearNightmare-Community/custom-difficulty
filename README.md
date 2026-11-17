@@ -244,8 +244,8 @@ Run the scenario, then `./check.ps1 -Instance <copy> -Scenario <s>` (or `-Log <f
 | Scenario | Set-up | Expected |
 |---|---|---|
 | `ready` | `deploy.ps1 -Test -PreCore` on core 0.3.0, launch to the main menu, quit | `CONNECT ok`, one pre-core WARN (none on core 0.12.x), `WORLD host=false standalone=true` for the menu, `READY` |
-| `old-core` | core 0.3.0, `deploy.ps1 -Force`, launch to the menu | exactly one line: `ERROR Nucleus 0.3.0 is not compatible; Difficulty needs 0.12.0 (^ rules). Update Nucleus. Difficulty will not run.` |
-| `no-core` | Nucleus removed (its own `deploy.ps1 -Remove`), `deploy.ps1 -Force`, launch to the menu; reinstall Nucleus afterwards | exactly one line: `Nucleus is not installed. Difficulty will not run.` |
+| `old-core` | `run.ps1 -Scenario old-core -Target vm` (story 8): a core older than `dependsOn` from a package already on disk (`mods/Nucleus/build/package-*`, or `-OldCorePackage`; e.g. 0.2.0), `deploy.ps1 -Force`, the menu only | exactly one line: `ERROR Nucleus <old> is not compatible; Difficulty needs 0.15.0 (^ rules). Update Nucleus. Difficulty will not run.` No older package on disk: skipped (exit 3), not a failure |
+| `no-core` | `run.ps1 -Scenario no-core -Target vm` (story 8): no Nucleus in the VM copy for the run, `deploy.ps1 -Force`, the menu only | exactly one line: `Nucleus is not installed. Difficulty will not run.` |
 | `host` | as `ready`, then host a solo match | as `ready`, plus `WORLD host=true standalone=false map=<map>` |
 | `hand` | any run by hand | connected, `READY`, at least one `WORLD`, no error |
 | `unit` | none | runs `test.ps1` |
@@ -348,6 +348,27 @@ and the final reopen; `check.ps1` all passed, the one soft check a `hud slow tic
 `dumps/v8.2.3-build26601774/vm/sp-screen-rows.png`, `sp-screen-nightmare.png`, `sp-screen-preset.png`. `presets` re-run
 the same day on Nucleus 0.15.0: PASS (36 checks).
 
+### Story 8 scenarios (the epic's success checks)
+
+| Scenario | How | Expected |
+|---|---|---|
+| `spread` | host or VM; Normal, `spread=20`, Enemy Damage Default. The driver spawns an idle Meek (its controller unpossessed) and makes 200 standard hits at full Health by calling the hooked static `NNEnemyAttackContext:ApplyLockedDamage(<the Meek>, 25)` after `TryBeginAttack` locked the player, refilling between hits (`SPREADMODE direct`). If its one probe call doesn't lower Health, a spawned Meek attacks for real instead (`SPREADMODE real`: it grabs about every 7 s, so about 25 min, refilled half a second after each hit; host limit 2400 s) | at least 200 `HIT enemy=meek` lines (kind `hit`, or `survivable` on the real route: `rolled` is the roll either way), all `scaled=25`; their `rolled` values: mean 25 +- 1, sample standard deviation 4..6, none outside 15..35 (failures name the mean, the sd or the value). A `HIT enemy=frostbite` line must have `rolled` = `scaled`; with `spread=20` alone none is logged, so that part is a soft check (`warn:`) |
+| `spread-grab` | host or VM; Nightmare, `enemyDamage=25;spread=50`. Before each of 20 Meek grabs the driver sets Health to 26 (`SETHP`, test only) | at least 20 `GRAB enemy=meek hp=26 E=25 game=e decision=s flip=101`, none `decision=e`; at least 20 survivable Meek hits at `hp=26`, each `applied` <= 25; the driver's 20 OK lines (Health >= 1 after each); no death |
+| `signal` | VM only (`-Target vm`; refused on the host), two launches of the same VM copy, its saves kept between them; no `dev.lua` in either. Launch 1 (`signal-a`): START GAME by a real click, leftover `DT8-*` presets deleted, CONFIGURE, Nightmare by real clicks on the Difficulty picker, Enemy Damage 25, Damage Spread 20 and Stalker 200 typed, Cold Exposure 0 and Frostbite Damage 0 dragged to the slider's start, Reinforcement Tokens 8 dragged (typed if the drag lands elsewhere), every row checked, saved as `DT8-SIGNAL`, CONFIRM, Back. Launch 2 (`signal-b`) runs only after launch 1's PASS: START GAME, CONFIGURE, `DT8-SIGNAL` selected, every row checked, then (test only, logged `SIGHOST`) Tower Island in the `MapType` save slot, `FriendsOnly` true, no lobby countdown and no White Outs; CONFIRM and a real click on Create (the handler only if no session started in 15 s; never when `FriendsOnly` doesn't read true). In the match: a Meek grab at full Health, a Stalker grab, 60 s outdoors, the computer's text; then back to the menu and `DT8-SIGNAL` deleted | launch 1: `DEVLUA absent`, SIGDIFF, a `ROWS change` line per value, at least two OK SIGDRAG and two OK SIGTYPE, SIGROWS, `PRESETS save ... name=DT8-SIGNAL knobs=enemyDamage=25 spread=20 revives=8 cold=0 frostbite=0 dmg.stalker=200`. Launch 2: `DEVLUA absent`, SIGFOUND (presets across a restart), the select and `PRESETS capture` with those six values, a friends-only `CreateSteamSession` (OK SIGSESSION), exactly one `MATCH start knobs=` with exactly those values (a difference names the knob), the Meek taking 15..35 and the Stalker (`scaled=50`) 30..70 at full Health, the last `COLD` line `applied=0` (raw 0: not shown) and the driver's flat meter, `TOKENS start ... N=8` and the computer's text `Reinforcement Tokens 8` (SIGTOKENS). The end clean-up (SIGCLEAN) is soft; leftovers go at the next launch 1 |
+| `no-core`, `old-core` | VM only, the menu only (above, "Scenarios"); the driver waits for the menu world and 20 s | the existing one-line rules |
+
+`run.ps1` exit codes are unchanged (0 passed, 1 failed, 2 not shown), plus 3: `old-core` skipped (no older core package on
+disk). The kept logs: `dumps/<copy>/difficulty/<scenario>.vm.log`, and `signal-a.vm.log` / `signal-b.vm.log`.
+
+Pair (`test/run-pair.ps1 -Scenarios d8-tokens`): the host runs core and Difficulty with Reinforcement Tokens 2
+(`dev.lua` `revives=2`; PairDriver's Classified Minimum 2, stock limit 6), B (VM) runs no Difficulty, only the
+`client-tokens` driver. The host dies, B's own terminal revives it (`OnReinforcement`), twice; then the host dies once
+more. Verdict PASS needs exactly one host `TOKENS disabled at used=2 N=2`, B's `OK OFFER t1`/`t2` (the offer shown before
+N) and `OK OFFER gone` (after the 2nd: `Disable Reinforcement` replicated true and the panel's `ReinforcementBorder` not
+visible, or the terminal closed), B's `OK REVIVE` each round, no `SET` line from the driver (it never writes
+`TimesUsedReinforcements` or `Disable Reinforcement`), no Difficulty line on B, both drivers' PASS and the session held
+(`ScenarioReport.D8.Misses`).
+
 Every match scenario sets `BP_GameInstance_C.DisableWhiteOuts` before the match and logs one
 `WHITEOUT disabled=<GameState value> director=<n> phase=<Phase>`; `check.ps1` requires `disabled=true` in every
 scenario but `cold-whiteout`.
@@ -364,6 +385,29 @@ worked is a FAIL; solo never gets there.) The terminal route past the stock limi
 `SpawnReinforcmentSpectator()` (destroying the orphan character it spawns). The
 text is read from a `NukeComputer_UI_C` widget's `GetText_3`, made with `WidgetBlueprintLibrary:Create` and never
 shown.
+
+## The user's check (the epic's success signal, by hand)
+
+On the dev copy, with Nucleus 0.15.0 or later and Difficulty deployed without `-Test` (so no `dev.lua`), launched
+through `tools/launch.ps1`. About 15 minutes. `signal` automates the same steps in the VM; this check is yours and
+replaces neither.
+
+1. Main menu: START GAME, then CONFIGURE. Set Difficulty to **Nightmare** with the picker's arrows. Look: the empty
+   Enemy Damage box's hint reads 100, Cold Exposure's 200.
+2. Type **25** into Enemy Damage and **20** into Damage Spread; drag Cold Exposure and Frostbite Damage to the far left
+   (**0** each); set Reinforcement Tokens to **8** (drag or type); type **200** into Damage: Stalker (further down, after
+   the enemy slots). Look: each box shows its number, each slider sits at it.
+3. Type the name `MY-SIGNAL` and save the world preset. Quit the game completely.
+4. Launch again, START GAME, CONFIGURE, pick `MY-SIGNAL` in the preset selector. Look: Difficulty Nightmare and all six
+   rows as you set them (an empty box would be Default).
+5. Pick **Friends-Only**, then create the world (solo). In `ue4ss/UE4SS.log` the line
+   `[Difficulty] MATCH start knobs=enemyDamage=25 spread=20 revives=8 cold=0 frostbite=0 dmg.stalker=200` must appear,
+   with nothing else in it.
+6. Stand outside for a minute: the freeze meter doesn't rise (Cold Exposure 0), and you lose no Health to frostbite.
+7. Let a Meek grab you at full Health: you survive, losing about 25 (15 to 35). A Stalker's grab costs about 50 (30 to
+   70). The log's `HIT enemy=meek ... applied=` and `HIT enemy=stalker ... applied=` lines show the exact numbers.
+8. At the military computer: the reinforcement tokens read **8** (`TOKENS start ... N=8` in the log).
+9. Afterwards, delete `MY-SIGNAL` on the create-world screen if you don't want to keep it.
 
 ## Tests
 

@@ -32,6 +32,13 @@
   anything is deployed. The time limit defaults to the host's 900 s times 1.5. It doesn't take
   the workspace's dumps\vm.lock: whoever starts it takes the lock around it (tools/vm/README.md, "The VM lock").
   test/run-pair.ps1 (the pair scenarios) is separate and unchanged.
+  Story 8: spread and spread-grab run like the story 3 scenarios (host limit 2400 s). signal, no-core and old-core are
+  VM only (refused on the host before anything is deployed). signal is two VM launches of the same copy (signal-a,
+  then signal-b only after launch 1's PASS; the copy's saves are kept between them), neither with a dev.lua, judged
+  once by check.ps1 -Scenario signal -Log <signal-b.vm.log> -FirstLog <signal-a.vm.log>. no-core stages no core;
+  old-core stages an older core package already on disk (-OldCorePackage, else the first mods\Nucleus\build\package-*
+  whose version dependsOn refuses; none: "SKIPPED", exit 3, nothing run); both deploy Difficulty with -Force and the
+  driver only waits on the menu (host limit 300 s).
 .EXAMPLE
   ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario flip
   ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario default -Target vm

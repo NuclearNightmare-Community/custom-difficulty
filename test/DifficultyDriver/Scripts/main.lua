@@ -40,6 +40,13 @@
 --   15 s, the radio's SpawnReinforcmentSpectator() (which has no gate), destroying the orphan character it spawns.
 --   The token text is read from a NukeComputer_UI_C widget made with WidgetBlueprintLibrary:Create and never added
 --   to the viewport.
+-- Story 6 (menu only, no match):
+--   presets         opens the create-world screen (WidgetBlueprintLibrary:Create + AddToViewport), deletes leftover
+--                   DT6-* presets, saves DT6-A and DT6-B (PresetName, then the Create_1 handler), selects A
+--                   (SetSelectedOption, then the OnSelectionChanged handler), updates A, selects None, deletes A,
+--                   removes the screen, appends a stale line "99<tab>DT6-gone<tab>cold=50" to the sidecar, reopens,
+--                   deletes B. After each step it reads Difficulty's sidecar: the DT6 entries by index and name, all
+--                   Default, the baseline entries unchanged. A handler that can't be driven is NOTSHOWN.
 -- White Outs: every scenario sets the game instance's DisableWhiteOuts before the match (cold-whiteout clears it) and
 -- logs one WHITEOUT line after the start; check.ps1 requires disabled=true, or disabled=false for cold-whiteout.
 -- Lines: OK / FAIL <check>; NOTSHOWN <case> (the driver couldn't make the case happen: not a pass);
@@ -73,6 +80,8 @@ local SCENARIOS = {
     ["frostbite-zero"] = { diff = 2, special = "frost", want = 0, tol = 0.05, cases = {} },
     ["tokens-more"] = { diff = 2, special = "tokens", cm = 0, limit = 2, n = 4, cases = {} },
     ["tokens-fewer"] = { diff = 2, special = "tokens", cm = 3, limit = 8, n = 2, cases = {} },
+    -- Story 6: the main menu only (no match, no WHITEOUT line).
+    ["presets"] = { diff = 2, special = "presets", cases = {} },
 }
 local SC = SCENARIOS[SCENARIO or ""]
 say("SCENARIO %s", tostring(SCENARIO))
@@ -794,6 +803,212 @@ elseif SC.special == "tokens" then
         say("REINF end count=%s disable=%s via=%s", tostring(cnt), tostring(dis), P.via)
         check(cnt == SC.limit, "%s count after N reinforcements is the limit %d (got %s)", SCENARIO, SC.limit, tostring(cnt))
         textCheck(0, "after N reinforcements")
+    end)
+end
+
+-- ---------------------------------------------------------------- story 6: presets (menu only)
+-- The create-world screen's own preset handlers, driven on the main menu (no match, no session). Difficulty keeps its
+-- sidecar in step; this driver reads the file after each step and checks the DT6-* entries (index, decoded name, all
+-- Default) and that the presets that were there before (the baseline) keep their entries. It cleans up its own presets
+-- (the VM copy's _userdir is never reset by tools/vm). Never keeps the screen: found again in each step.
+if SC.special == "presets" then
+    steps = {}
+    local CS_CLASS = "/Game/Graphics/MainMenu/CreateServer.CreateServer_C"
+    local H_SELECT = "BndEvt__CreateServer_MultipleSelectBox_11_K2Node_ComponentBoundEvent_31_OnSelectionChanged__DelegateSignature"
+    local H_SAVE = "BndEvt__CreateServer_Create_1_K2Node_ComponentBoundEvent_33_OnButtonClickedEvent__DelegateSignature"
+    local H_UPDATE = "BndEvt__CreateServer_Create_2_K2Node_ComponentBoundEvent_34_OnButtonClickedEvent__DelegateSignature"
+    local H_DELETE = "BndEvt__CreateServer_Create_4_K2Node_ComponentBoundEvent_35_OnButtonClickedEvent__DelegateSignature"
+    local H_TEXT = "BndEvt__CreateServer_EditableText_K2Node_ComponentBoundEvent_32_OnEditableTextChangedEvent__DelegateSignature"
+    local PREFIX = "DT6-"
+    local P = { baseline = nil, file = nil, abort = false }
+    local function str(v) if type(v) == "string" then return v end local ok, s = pcall(function() return v:ToString() end) return ok and s or nil end
+    local function isOurs(name) return name:sub(1, #PREFIX) == PREFIX end
+    local function screen()
+        for _, w in ipairs(FindAllOf("CreateServer_C") or {}) do
+            if notDefault(w) then
+                local ok, v = pcall(function() return w:IsInViewport() end)
+                if ok and v then return w end
+            end
+        end
+        return nil
+    end
+    -- The game's preset names (selector items 2..n; item 1 is "None").
+    local function names(cs)
+        local r = {}
+        local ok = pcall(function()
+            local items = cs.MultipleSelectBox_11.Items
+            for i = 2, math.min(items:GetArrayNum(), 300) do r[#r + 1] = str(items[i]) or "?" end
+        end)
+        return ok and r or nil
+    end
+    local function position(cs, name) for i, n in ipairs(names(cs) or {}) do if n == name then return i end end return nil end
+    local function decode(s) return (s:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)) end
+    -- The sidecar's entries: { index, name, values (the raw field) } in file order; nil when there is no file.
+    local function readFile()
+        local f = io.open(P.file, "rb")
+        if not f then return nil end
+        local text = f:read(256 * 1024) or ""
+        f:close()
+        local r = {}
+        for line in text:gmatch("([^\n]*)\n") do
+            local i, n, v = (line:gsub("\r$", "")):match("^(%d+)\t([^\t]*)\t([^\t]*)$")
+            if i then r[#r + 1] = { index = tonumber(i), name = decode(n), values = v } end
+        end
+        return r
+    end
+    local function show(list)
+        local t = {}
+        for _, e in ipairs(list or {}) do t[#t + 1] = ("%d:%s:%s"):format(e.index, e.name, e.values == "" and "Default" or e.values) end
+        return #t > 0 and table.concat(t, ",") or "-"
+    end
+    -- After a step: the baseline entries unchanged, and exactly the DT6-* entries in want (names in order, right after
+    -- the baseline, all Default); the game's own DT6 presets the same names.
+    local function judge(label, want)
+        local list = readFile()
+        if not check(list ~= nil, "%s the sidecar exists (%s)", label, P.file) then return end
+        local base, ours = {}, {}
+        for _, e in ipairs(list) do if isOurs(e.name) then ours[#ours + 1] = e else base[#base + 1] = e end end
+        check(show(base) == show(P.baseline), "%s baseline entries unchanged (%s)", label, show(base))
+        local exp = {}
+        for i, n in ipairs(want) do exp[i] = { index = #P.baseline + i - 1, name = n, values = "" } end
+        check(show(ours) == show(exp), "%s DT6 entries %s (want %s)", label, show(ours), show(exp))
+        local cs = screen()
+        local game = cs and names(cs)
+        if game then
+            local g = {}
+            for _, n in ipairs(game) do if isOurs(n) then g[#g + 1] = n end end
+            check(table.concat(g, ",") == table.concat(want, ","), "%s the game's DT6 presets [%s] (want [%s])", label, table.concat(g, ","), table.concat(want, ","))
+        end
+    end
+    -- Calls one of the screen's handlers; a handler that can't be driven is NOTSHOWN (and ends the scenario).
+    local function drive(what, fn)
+        local cs = screen()
+        if not cs then P.abort = true S.notShown = S.notShown + 1 say("NOTSHOWN %s: no create-world screen in the viewport", what) return false end
+        local ok, err = pcall(fn, cs)
+        if not ok then P.abort = true S.notShown = S.notShown + 1 say("NOTSHOWN %s: %s", what, tostring(err)) return false end
+        say("DRIVE %s", what)
+        return true
+    end
+    local function open(what)
+        local p = pc()
+        local cls = loadClass(CS_CLASS)
+        local ok, err = pcall(function()
+            if not cls then error("CreateServer_C not loaded") end
+            local w = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary"):Create(p, cls, p)
+            if not valid(w) then error("WidgetBlueprintLibrary:Create returned no widget") end
+            w:AddToViewport(0)
+        end)
+        if not ok then P.abort = true S.notShown = S.notShown + 1 say("NOTSHOWN %s: %s", what, tostring(err)) return false end
+        say("DRIVE %s", what)
+        return true
+    end
+    local function selectAt(cs, i, option)
+        cs.MultipleSelectBox_11:SetSelectedOption(i)
+        cs[H_SELECT](cs, option, i)
+    end
+    local function selectName(what, name)
+        return drive(what, function(cs)
+            local i = position(cs, name)
+            if not i then error("no preset " .. name) end
+            selectAt(cs, i, name)
+        end)
+    end
+    local function save(name)
+        return drive("save " .. name, function(cs)
+            local before = #(names(cs) or {})
+            -- PresetName, as the name box's text-changed handler sets it; that handler (with an FText) if the write fails.
+            local okN = pcall(function() cs.PresetName = name end)
+            if not okN or str(cs.PresetName) ~= name then cs[H_TEXT](cs, FText(name)) say("NAME set through the text-changed handler") end
+            cs[H_SAVE](cs)
+            if #(names(cs) or {}) ~= before + 1 then error("the game's preset count didn't grow (PresetName " .. tostring(str(cs.PresetName)) .. ")") end
+        end)
+    end
+    local function deleteName(name)
+        if not selectName("select " .. name .. " for delete", name) then return false end
+        return drive("delete " .. name, function(cs)
+            cs[H_DELETE](cs)
+            if position(cs, name) then error("the game still lists " .. name) end
+        end)
+    end
+    local function pstep(name, fn) step(name, function() if P.abort then return end return fn() end) end
+
+    step("menu", function() return function() return worldName():find("NewMainMenu", 1, true) ~= nil end, 240, "menu world" end)
+    step("load the screen class", function()
+        local cls = loadClass(CS_CLASS)
+        check(cls ~= nil, "CLASS CreateServer_C loaded")
+        local okD, d = pcall(function() return StaticFindObject("/Script/Engine.Default__BlueprintPathsLibrary"):ProjectSavedDir() end)
+        d = okD and str(d) or nil
+        if not check(type(d) == "string" and d ~= "", "SAVEDDIR %s", tostring(d)) then P.abort = true return end
+        if not d:match("[/\\]$") then d = d .. "/" end
+        P.file = d .. "SaveGames/" .. ME:gsub("Driver$", "") .. "_WorldPresets.txt"
+        say("SIDECAR %s", P.file)
+        -- Difficulty registers its CreateServer_C hooks after the menu's LoadMap (retried every 3 s, 3 times).
+        return after(12), 15
+    end)
+    pstep("1 open", function()
+        if not open("open #1") then return end
+        return after(2), 4
+    end)
+    pstep("1 delete leftovers", function()
+        local n = 0
+        while n < 20 do
+            local cs = screen()
+            local left
+            for _, nm in ipairs(cs and names(cs) or {}) do if isOurs(nm) then left = nm break end end
+            if not left then break end
+            n = n + 1
+            if not deleteName(left) then return end
+        end
+        say("CLEANUP deleted %d leftover %s preset(s)", n, PREFIX)
+        return after(1), 3
+    end)
+    pstep("1 baseline", function()
+        local list = readFile() or {}
+        P.baseline = {}
+        for _, e in ipairs(list) do if not isOurs(e.name) then P.baseline[#P.baseline + 1] = e end end
+        local cs = screen()
+        local game = cs and names(cs) or {}
+        say("BASELINE presets=%d entries=%s", #game, show(P.baseline))
+        check(#P.baseline == #game, "1 baseline: one sidecar entry per game preset (%d entries, %d presets)", #P.baseline, #game)
+        if #game > 0 then judge("1 baseline:", {}) end
+    end)
+    pstep("2 save A", function() if save(PREFIX .. "A") then judge("2 save A:", { PREFIX .. "A" }) end return after(1), 3 end)
+    pstep("2 save B", function() if save(PREFIX .. "B") then judge("2 save B:", { PREFIX .. "A", PREFIX .. "B" }) end return after(1), 3 end)
+    pstep("3 select A", function()
+        if selectName("select " .. PREFIX .. "A", PREFIX .. "A") then judge("3 select A:", { PREFIX .. "A", PREFIX .. "B" }) end
+        return after(1), 3
+    end)
+    pstep("4 update A", function()
+        if drive("update " .. PREFIX .. "A", function(cs) cs[H_UPDATE](cs) end) then judge("4 update A:", { PREFIX .. "A", PREFIX .. "B" }) end
+        return after(1), 3
+    end)
+    pstep("4 select None", function()
+        if drive("select None", function(cs) selectAt(cs, 0, "None") end) then judge("4 select None:", { PREFIX .. "A", PREFIX .. "B" }) end
+        return after(1), 3
+    end)
+    pstep("4 delete A", function() if deleteName(PREFIX .. "A") then judge("4 delete A:", { PREFIX .. "B" }) end return after(1), 3 end)
+    pstep("5 remove the screen", function()
+        drive("remove the screen", function(cs) cs:RemoveFromParent() end)
+        return function() return screen() == nil end, 5, "the screen removed"
+    end)
+    pstep("5 stale line", function()
+        local f = io.open(P.file, "ab")
+        if not check(f ~= nil, "5 the sidecar opened for append") then P.abort = true return end
+        f:write("99\t" .. PREFIX .. "gone\tcold=50\n")
+        f:close()
+        say("STALE appended 99 %sgone cold=50 (test only)", PREFIX)
+        return after(1), 3
+    end)
+    pstep("5 reopen", function()
+        if not open("open #2") then return end
+        return after(2), 4
+    end)
+    pstep("5 after reopen", function() judge("5 reopen:", { PREFIX .. "B" }) end)
+    pstep("6 delete B", function() if deleteName(PREFIX .. "B") then judge("6 delete B:", {}) end return after(1), 3 end)
+    step("6 close", function()
+        local cs = screen()
+        if cs then pcall(function() cs:RemoveFromParent() end) say("CLOSE the screen removed") end
+        return after(1), 3
     end)
 end
 

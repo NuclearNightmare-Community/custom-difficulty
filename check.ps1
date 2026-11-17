@@ -48,6 +48,12 @@
     cold-whiteout   Nightmare, Cold Exposure 50, White Outs on: WHITEOUT disabled=false, the last COLD summary's applied
                     is 0.25 x raw (+-10%), and the driver saw a rise above a quarter of Nightmare's stock range during
                     the storm phase. The storm never reached, or a rise inside that range, is not shown.
+  Story 6 (run.ps1 -Scenario presets, the main menu only, no match and no WHITEOUT line):
+    presets         everything 'ready' needs and the driver's END result=PASS with no driver FAIL line; after the
+                    driver's BASELINE line (its leftover clean-up comes before it) exactly two "PRESETS save", one
+                    "PRESETS update" and two "PRESETS delete" lines; "PRESETS select index=<i> name=DT6-A knobs=all
+                    Default"; "PRESETS select none (rows unchanged)"; a "PRESETS open ... changed=true" after the
+                    driver's STALE line; no ERROR and no WARN (the stale line is well-formed: no problem WARN).
   When the driver reports NOTSHOWN (it couldn't make the case happen: an enemy didn't attack in time, the player
   wasn't outdoors, no frostbite tick came), or a cold run's game never cooled (raw=0), the run is not shown: exit 2,
   never "passed".
@@ -63,7 +69,7 @@ param(
     [string] $Instance,
     [string] $Log,
     [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit', 'scaled', 'flip', 'per-enemy', 'default', 'clash',
-                 'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout')]
+                 'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets')]
     [string] $Scenario = 'ready',
     [ValidateSet('host', 'vm')] [string] $Target = 'host'
 )
@@ -87,7 +93,7 @@ $lines = @(Get-Content $Log)
 Write-Host "--- $name lines ($Scenario) ---"
 $lines | Where-Object {
     ($_ -match "\[$C\]" -and $_ -notmatch "\[$C\] (DEBUG )?hud ") -or
-    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM) ") -or
+    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM|DRIVE|BASELINE|STALE|CLEANUP|SIDECAR|NAME) ") -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -172,6 +178,15 @@ foreach ($s3 in $story3.Keys) {
     $own = if ($driverNotShown) { @($story3[$s3] | Where-Object { $_ -match 'MATCH start' }) } else { $story3[$s3] }
     $expect[$s3] = $running + @($menuWorld, $hostWorld) + $driverOk + $own
 }
+# Story 6: menu only (no match, so no WHITEOUT line and no MATCH start); the counted lines are judged below.
+$presetsNotShown = ($Scenario -eq 'presets') -and @($lines | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
+    @($lines | Where-Object { $_ -match "\[$D\] FAIL " }).Count -eq 0
+$expect['presets'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ -notmatch 'WHITEOUT' }) + $(if ($presetsNotShown) { @() } else { @(
+    "\[$C\] PRESETS open presets=\d+ entries=\d+ changed=(true|false)\s*$"
+    "\[$C\] PRESETS select index=\d+ name=DT6-A knobs=all Default\s*$"
+    "\[$C\] PRESETS select none \(rows unchanged\)\s*$"
+    "!\[$C\] MATCH start "
+) })
 
 $failed = 0
 $warned = 0
@@ -196,7 +211,7 @@ foreach ($pattern in ($always + $expect[$Scenario])) {
 
 function IndexOf([string] $p) { for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match $p) { return $i } } return -1 }
 
-if ($Scenario -in @('ready', 'host', 'hand') + @($story3.Keys)) {
+if ($Scenario -in @('ready', 'host', 'hand', 'presets') + @($story3.Keys)) {
     $ic, $ir = (IndexOf "\[$C\] CONNECT ok "), (IndexOf "\[$C\] READY ")
     if ($ic -ge 0 -and $ir -gt $ic) { Pass 'READY comes after CONNECT ok' } else { Fail "READY comes after CONNECT ok (CONNECT at line $ic, READY at line $ir)" }
     # Dev core mode: connected to a core dependsOn doesn't accept -> exactly one pre-core WARN; otherwise none.
@@ -230,6 +245,23 @@ if ($Scenario -in $story3.Keys) {
         $late = @(for ($i = [Math]::Max($iWarn, 0); $i -lt $lines.Count; $i++) { if ($iWarn -ge 0 -and $lines[$i] -match "\[$C\] HIT ") { $i } })
         if ($iWarn -ge 0 -and $late.Count -eq 0) { Pass 'no HIT after the clash WARN (stock hits)' } else { Fail "no HIT after the clash WARN (WARN at line $iWarn, HIT after it: $($late.Count))" }
     }
+}
+
+# Story 6: the preset lines after the driver's BASELINE (its clean-up of leftover DT6 presets comes before it), and a
+# reconcile that rewrote the file after the stale line.
+if ($Scenario -eq 'presets' -and -not $presetsNotShown) {
+    $ib = IndexOf "\[$D\] BASELINE "
+    if ($ib -lt 0) { Fail 'the driver''s BASELINE line' }
+    else {
+        $after = @($lines[($ib + 1)..($lines.Count - 1)])
+        foreach ($op in @(@('save', 2), @('update', 1), @('delete', 2))) { # ($c would be $C: PowerShell names ignore case)
+            $got = @($after | Where-Object { $_ -match "\[$C\] PRESETS $($op[0]) index=\d+ name=\S+" }).Count
+            if ($got -eq $op[1]) { Pass "PRESETS $($op[0]) after BASELINE: $got" } else { Fail "PRESETS $($op[0]) after BASELINE: found $got, want $($op[1])" }
+        }
+    }
+    $is = IndexOf "\[$D\] STALE appended "
+    $reopen = @(for ($i = [Math]::Max($is + 1, 0); $i -lt $lines.Count; $i++) { if ($is -ge 0 -and $lines[$i] -match "\[$C\] PRESETS open .* changed=true\s*$") { $i } })
+    if ($is -ge 0 -and $reopen.Count -ge 1) { Pass 'PRESETS open changed=true after the stale line' } else { Fail "PRESETS open changed=true after the stale line (STALE at line $is, such opens after it: $($reopen.Count))" }
 }
 
 # Story 4, cold: the last COLD summary (sums since the match start). raw = 0 means the game never cooled the player

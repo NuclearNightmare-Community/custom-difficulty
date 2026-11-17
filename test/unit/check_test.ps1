@@ -276,6 +276,11 @@ Expect ($presets + @(D 'WARN sidecar C:/x: 1 problem(s), every one Default; firs
 Expect ($presets + @(D 'ERROR PRESETS save hook failed: boom')) 'presets' 1 'presets: an ERROR -> fails' 'ERROR'
 Expect ($presets + @(DR 'FAIL 4 delete A: DT6 entries - (want 1:DT6-B:Default)')) 'presets' 1 'presets: a driver FAIL -> fails' 'FAIL'
 Expect ($presets + @(D 'MATCH start knobs=all Default')) 'presets' 1 'presets: a match -> fails' 'MATCH start'
+Expect ($presets -replace 'PRESETS delete index=1 name=DT6-B', 'PRESETS delete index=? name=?') 'presets' 1 'presets: an unmatched delete (index=? name=?) doesn''t count -> fails' 'PRESETS delete after BASELINE: found 1'
+# Only the clean-up (before BASELINE) selected DT6-A with all Default, and selected None: not enough.
+$preOnly = @($presets | ForEach-Object { if ($_ -match 'select index=1 name=DT6-A knobs=all Default') { $_ -replace 'knobs=all Default', 'knobs=cold=50' } elseif ($_ -match 'select none') { $null } else { $_ } } | Where-Object { $_ })
+$preOnly = @($preOnly[0..4]) + @((D 'PRESETS select index=1 name=DT6-A knobs=all Default'), (D 'PRESETS select none (rows unchanged)')) + @($preOnly[5..($preOnly.Count - 1)])
+Expect $preOnly 'presets' 1 'presets: the DT6-A and None selects only before BASELINE -> fails' 'after BASELINE'
 $presetsNs = @(Without $presets 'END result|PRESETS (save|update|delete|select)|STALE') + @((DR 'NOTSHOWN save DT6-A: the game''s preset count didn''t grow'), (DR 'END result=NOTSHOWN checks=3 failures=0 notshown=1 dead=false'))
 Expect $presetsNs 'presets' 2 'presets: a handler not driven -> not shown' 'NOT SHOWN'
 

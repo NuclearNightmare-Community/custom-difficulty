@@ -51,8 +51,9 @@
   Story 6 (run.ps1 -Scenario presets, the main menu only, no match and no WHITEOUT line):
     presets         everything 'ready' needs and the driver's END result=PASS with no driver FAIL line; after the
                     driver's BASELINE line (its leftover clean-up comes before it) exactly two "PRESETS save", one
-                    "PRESETS update" and two "PRESETS delete" lines; "PRESETS select index=<i> name=DT6-A knobs=all
-                    Default"; "PRESETS select none (rows unchanged)"; a "PRESETS open ... changed=true" after the
+                    "PRESETS update" and two "PRESETS delete" lines, each with a numeric index and a name (an
+                    unmatched "index=? name=?" doesn't count), and "PRESETS select index=<i> name=DT6-A knobs=all
+                    Default" and "PRESETS select none (rows unchanged)"; a "PRESETS open ... changed=true" after the
                     driver's STALE line; no ERROR and no WARN (the stale line is well-formed: no problem WARN).
   When the driver reports NOTSHOWN (it couldn't make the case happen: an enemy didn't attack in time, the player
   wasn't outdoors, no frostbite tick came), or a cold run's game never cooled (raw=0), the run is not shown: exit 2,
@@ -183,8 +184,6 @@ $presetsNotShown = ($Scenario -eq 'presets') -and @($lines | Where-Object { $_ -
     @($lines | Where-Object { $_ -match "\[$D\] FAIL " }).Count -eq 0
 $expect['presets'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ -notmatch 'WHITEOUT' }) + $(if ($presetsNotShown) { @() } else { @(
     "\[$C\] PRESETS open presets=\d+ entries=\d+ changed=(true|false)\s*$"
-    "\[$C\] PRESETS select index=\d+ name=DT6-A knobs=all Default\s*$"
-    "\[$C\] PRESETS select none \(rows unchanged\)\s*$"
     "!\[$C\] MATCH start "
 ) })
 
@@ -255,8 +254,12 @@ if ($Scenario -eq 'presets' -and -not $presetsNotShown) {
     else {
         $after = @($lines[($ib + 1)..($lines.Count - 1)])
         foreach ($op in @(@('save', 2), @('update', 1), @('delete', 2))) { # ($c would be $C: PowerShell names ignore case)
-            $got = @($after | Where-Object { $_ -match "\[$C\] PRESETS $($op[0]) index=\d+ name=\S+" }).Count
+            $got = @($after | Where-Object { $_ -match "\[$C\] PRESETS $($op[0]) index=\d+ name=[^?\s]\S*" }).Count
             if ($got -eq $op[1]) { Pass "PRESETS $($op[0]) after BASELINE: $got" } else { Fail "PRESETS $($op[0]) after BASELINE: found $got, want $($op[1])" }
+        }
+        # The clean-up before BASELINE selects too; these must come from the scenario's own steps.
+        foreach ($sp in @("\[$C\] PRESETS select index=\d+ name=DT6-A knobs=all Default\s*$", "\[$C\] PRESETS select none \(rows unchanged\)\s*$")) {
+            if (@($after | Where-Object { $_ -match $sp }).Count -ge 1) { Pass "$sp after BASELINE" } else { Fail "$sp after BASELINE" }
         }
     }
     $is = IndexOf "\[$D\] STALE appended "

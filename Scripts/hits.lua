@@ -563,63 +563,20 @@ function A:onFrostPost()
     if p then self:check(p) end
 end
 
--- livePlayer(o): a live player character (BP_FirstPersonCharacter_C, the KismetSystemLibrary:IsValid UFunction).
-function A:livePlayer(o) return exists(o) and classOf(o) == FP_SHORT and self:alive(o) end
-
--- grabVictim(v, vpath) -> victim, victim path, attacker | nil (story 11). v is HasPerk(0x27)'s self. The Watcher calls
--- HasPerk(0x27) on its chase Target but decides from AttackedPlayer's Health (EyeMonster_AI_C AttackMulti sets
--- AttackedPlayer to the grabbed character first; both are replicated actor state, read on this machine):
---   * a grab-class AI whose locked victim is v: another grab on v is under way, v is the victim;
---   * else a live Watcher whose Target is v and whose AttackedPlayer is another live player within CLIENT_RANGE of it:
---     that player is the victim and that Watcher the attacker (AttackedPlayer isn't cleared after a grab; the range
---     keeps a stale one from stealing the grab);
---   * else v (solo, or Target == AttackedPlayer).
--- Every UObject read is under pcall; nothing is kept.
-function A:grabVictim(v, vpath)
-    local ctx = cdo(CTX_CDO)
-    local watchers = {}
-    for _, g in ipairs(M.GRABS) do
-        for _, a in ipairs(FindAllOf(g.short) or {}) do
-            local ap = pathOf(a)
-            if ap and not ap:find("Default__", 1, true) and self:alive(a) then
-                local lv
-                if ctx then pcall(function() lv = ctx:GetLockedVictim(a) end) end
-                if exists(lv) and pathOf(lv) == vpath then return v, vpath, nil end
-                if g.short == WATCHER then watchers[#watchers + 1] = a end
-            end
-        end
-    end
-    for _, w in ipairs(watchers) do
-        local t, ap
-        pcall(function() t = w.Target end)
-        pcall(function() ap = w.AttackedPlayer end)
-        if exists(t) and pathOf(t) == vpath and self:livePlayer(ap) then
-            local app = pathOf(ap)
-            local d = dist(w, ap)
-            if app and app ~= vpath and d and d <= M.CLIENT_RANGE then return ap, app, w end
-        end
-    end
-    return v, vpath, nil
-end
-
--- HasPerk(0x27): the grab decision (knob-mechanics.md "Where to set it"), for the victim grabVictim resolves (the
--- Watcher's HasPerk self is its chase Target, not always the player it grabs).
--- On the host it decides for every victim (hostGrab); on a client only for its own player (clientGrab): when this
--- machine's player is only the Watcher's Target, nothing is written, logged or noted. Any other local grab only feeds
--- the recovery.
+-- HasPerk(0x27): the grab decision (knob-mechanics.md "Where to set it").
+-- On the host it decides for every victim (hostGrab); on a client only for its own player (clientGrab). Any other
+-- local grab only feeds the recovery.
 function A:onHasPerk(selfp, perk)
     if num(get(perk)) ~= 39 then return end
     if self.installFailed then return end
-    local self0 = get(selfp)
-    if not self:alive(self0) then return end
-    local path0 = pathOf(self0)
-    if not path0 then return end
-    local v, vpath, attacker = self:grabVictim(self0, path0)
+    local v = get(selfp)
+    if not self:alive(v) then return end
+    local vpath = pathOf(v)
     if not vpath or self.st.pending[vpath] then return end -- our own temporary value (a repeated callback)
     local isLocal = self:myPath(v) == vpath
-    if self:active() then return self:hostGrab(v, vpath, isLocal, attacker) end
+    if self:active() then return self:hostGrab(v, vpath, isLocal) end
     if not isLocal then return end -- never a remote player's grab outside the host's match
-    if self:clientActive() then return self:clientGrab(v, vpath, attacker) end
+    if self:clientActive() then return self:clientGrab(v, vpath, nil) end
     self:noteGrab(v, vpath, nil) -- the host before its match start or after a back-off: the recovery only
 end
 
@@ -653,15 +610,8 @@ function A:spareClient(v)
 end
 
 -- The host's grab on any victim: its own player, or a client spared by presence; anyone else keeps the game's decision.
--- attacker: the Watcher grabVictim redirected the grab from (nil: found by grabAttacker).
-function A:hostGrab(v, vpath, isLocal, attacker)
-    local apath, row, short, aobj
-    if attacker ~= nil and self:alive(attacker) then
-        apath, short, aobj = pathOf(attacker), classOf(attacker), attacker
-        row = M.CLASS_ROW[short or ""]
-    else
-        apath, row, short, aobj = self:grabAttacker(v, vpath)
-    end
+function A:hostGrab(v, vpath, isLocal)
+    local apath, row, short, aobj = self:grabAttacker(v, vpath)
     if short then self:needClassHooks(short) end
     local values = self.st.values
     if not damage.acts(values, row) then

@@ -79,7 +79,8 @@
 --   boss            Nightmare, Enemy Damage 25: the Slug Queen, then the Apex Predator, spawned near the player and
 --                   made to grab (ladder: the player teleported about 100 uu in front of the boss and the boss nudged
 --                   every 2 s, the Queen with SeePlayerServer(player), the Apex with HeardNoise(playerLocation, 1.0);
---                   after 20 s without CommitLethalDamage, AttackServer(player); 60 s without one is NOTSHOWN). Logs
+--                   after 20 s without CommitLethalDamage, the player teleported in front again and AttackServer(player)
+--                   every 5 s; 60 s without one is NOTSHOWN, extended by up to 20 s while a grab is under way). Logs
 --                   CommitLethalDamage's Health in/out and return (BOSSCLD), StartWatching, WatchFinisherPresentation
 --                   and AttackMulti (BOSSHOOK), and the player at 0, 6 and 12 s (BOSSSTATE). Verdicts per boss: alive
 --                   at 12 s with Health >= 1, and moving at 12 s (PlayingMontage false, movement 1).
@@ -1211,6 +1212,9 @@ if SC.special == "boss" then
                 -- After CommitLethalDamage: the state lines at 0 (once the presentation is known: an AttackMulti for this
                 -- boss within 2 s of the post-hook), 6 and 12 s.
                 local since = now - c.cldAt
+                -- The case lasts until the 12 s line: natural enemies still cleared, Temperature still held at 0.
+                if m then pcall(function() m.Temperature = 0 end) end
+                if now - (c.clearAt or 0) >= 2 then c.clearAt = now clearOthers(c.actor) end
                 if not c.line0 and ((c.multiAt and c.multiAt >= c.cldAt) or since >= 2) then
                     c.line0 = true
                     c.presentation = (c.multiAt and c.multiAt >= c.cldAt and c.multiAt - c.cldAt <= 2) and "yes" or "no"
@@ -1220,9 +1224,9 @@ if SC.special == "boss" then
                 if c.s6 and since >= 12 then
                     local s = snap(c.vpath)
                     stateLine(c, 12, s)
-                    local died = not (c.s0.alive and c.s6.alive and s.alive)
+                    local died = not s.alive -- the spec's rule: alive=false at 12 s
                     if control then
-                        check(died, "%s %s the stock grab kills (alive=false by 12 s; at 0/6/12 s alive=%s/%s/%s hp=%s)", SCENARIO, c.name,
+                        check(died, "%s %s the stock grab kills (alive=false at 12 s; at 0/6/12 s alive=%s/%s/%s hp=%s)", SCENARIO, c.name,
                             tostring(c.s0.alive), tostring(c.s6.alive), tostring(s.alive), fmt1(s.hp))
                         if died then
                             say("BOSSDEATH %s expected (stock)", c.name)

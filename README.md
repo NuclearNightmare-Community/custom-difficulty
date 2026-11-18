@@ -447,7 +447,13 @@ that body); a dead B is revived specifically, after its real death (up to 30 s),
 `ReinforceSpecficPlayer(<B's dead character>)` and then `Reinformant()` every 5 s (up to 6 `RETRY` lines), and the
 host the same way (`REVIVE-HOST`) when it has no character; a playable-monster B is a FAIL at once. Both roles clear
 infection timers (story 2's hook). A Watcher's `GRAB #n` line ends with `target=<me|other|none>
-attacked=<me|other|none>`.
+attacked=<me|other|none>`. In `d5-grab-modded` only (the stage adds `Scripts\watcher-near.txt` beside `role.txt`), the
+Watcher case instead keeps the host within 2 m of B, just in front of B and facing like it (`MOVE host <n> cm from B
+(near, ...)`, `FACE host ...`), re-placed outside grab windows, and logs the Watcher's `Target`, `AttackedPlayer`,
+distances and speed every 5 s (`WATCH ...`): two players in the Watcher's reach (user, 2026-11-17: the mod must not
+need players apart). In three runs on 2026-11-17 (Tower Island) the Watcher grabbed B, its `Target`, every time
+(`target=other attacked=other`), even with the host 88 cm from it and B 216 cm.
+
 - `d5-grab-modded`: both machines modded. FAILs unless both logs show `decision=s` for B per enemy at full Health,
   B's driver sees the survivable montage and B is alive and moving 6 s later. `RECOVER` lines are reported.
 - `d5-grab-unmodded`: B has only UE4SS and the watcher. FAILs unless the host logs `spare=no(absent)` and the game's

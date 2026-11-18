@@ -44,7 +44,14 @@ try {
     Ok (Test-Path (Join-Path $paths[1] 'mod.json')) 'modded: mod.json staged'
     Ok (Test-Path (Join-Path $paths[1] 'Scripts\net.lua')) 'modded: net.lua staged'
     Ok ((Get-Content (Join-Path $paths[2] 'Scripts\role.txt') -Raw) -eq 'host-spawn') 'modded: driver role host-spawn'
+    # Story 11: only d5-grab-modded keeps the host next to B in the Watcher case (watcher-near.txt beside role.txt).
+    Ok (Test-Path (Join-Path $paths[2] 'Scripts\watcher-near.txt')) 'modded: watcher-near.txt staged for host-spawn'
+    $up = @(& $PairScenarios['d5-grab-unmodded'].HostModPaths)
+    Ok ($up.Count -eq 3 -and -not (Test-Path (Join-Path $up[2] 'Scripts\watcher-near.txt'))) 'unmodded: no watcher-near.txt (the 2500 cm rule)' ($up -join ' | ')
+    Ok ((Split-Path (Split-Path $up[2]) -Leaf) -ne (Split-Path (Split-Path $paths[2]) -Leaf)) 'unmodded and modded stage host-spawn in different folders'
+    Ok (-not (Test-Path (Join-Path (Get-DpStage -Role 'client-watch') 'Scripts\watcher-near.txt'))) 'client-watch: no watcher-near.txt'
     $vp = @(& $PairScenarios['d5-host-vanilla'].HostModPaths)
+    Ok (-not (Test-Path (Join-Path $vp[0] 'Scripts\watcher-near.txt'))) 'host-vanilla: no watcher-near.txt'
     Ok ($vp.Count -eq 1 -and (Split-Path $vp[0] -Leaf) -eq 'DifficultyPair') 'host-vanilla: only the driver on the host' ($vp -join ' | ')
     Ok ($PairScenarios['d5-grab-unmodded'].VMSetup.ToString() -notmatch '-Modded') 'unmodded: B gets no core or Difficulty'
     Ok ($PairScenarios['d5-host-vanilla'].VMSetup.ToString() -match '-Modded') 'host-vanilla: B is modded'

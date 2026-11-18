@@ -18,6 +18,9 @@
 --                      tries) until B has a new character; a playable-monster B is a FAIL at once. The host is revived
 --                      the same way when it has no character. Clears infection timers (story 2's hook) and, every 2 s,
 --                      either player's StartedInfection? on the host (it decides a playable monster at death).
+--                      With Scripts\watcher-near.txt (story 11, d5-grab-modded) the Watcher case instead keeps the host
+--                      within 2 m of B (MOVE host ... (near ...)), re-placed outside grab windows, so the Watcher has two
+--                      players in reach: it guards the Watcher's victim rule (Target vs AttackedPlayer).
 --   client-watch       (B, VM; story 5) logs only: each grab on B with its montage, and B's montage, PlayingMontage,
 --                      movement mode and Health 6 s and 12 s later (AFTERGRAB). The real Difficulty (or none) decides.
 --                      Clears infection timers like the host.
@@ -48,6 +51,12 @@ local ROLES = { ["host-grab"] = true, ["host-grab-vanilla"] = true, ["client-gra
                 ["host-tokens"] = true, ["client-tokens"] = true }
 if not ROLES[ROLE] then say("END result=FAIL reason=no role (role.txt: %s)", tostring(ROLE)) return end
 local IS_HOST = ROLE:sub(1, 4) == "host"
+-- Story 11: Scripts\watcher-near.txt (staged by d5-grab-modded) keeps the host next to B in host-spawn's Watcher case.
+local WATCHER_NEAR = false
+do
+    local f = io.open(scriptDir .. "\\watcher-near.txt", "r")
+    if f then f:close() WATCHER_NEAR = ROLE == "host-spawn" end
+end
 -- Stale signal files from an earlier run.
 for _, n in ipairs({ "bready", "temp-start", "temp-end", "done", "s1", "s2", "s3", "s3done", "kill-b", "s4done",
                      "b-s1", "b-s2", "b-s3", "b-s3done", "b-s4done", "t1", "t2", "tfinal", "b-t1", "b-t2", "b-tfinal" }) do os.remove(scriptDir .. "\\" .. n .. ".txt") end
@@ -274,7 +283,7 @@ local SPAWN_CASES = {
     { name = "Mimic", path = "/Game/AI/Mimic_AI.Mimic_AI_C", target = "other", flip = false, wanted = 1 },
     { name = "Psycho", path = "/Game/AI/MadPatent_AI.MadPatent_AI_C", target = "other", flip = false, wanted = 1 },
     { name = "Stalker", path = "/Game/AI/Stalker_AI.Stalker_AI_C", target = "other", flip = false, wanted = 1 },
-    { name = "Watcher", path = "/Game/AI/EyeMonster_AI.EyeMonster_AI_C", target = "other", flip = false, wanted = 1 },
+    { name = "Watcher", path = "/Game/AI/EyeMonster_AI.EyeMonster_AI_C", target = "other", flip = false, wanted = 1, near = true },
 }
 ENEMY_OF["Stalker_AI_C"] = "Stalker"
 local function enemyName(o) return valid(o) and (ENEMY_OF[classOf(o)] or classOf(o)) or "none" end
@@ -381,6 +390,7 @@ local function installGrabHooks(noInfect)
             end
             say("GRAB #%d %s %s victim=%s hpSeen=%s hpNow=%s montage=%s diff=%s (start %s)%s", S.seq, enemyName(attacker), g.fn:match(":(.+)$"),
                 who(victim), fmt1(hpSeen), fmt1(hpOf(victim)), valid(victim) and montageOf(victim) or "?", dNow, tostring(S.diff), wf)
+            S.anyGrabAt = os.clock()
             if isMe(victim) then S.grabsOnMe = S.grabsOnMe + 1 S.ownGrabAt = { t = os.clock(), n = 0, seq = S.seq } end
             if isOther(victim) then S.hostGrabAt = { t = os.clock(), n = 0, seq = S.seq } end
             local c = S.case
@@ -633,6 +643,30 @@ local function moveHost(b)
     end
     check(false, "MOVE host: no teleport reached %d cm from B (%s cm)", HOST_AWAY, d and string.format("%.0f", d) or "?")
 end
+-- Story 11 (watcher-near.txt): the host within HOST_NEAR of B, beside or behind B (B faces the spawn), each try measured.
+local HOST_NEAR = 200
+local NEAR_OFFSETS = { { 0, 150, 0 }, { 0, -150, 0 }, { -150, 0, 0 }, { 0, 120, 30 }, { 0, -120, 30 }, { -120, 0, 30 },
+                       { 100, 100, 30 }, { 100, -100, 30 } } -- { forward, right, up } in B's frame, cm
+local function moveHostNear(b, why)
+    local m = me()
+    if not m then check(false, "MOVE host near: no host character") return end
+    local d = distance(m, b)
+    if d and d <= HOST_NEAR then say("MOVE host %.0f cm from B (near, %s, already)", d, why) return end
+    local okL, loc = pcall(function() return b:K2_GetActorLocation() end)
+    local okF, fwd = pcall(function() return b:GetActorForwardVector() end)
+    local okG, rgt = pcall(function() return b:GetActorRightVector() end)
+    local okR, rot = pcall(function() return m:K2_GetActorRotation() end)
+    if okL and okF and okG and okR then
+        for i, o in ipairs(NEAR_OFFSETS) do
+            local at = { X = loc.X + fwd.X * o[1] + rgt.X * o[2], Y = loc.Y + fwd.Y * o[1] + rgt.Y * o[2], Z = loc.Z + o[3] }
+            local okT, r = pcall(function() return m:K2_TeleportTo(at, rot) end)
+            d = distance(m, b)
+            if d and d <= HOST_NEAR then say("MOVE host %.0f cm from B (near, %s, try %d)", d, why, i) return end
+            say("MOVE near try %d teleport ok=%s returned=%s: %s cm from B", i, tostring(okT), tostring(r), d and string.format("%.0f", d) or "?")
+        end
+    end
+    check(false, "MOVE host near: no teleport reached %d cm of B (%s cm)", HOST_NEAR, d and string.format("%.0f", d) or "?")
+end
 
 -- revive(tag, whom): whom "B" (other(), B's controller, the dead path S.bPath) or "host" (me(), the local controller,
 -- S.hostPath). Nothing to do while that player has a live character. Else: wait up to 30 s for the real death (the
@@ -728,7 +762,8 @@ local function buildHostSpawn()
             -- The host: refilled only while alive, then out of the enemies' reach.
             local hh = m and hpOf(m)
             if hh and hh > 0 and hh < 100 then pcall(function() m.Health = 100 end) say("REFILL me hp %.2f -> 100 (before the spawn)", hh) end
-            moveHost(target)
+            local near = c.near and WATCHER_NEAR
+            if near then moveHostNear(target, "spawn") else moveHost(target) end
             local h = hpOf(target)
             if h and h > 0 and h < 100 then pcall(function() target.Health = 100 end) say("REFILL other hp %.2f -> 100 (between cases)", h) end
             local cls = loadClass(c.path)
@@ -748,6 +783,16 @@ local function buildHostSpawn()
                     return true
                 end
                 if os.clock() - (c.clearAt or 0) >= 2 then c.clearAt = os.clock() clearNatural(c.actor) end
+                -- watcher-near: the host back within 2 m of B when it drifted, only while alive and outside a grab
+                -- window (10 s after any grab on either player).
+                if near and os.clock() - (c.nearAt or 0) >= 5 then
+                    c.nearAt = os.clock()
+                    local m2 = me()
+                    if m2 and not dead(m2) and os.clock() - (S.anyGrabAt or -100) >= 10 then
+                        local d2 = distance(m2, tg)
+                        if d2 and d2 > HOST_NEAR then moveHostNear(tg, "drifted") end
+                    end
+                end
                 if os.clock() - (c.seeAt or 0) >= 10 and (c.grabs or 0) == 0 then
                     c.seeAt = os.clock()
                     local x2 = StaticFindObject(c.actor)

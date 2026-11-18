@@ -1095,10 +1095,11 @@ if SC.special == "boss" then
             local mine = isMe(v)
             say("BOSSCLD pre boss=%s victim=%s hp=%s", cls, mine and "local" or "other", fmt1(hpOf(v)))
             local c = caseFor(cls)
+            B.lastPre = { cls = cls, vpath = valid(v) and pathOf(v) or nil }
             if c and mine and not c.cldAt then c.cldPre, c.vpath = os.clock(), pathOf(v) end
-        end, function(_, boss, victim, ...)
-            local b, v = get(boss), get(victim)
-            local cls = classOf(b)
+        end, function(_, _, _, ...)
+            -- The post-hook's parameters are not readable (VM run 2026-11-18: boss=? and a victim Health of 150 read
+            -- through them), so the boss and the victim are the pre-hook's: the case's boss class and the victim's path.
             -- The return value, if the pinned UE4SS passes one after the parameters (otherwise '?').
             local ret = "?"
             if select("#", ...) >= 1 then
@@ -1106,10 +1107,11 @@ if SC.special == "boss" then
                 if r == nil then r = (select(1, ...)) end
                 if type(r) == "boolean" then ret = tostring(r) end
             end
-            say("BOSSCLD post boss=%s hp=%s ret=%s", cls, fmt1(hpOf(v)), ret)
-            local c = caseFor(cls)
-            -- The victim by the path the pre-hook saw (a kill may already have unpossessed the pawn here).
-            if c and c.cldPre and not c.cldAt and valid(v) and pathOf(v) == c.vpath then
+            local c, lp = B.cur, B.lastPre or {}
+            B.lastPre = nil
+            local v = lp.vpath and StaticFindObject(lp.vpath)
+            say("BOSSCLD post boss=%s hp=%s ret=%s", lp.cls or "?", fmt1(valid(v) and hpOf(v) or nil), ret)
+            if c and c.cldPre and not c.cldAt then
                 c.cldAt, c.ret, c.s0 = os.clock(), ret, snap(c.vpath)
             end
         end)

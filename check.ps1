@@ -534,6 +534,8 @@ if ($Scenario -in 'boss', 'boss-default') {
             "#1|\[$D\] BOSSSTATE $bRx t=6 alive=(true|false) "
             "#1|\[$D\] BOSSSTATE $bRx t=12 alive=(true|false) "
         ) $lines
+        # boss: the driver's verdicts must have run (an alive=false at 12 s without them never passes).
+        if ($Scenario -eq 'boss') { Test-Patterns @("#1|\[$D\] OK boss $bRx alive at 12 s ", "#1|\[$D\] OK boss $bRx moving at 12 s ") $lines }
     }
     if ($Scenario -eq 'boss-default' -and $grabbed) { Test-Patterns @("\[$D\] BOSSDEATH .+ expected \(stock\)\s*$") $lines }
 }

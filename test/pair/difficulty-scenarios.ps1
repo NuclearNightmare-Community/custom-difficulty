@@ -15,7 +15,9 @@
   Difficulty, staged with dev.lua knobs enemyDamage=25 on the host; DifficultyPair host-spawn + client-watch, which
   never flip). Each Check FAILs on any listed miss (ScenarioReport.D5.Misses):
     d5-grab-modded   both machines modded: decision=s for B in both logs per enemy, B's survivable montage, B alive
-                     and moving at 6 s; RECOVER lines are reported, not failed.
+                     and moving at 6 s; RECOVER lines are reported, not failed. Its Watcher case keeps the host within
+                     2 m of B (watcher-near.txt, story 11), so the Watcher has two players to choose from.
+
     d5-grab-unmodded B has only UE4SS and the watcher: host spare=no(absent) and the game's decision, B's montage
                      matches it, B revived after each death, two players throughout (the session outcome).
     d5-host-vanilla  the host has no core and no Difficulty, B is modded: one inactive line on B, no GRAB, RESTORE
@@ -45,13 +47,17 @@ $script:DpSignals = @('bready', 'temp-start', 'temp-end', 'done', 's1', 's2', 's
     'b-s1', 'b-s2', 'b-s3', 'b-s3done', 'b-s4done', 't1', 't2', 'tfinal', 'b-t1', 'b-t2', 'b-tfinal')
 
 # A copy of DifficultyPair with Scripts\role.txt, in its own folder per role (host and VM copies differ).
-function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive', 'host-spawn', 'client-watch', 'host-tokens', 'client-tokens')] [string] $Role) {
-    $stage = Join-Path ([IO.Path]::GetTempPath()) "nn-dp-stage-$Role"
+# -WatcherNear (host-spawn, story 11): also Scripts\watcher-near.txt, so the Watcher case keeps the host within 2 m of B
+# instead of 2500 cm away (two players in the Watcher's reach; it guards the Watcher's victim rule).
+function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive', 'host-spawn', 'client-watch', 'host-tokens', 'client-tokens')] [string] $Role, [switch] $WatcherNear) {
+    $stage = Join-Path ([IO.Path]::GetTempPath()) "nn-dp-stage-$Role$(if ($WatcherNear) { '-near' })"
     Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     $dst = Join-Path $stage 'DifficultyPair'
     New-Item -ItemType Directory -Force $stage | Out-Null
     Copy-Item $DpDriver $dst -Recurse
+    Remove-Item (Join-Path $dst 'Scripts\watcher-near.txt') -Force -ErrorAction SilentlyContinue
     Set-Content (Join-Path $dst 'Scripts\role.txt') $Role -NoNewline
+    if ($WatcherNear) { Set-Content (Join-Path $dst 'Scripts\watcher-near.txt') '1' -NoNewline }
     $dst
 }
 
@@ -346,8 +352,10 @@ function Get-DpD5Report([Parameter(Mandatory)] [ValidateSet('modded', 'unmodded'
 }
 
 function New-DpD5Scenario([string] $Summary, [ValidateSet('modded', 'unmodded', 'host-vanilla')] [string] $Kind) {
+    # Story 11 (user, 2026-11-17): d5-grab-modded runs its Watcher case with the host next to B (watcher-near.txt).
+    $near = if ($Kind -eq 'modded') { ' -WatcherNear' } else { '' }
     $hostMods = if ($Kind -eq 'host-vanilla') { "@(Get-DpStage -Role 'host-spawn')" }
-                else { "@(`$DpCorePackage, (Get-DpModStage -Side host -Knobs `$DpKnobs), (Get-DpStage -Role 'host-spawn'))" }
+                else { "@(`$DpCorePackage, (Get-DpModStage -Side host -Knobs `$DpKnobs), (Get-DpStage -Role 'host-spawn'$near))" }
     $vm = if ($Kind -eq 'unmodded') { 'Set-DpVMModded' } else { 'Set-DpVMModded -Modded' }
     @{
         Summary = $Summary

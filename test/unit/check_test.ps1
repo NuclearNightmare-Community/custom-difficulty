@@ -404,6 +404,46 @@ Expect ($sgrab + @(DR 'FAIL spread-grab Meek #3 hit took 26.00 HP from 26.00 (wa
 $sgrabNs = @(Without $sgrab 'Meek #(1[1-9]|20) |END result') + @((DR 'NOTSHOWN Meek #11: no grab seen'), (DR 'END result=NOTSHOWN checks=10 failures=0 notshown=1 dead=false'))
 Expect $sgrabNs 'spread-grab' 2 'spread-grab: a Meek that never grabbed -> not shown' 'NOT SHOWN'
 
+# ---------------------------------------------------------------- story 13: boss finisher grabs (boss, boss-default)
+function BossDrv([string] $b, [string] $cls, [string] $hp0, [string] $alive) {
+    @((DR "BOSSTRY $b route=near t=0 teleport=true nudge=true"), (DR "BOSSHOOK StartWatching boss=$cls"),
+      (DR "BOSSCLD pre boss=$cls victim=local hp=100.00"), (DR "BOSSCLD post boss=$cls hp=$hp0 ret=?"),
+      (DR "BOSSHOOK AttackMulti boss=$cls"),
+      (DR "BOSSSTATE $b t=0 alive=$alive hp=$hp0 playing=true movement=0 montage=none ret=? presentation=yes"),
+      (DR "BOSSSTATE $b t=6 alive=$alive hp=$hp0 playing=false movement=1 montage=none"),
+      (DR "BOSSSTATE $b t=12 alive=$alive hp=$hp0 playing=false movement=1 montage=none"))
+}
+$bossQ = @((D 'HIT enemy=slugQueen via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=25 hp=100 kind=hit')) + (BossDrv 'Slug Queen' 'SlugQueen_AI_C' '75.00' 'true') + @(
+    (DR 'OK boss Slug Queen alive at 12 s with Health >= 1 (alive=true hp=75.00)'), (DR 'OK boss Slug Queen moving at 12 s (PlayingMontage=false movement=1 montage=none)'))
+$bossA = @((DR 'REFILL hp 75.00 -> 100 (before the Apex, test only)'), (D 'HIT enemy=apex via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=25 hp=100 kind=hit')) + (BossDrv 'Apex' 'ApexPredatorAI_C' '75.00' 'true') + @(
+    (DR 'OK boss Apex alive at 12 s with Health >= 1 (alive=true hp=75.00)'), (DR 'OK boss Apex moving at 12 s (PlayingMontage=false movement=1 montage=none)'))
+$boss = Story3 'boss' 'enemyDamage=25' @() ($bossQ + $bossA)
+Expect $boss 'boss' 0 'boss: both bosses grabbed, survived and moved -> passes' 'All checks passed'
+Expect (Without $boss 'HIT enemy=slugQueen') 'boss' 1 'boss: no Slug Queen HIT -> fails' 'HIT enemy=slugQueen'
+Expect (Without $boss 'HIT enemy=apex') 'boss' 1 'boss: no Apex HIT -> fails' 'HIT enemy=apex'
+Expect ($boss -replace 'knobs=enemyDamage=25', 'knobs=all Default') 'boss' 1 'boss: other knobs -> fails' 'MATCH start'
+Expect (Without $boss 'BOSSSTATE Apex t=6') 'boss' 1 'boss: no t=6 state line -> fails' 'BOSSSTATE Apex t=6'
+Expect (Without $boss 'BOSSCLD pre boss=SlugQueen') 'boss' 1 'boss: no BOSSCLD pre line -> fails' 'BOSSCLD pre boss=SlugQueen_AI_C'
+Expect ($boss + @(DR 'FAIL boss Apex alive at 12 s with Health >= 1 (alive=false hp=0.00)')) 'boss' 1 'boss: the player died (driver FAIL) -> fails' 'FAIL'
+Expect ($boss + @(DR 'DEATH the player died (case -)')) 'boss' 1 'boss: a DEATH line -> fails' 'DEATH'
+$bossApexNs = Story3 'boss' 'enemyDamage=25' @() ($bossQ + @((DR 'BOSSTRY Apex route=near t=0 teleport=true HeardNoise=true'), (DR 'BOSSTRY Apex route=attack t=23 teleport=true AttackServer=true'),
+    (DR 'NOTSHOWN Apex: no CommitLethalDamage in 60 s (18 BOSSTRY attempts)')))
+$bossApexNs = @($bossApexNs -replace 'END result=PASS checks=3 failures=0 notshown=0', 'END result=NOTSHOWN checks=3 failures=0 notshown=1')
+Expect $bossApexNs 'boss' 2 'boss: the Apex never grabbed -> exit 2 (not shown)' 'NOT SHOWN'
+Expect (Without $bossApexNs 'HIT enemy=slugQueen') 'boss' 1 'boss: Apex not shown still needs the Slug Queen''s HIT -> fails' 'HIT enemy=slugQueen'
+Expect (Without $bossApexNs 'BOSSTRY Apex') 'boss' 1 'boss: a not-shown Apex without BOSSTRY lines -> fails' 'BOSSTRY'
+$ctlQ = (BossDrv 'Slug Queen' 'SlugQueen_AI_C' '0.00' 'false') + @(
+    (DR 'OK boss-default Slug Queen the stock grab kills (alive=false by 12 s; at 0/6/12 s alive=false/false/false hp=0.00)'),
+    (DR 'BOSSDEATH Slug Queen expected (stock)'), (DR 'NOTSHOWN Apex: the control player is dead'))
+$ctl = Story3 'boss-default' 'all Default' @() $ctlQ
+Expect $ctl 'boss-default' 0 'boss-default: the stock grab kills, the run ends there -> passes (the Apex skip is not a not-shown)' 'All checks passed'
+Expect ($ctl + @(D 'HIT enemy=slugQueen via=CommitLethalDamage stock=100 scaled=100 rolled=100 applied=100 hp=100 kind=hit')) 'boss-default' 1 'boss-default: a Difficulty HIT -> fails' 'HIT'
+Expect (Without $ctl 'BOSSDEATH') 'boss-default' 1 'boss-default: no BOSSDEATH -> fails' 'BOSSDEATH'
+Expect ($ctl -replace 'OK boss-default Slug Queen the stock', 'FAIL boss-default Slug Queen the stock') 'boss-default' 1 'boss-default: the player survived the stock grab (driver FAIL) -> fails' 'FAIL'
+Expect ($ctl + @(DR 'DEATH the player died (case -)')) 'boss-default' 1 'boss-default: the runner''s DEATH line -> fails' 'DEATH'
+Expect ($ctl -replace 'knobs=all Default', 'knobs=enemyDamage=25') 'boss-default' 1 'boss-default: knobs set -> fails' 'MATCH start'
+Expect ($ctl -replace 'NOTSHOWN Apex: the control player is dead', 'NOTSHOWN Apex: no CommitLethalDamage in 60 s (0 BOSSTRY attempts)') 'boss-default' 1 'boss-default: an Apex not shown without BOSSTRY -> fails' 'BOSSTRY'
+
 # ---------------------------------------------------------------- story 8: signal (two launches, the screen's values)
 $k8 = 'enemyDamage=25 spread=20 revives=8 cold=0 frostbite=0 dmg.stalker=200'
 $sigA = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 19'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),

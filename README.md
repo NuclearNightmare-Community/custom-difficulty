@@ -386,6 +386,17 @@ worked is a FAIL; solo never gets there.) The terminal route past the stock limi
 text is read from a `NukeComputer_UI_C` widget's `GetText_3`, made with `WidgetBlueprintLibrary:Create` and never
 shown.
 
+### Story 13 scenarios (the bosses' finisher grabs; observed, no fix)
+
+Both bosses end their grab with the native `NNBossAttackRecovery:CommitLethalDamage(Boss, Victim)` and play the kill
+presentation (`AttackMulti`) only when it returns true. These two scenarios show what Enemy Damage does there. Story 13
+ran them only in the VM (`run.ps1 -Target vm`); Tower Island, Nightmare, solo.
+
+| Scenario | How | Expected |
+|---|---|---|
+| `boss` | `enemyDamage=25`. The driver spawns the Slug Queen, then the Apex Predator (Health refilled before each, `REFILL`), clears natural enemies every 2 s and holds `Temperature` at 0 (`TEMP`, test only). To make each boss grab: every 2 s the player is teleported about 100 uu in front of it and it is nudged (the Queen `SeePlayerServer(player)`, the Apex `HeardNoise(playerLocation, 1.0)`); after 20 s without `CommitLethalDamage`, `AttackServer(player)` every 5 s (each attempt `BOSSTRY <boss> route=near|attack`; none while the boss's grab is under way, `BOSSGRAB`). 60 s without one is `NOTSHOWN <boss>` | per boss that grabbed: `BOSSCLD pre`/`post` (Health in and out, `ret=` the return or `?`), `BOSSHOOK StartWatching`/`WatchFinisherPresentation`/`AttackMulti`, `BOSSSTATE <boss> t=0` (with `ret=` and `presentation=yes|no`: an `AttackMulti` within 2 s), `t=6` and `t=12`; Difficulty's `HIT enemy=slugQueen` and `HIT enemy=apex via=CommitLethalDamage` (amounts not fixed: they are findings); the driver's OK "alive at 12 s with Health >= 1" and "moving at 12 s" (PlayingMontage false, movement 1). A boss that never grabbed: exit 2, its `BOSSTRY` lines logged; the other boss is still judged |
+| `boss-default` | no knobs (the control), the same steps | the stock grab kills: the driver's OK "the stock grab kills (alive=false by 12 s)" and `BOSSDEATH <boss> expected (stock)` (never the runner's `DEATH`); the run ends there, and `NOTSHOWN Apex: the control player is dead` is not a not-shown case; no Difficulty `HIT` line. A player who survives the stock grab is a driver FAIL |
+
 ## The user's check (the epic's success signal, by hand)
 
 On the dev copy, with Nucleus 0.15.0 or later and Difficulty deployed without `-Test` (so no `dev.lua`), launched

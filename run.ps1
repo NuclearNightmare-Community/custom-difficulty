@@ -39,6 +39,8 @@
   old-core stages an older core package already on disk (-OldCorePackage, else the first mods\Nucleus\build\package-*
   whose version dependsOn refuses; none: "SKIPPED", exit 3, nothing run); both deploy Difficulty with -Force and the
   driver only waits on the menu (host limit 300 s).
+  Story 13: boss and boss-default (the bosses' finisher grabs at Enemy Damage 25, and the stock control) run like the
+  story 3 scenarios (host limit 900 s); story 13 runs them only with -Target vm.
 .EXAMPLE
   ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario flip
   ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario default -Target vm
@@ -47,7 +49,7 @@ param(
     [Parameter(Mandatory)] [string] $Instance,
     [Parameter(Mandatory)] [ValidateSet('scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite',
                  'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen', 'spread', 'spread-grab',
-                 'signal', 'no-core', 'old-core')] [string] $Scenario,
+                 'signal', 'no-core', 'old-core', 'boss', 'boss-default')] [string] $Scenario,
     [int] $TimeoutSec = 0, # 0: the scenario's host limit (900; spread and spread-grab 2400; no-core and old-core 300), x1.5 in the VM
     [ValidateSet('host', 'vm')] [string] $Target = 'host',
     [string] $OldCorePackage, # old-core: a core package folder (Mods\Nucleus, LogicMods\Nucleus.pak) older than dependsOn; default: the first under mods\Nucleus\build\package-*

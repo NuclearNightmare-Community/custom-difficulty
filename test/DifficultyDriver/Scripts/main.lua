@@ -75,6 +75,17 @@
 --                   back to the menu, DT8-SIGNAL deleted. No dev.lua.
 --   no-core, old-core  (menu only) waits for the menu world and 20 s, so the run reaches the menu; Difficulty's one
 --                   line is check.ps1's.
+-- Story 13 (difficulty v1; the bosses' finisher grabs, observed, no fix):
+--   boss            Nightmare, Enemy Damage 25: the Slug Queen, then the Apex Predator, spawned near the player and
+--                   made to grab (ladder: the player teleported about 100 uu in front of the boss and the boss nudged
+--                   every 2 s, the Queen with SeePlayerServer(player), the Apex with HeardNoise(playerLocation, 1.0);
+--                   after 20 s without CommitLethalDamage, AttackServer(player); 60 s without one is NOTSHOWN). Logs
+--                   CommitLethalDamage's Health in/out and return (BOSSCLD), StartWatching, WatchFinisherPresentation
+--                   and AttackMulti (BOSSHOOK), and the player at 0, 6 and 12 s (BOSSSTATE). Verdicts per boss: alive
+--                   at 12 s with Health >= 1, and moving at 12 s (PlayingMontage false, movement 1).
+--   boss-default    the same with no knobs (the control): OK when the stock grab kills (alive=false by 12 s). That
+--                   death is expected: BOSSDEATH <boss> expected (stock), never DEATH, and the run ends there (a
+--                   remaining Apex is "NOTSHOWN Apex: the control player is dead", not counted).
 -- White Outs: every scenario sets the game instance's DisableWhiteOuts before the match (cold-whiteout clears it) and
 -- logs one WHITEOUT line after the start; check.ps1 requires disabled=true, or disabled=false for cold-whiteout.
 -- Lines: OK / FAIL <check>; NOTSHOWN <case> (the driver couldn't make the case happen: not a pass);
@@ -122,6 +133,9 @@ local SCENARIOS = {
     } },
     ["no-core"] = { diff = 2, special = "menu", cases = {} },
     ["old-core"] = { diff = 2, special = "menu", cases = {} },
+    -- Story 13: the bosses' finisher grabs (Nightmare; boss Enemy Damage 25, boss-default the stock control).
+    ["boss"] = { diff = 0, special = "boss", cases = {} },
+    ["boss-default"] = { diff = 0, special = "boss", control = true, cases = {} },
 }
 -- spread-grab: 20 Meek grabs, each at Health 26 (E 25: survivable; the hit takes at most 25).
 for _ = 1, 20 do
@@ -1031,6 +1045,208 @@ if SC.special == "spread" then
             check(true, "spread %d real hits counted (losses logged only)", n)
         end
     end)
+end
+
+-- ---------------------------------------------------------------- story 13: the bosses' finisher grabs
+-- Each boss ends its grab with the native static NNBossAttackRecovery:CommitLethalDamage(Boss, Victim) and plays the
+-- kill presentation (its AttackMulti) only when that returns true. The driver makes each boss grab the local player,
+-- logs the native's Health in/out and the player's state 0, 6 and 12 s after it, and judges survival (boss) or the
+-- stock kill (boss-default). Difficulty's own HIT line (via=CommitLethalDamage) is check.ps1's. Never keeps a UObject
+-- between steps: the boss by path, the player re-found each poll.
+if SC.special == "boss" then
+    local REC = "/Script/NuclearNightmare.NNBossAttackRecovery:"
+    local BOSSES = {
+        { name = "Slug Queen", path = "/Game/AI/SlugQueen_AI.SlugQueen_AI_C", short = "SlugQueen_AI_C" },
+        { name = "Apex", path = "/Game/AI/ApexPredator/ApexPredatorAI.ApexPredatorAI_C", short = "ApexPredatorAI_C" },
+    }
+    local NEAR, NUDGE_EVERY, LADDER_AT, ATTACK_EVERY, GIVE_UP = 100, 2, 20, 5, 60
+    local B = { cur = nil, over = false, tempLogged = false }
+    local control = SC.control == true
+    local function tf(v) if v == nil then return "?" end return tostring(v) end
+    -- The grabbed player's state now, from the local pawn or else the victim's body by path (alive only while the
+    -- local controller still possesses it, it is live and Health > 0; no body: alive=false).
+    local function snap(vpath)
+        local s = { alive = false, playing = "?", movement = "?", montage = "none" }
+        local m = me()
+        local possessed = m ~= nil and (not vpath or pathOf(m) == vpath)
+        local ch = possessed and m or nil
+        if not possessed and vpath then
+            ch = StaticFindObject(vpath)
+            if not alive(ch) then return s end
+        end
+        if not ch then return s end
+        s.hp = hpOf(ch)
+        s.alive = possessed and alive(ch) and s.hp ~= nil and s.hp > 0
+        pcall(function() s.playing = ch.PlayingMontage end)
+        pcall(function() s.movement = num(ch.CharacterMovement.MovementMode) end)
+        s.montage = montageOf(ch)
+        return s
+    end
+    local function stateLine(c, t, s, extra)
+        say("BOSSSTATE %s t=%d alive=%s hp=%s playing=%s movement=%s montage=%s%s", c.name, t, tostring(s.alive), fmt1(s.hp),
+            tf(s.playing), tf(s.movement), s.montage, extra or "")
+    end
+    local function caseFor(cls) local c = B.cur if c and cls == c.short then return c end return nil end
+
+    step("boss: hooks", function()
+        local okC = hook(REC .. "CommitLethalDamage", function(_, boss, victim)
+            local b, v = get(boss), get(victim)
+            local cls = classOf(b)
+            local mine = isMe(v)
+            say("BOSSCLD pre boss=%s victim=%s hp=%s", cls, mine and "local" or "other", fmt1(hpOf(v)))
+            local c = caseFor(cls)
+            B.lastPre = { cls = cls, vpath = valid(v) and pathOf(v) or nil }
+            if c and mine and not c.cldAt then c.cldPre, c.vpath = os.clock(), pathOf(v) end
+        end, function(_, _, _, ...)
+            -- The post-hook's parameters are not readable (VM run 2026-11-18: boss=? and a victim Health of 150 read
+            -- through them), so the boss and the victim are the pre-hook's: the case's boss class and the victim's path.
+            -- The return value, if the pinned UE4SS passes one after the parameters (otherwise '?').
+            local ret = "?"
+            if select("#", ...) >= 1 then
+                local r = get((select(1, ...)))
+                if r == nil then r = (select(1, ...)) end
+                if type(r) == "boolean" then ret = tostring(r) end
+            end
+            local c, lp = B.cur, B.lastPre or {}
+            B.lastPre = nil
+            local v = lp.vpath and StaticFindObject(lp.vpath)
+            say("BOSSCLD post boss=%s hp=%s ret=%s", lp.cls or "?", fmt1(valid(v) and hpOf(v) or nil), ret)
+            if c and c.cldPre and not c.cldAt then
+                c.cldAt, c.ret, c.s0 = os.clock(), ret, snap(c.vpath)
+            end
+        end)
+        check(okC, "BOSSHOOKS CommitLethalDamage hooked (the boss cases need it)")
+        for _, fn in ipairs({ "StartWatching", "WatchFinisherPresentation" }) do
+            hook(REC .. fn, function(_, boss)
+                local cls = classOf(get(boss))
+                say("BOSSHOOK %s boss=%s", fn, cls)
+                local c = caseFor(cls)
+                if c and fn == "StartWatching" and not c.watchAt then c.watchAt = os.clock() end
+            end)
+        end
+        return after(1), 3
+    end)
+
+    for _, c in ipairs(BOSSES) do
+        c.label = c.name
+        step("boss: spawn " .. c.name, function()
+            if B.over then say("NOTSHOWN %s: the control player is dead", c.name) return end
+            local p = me()
+            if not p then if gone() then S.dead = true end return end
+            clearOthers(nil)
+            refill("before the " .. c.name)
+            local cls = loadClass(c.path)
+            if not check(cls ~= nil, "CLASS %s %s", c.name, c.path) then return end
+            -- AttackMulti is a Blueprint multicast: the callback runs after the body (never a pre-hook).
+            hook(c.path .. ":AttackMulti", function(selfp)
+                local cls2 = classOf(get(selfp))
+                say("BOSSHOOK AttackMulti boss=%s", cls2)
+                local cc = caseFor(cls2)
+                if cc then cc.multiAt = os.clock() end
+            end)
+            local okS, x = pcall(spawnInFront, cls)
+            if not check(okS and valid(x), "SPAWN %s %s", c.name, okS and pathOf(x) or tostring(x)) then return end
+            c.actor = pathOf(x)
+            B.cur = c
+            c.tries = 0
+            local t0 = os.clock()
+            return function()
+                local now = os.clock()
+                local m = me()
+                if not c.cldAt then
+                    if not m then if gone() then S.dead = true return true end return false end
+                    pcall(function() m.Temperature = 0 end)
+                    if not B.tempLogged then B.tempLogged = true say("TEMP Temperature held at 0 during the boss cases (test only)") end
+                    if now - (c.clearAt or 0) >= 2 then c.clearAt = now clearOthers(c.actor) end
+                    local el = now - t0
+                    -- A grab under way (the boss's AttackingPlayer, or its StartWatching seen): no more teleports or
+                    -- nudges while it lasts, which could break the presentation; a first grab gets up to 20 s past the 60.
+                    local x1 = StaticFindObject(c.actor)
+                    local okG, grabbing = pcall(function() return x1.AttackingPlayer end)
+                    local busyNow = (okG and grabbing == true) or (c.watchAt ~= nil and now - c.watchAt < 15)
+                    if busyNow then
+                        c.busyAt = now
+                        if not c.grabSeen then
+                            c.grabSeen = now
+                            say("BOSSGRAB %s t=%.0f AttackingPlayer=%s StartWatching=%s", c.name, el, tostring(okG and grabbing), tostring(c.watchAt ~= nil))
+                        end
+                    end
+                    if el >= GIVE_UP and not (c.grabSeen and now - c.grabSeen < 20 and busyNow) then
+                        S.notShown = S.notShown + 1
+                        say("NOTSHOWN %s: no CommitLethalDamage in %d s (%d BOSSTRY attempts)", c.name, GIVE_UP, c.tries)
+                        return true
+                    end
+                    local route = el >= LADDER_AT and "attack" or "near"
+                    local every = route == "attack" and ATTACK_EVERY or NUDGE_EVERY
+                    if not busyNow and now - (c.tryAt or -1e9) >= every then
+                        c.tryAt = now
+                        c.tries = c.tries + 1
+                        local x2 = StaticFindObject(c.actor)
+                        if not alive(x2) then say("BOSSTRY %s route=%s t=%.0f boss gone", c.name, route, el) return false end
+                        -- Route 1 (and before each route 2 call): the player about 100 uu in front of the boss.
+                        local okT = pcall(function()
+                            local bl, bf = x2:K2_GetActorLocation(), x2:GetActorForwardVector()
+                            m:K2_SetActorLocation({ X = bl.X + bf.X * NEAR, Y = bl.Y + bf.Y * NEAR, Z = bl.Z }, false, {}, true)
+                        end)
+                        local okN, how
+                        if route == "near" then
+                            if c.short == "SlugQueen_AI_C" then
+                                how = "SeePlayerServer"
+                                okN = pcall(function() x2:SeePlayerServer(m) end)
+                            else
+                                how = "HeardNoise"
+                                okN = pcall(function()
+                                    local l = m:K2_GetActorLocation()
+                                    x2:HeardNoise({ X = l.X, Y = l.Y, Z = l.Z }, 1.0)
+                                end)
+                            end
+                        else
+                            how = "AttackServer"
+                            okN = pcall(function() x2:AttackServer(m) end)
+                        end
+                        say("BOSSTRY %s route=%s t=%.0f teleport=%s %s=%s", c.name, route, el, tostring(okT), how, tostring(okN))
+                    end
+                    return false
+                end
+                -- After CommitLethalDamage: the state lines at 0 (once the presentation is known: an AttackMulti for this
+                -- boss within 2 s of the post-hook), 6 and 12 s.
+                local since = now - c.cldAt
+                if not c.line0 and ((c.multiAt and c.multiAt >= c.cldAt) or since >= 2) then
+                    c.line0 = true
+                    c.presentation = (c.multiAt and c.multiAt >= c.cldAt and c.multiAt - c.cldAt <= 2) and "yes" or "no"
+                    stateLine(c, 0, c.s0, (" ret=%s presentation=%s"):format(c.ret, c.presentation))
+                end
+                if c.line0 and not c.s6 and since >= 6 then c.s6 = snap(c.vpath) stateLine(c, 6, c.s6) end
+                if c.s6 and since >= 12 then
+                    local s = snap(c.vpath)
+                    stateLine(c, 12, s)
+                    local died = not (c.s0.alive and c.s6.alive and s.alive)
+                    if control then
+                        check(died, "%s %s the stock grab kills (alive=false by 12 s; at 0/6/12 s alive=%s/%s/%s hp=%s)", SCENARIO, c.name,
+                            tostring(c.s0.alive), tostring(c.s6.alive), tostring(s.alive), fmt1(s.hp))
+                        if died then
+                            say("BOSSDEATH %s expected (stock)", c.name)
+                            B.over = true
+                        end
+                    else
+                        check(s.alive and s.hp ~= nil and s.hp >= 1, "%s %s alive at 12 s with Health >= 1 (alive=%s hp=%s)", SCENARIO, c.name, tostring(s.alive), fmt1(s.hp))
+                        check(s.playing == false and s.movement == 1, "%s %s moving at 12 s (PlayingMontage=%s movement=%s montage=%s)", SCENARIO, c.name,
+                            tf(s.playing), tf(s.movement), s.montage)
+                        if not s.alive then S.dead = true end
+                    end
+                    return true
+                end
+                return false
+            end, GIVE_UP + 45, "boss case " .. c.name
+        end)
+        step("boss: despawn " .. c.name, function()
+            B.cur = nil
+            local x = c.actor and StaticFindObject(c.actor)
+            if valid(x) then pcall(function() x:K2_DestroyActor() end) end
+            if B.over or S.dead then return end
+            return after(4), 6
+        end)
+    end
 end
 
 -- no-core, old-core: the menu only. Difficulty stops itself (its one line is check.ps1's); the driver only proves the

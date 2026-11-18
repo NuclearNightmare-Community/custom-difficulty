@@ -196,6 +196,15 @@ try {
         Ok ($d.Code -eq 0 -and $dev -match "(?m)^return \{ debug = true, knobs = `"$([regex]::Escape($s8[1]))`" \}$") "deploy -Scenario $($s8[0]): knobs $($s8[1])" "$($d.Out) $dev"
         Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) $s8[0] "deploy -Scenario $($s8[0]): scenario.txt"
     }
+    # Story 13: the boss finisher grabs at Enemy Damage 25, and the control without knobs.
+    $d = Deploy @('-Test', '-PreCore', '-Scenario', 'boss')
+    $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+    Ok ($d.Code -eq 0 -and $dev -match '(?m)^return \{ debug = true, knobs = "enemyDamage=25" \}$') 'deploy -Scenario boss: knobs enemyDamage=25' "$($d.Out) $dev"
+    Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) 'boss' 'deploy -Scenario boss: scenario.txt'
+    $d = Deploy @('-Test', '-PreCore', '-Scenario', 'boss-default')
+    $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
+    Ok ($d.Code -eq 0 -and $dev -match '(?m)^return \{ debug = true \}$') 'deploy -Scenario boss-default: no knobs' "$($d.Out) $dev"
+    Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) 'boss-default' 'deploy -Scenario boss-default: scenario.txt'
     foreach ($s8 in 'no-core', 'old-core') {
         $d = Deploy @('-Force', '-Test', '-Scenario', $s8)
         $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw

@@ -19,7 +19,7 @@
 --                      the same way when it has no character. Clears infection timers (story 2's hook) and, every 2 s,
 --                      either player's StartedInfection? on the host (it decides a playable monster at death).
 --                      With Scripts\watcher-near.txt (story 11, d5-grab-modded) the Watcher case instead keeps the host
---                      within 2 m of B (MOVE host ... (near ...)), facing where B faces (FACE), re-placed outside grab
+--                      within 2 m of B, first just in front of it (MOVE host ... (near ...)), facing where B faces (FACE), re-placed outside grab
 --                      windows, and logs the Watcher's state every 5 s (WATCH), so the Watcher has two players in reach:
 --                      it guards the Watcher's victim rule (Target vs AttackedPlayer).
 
@@ -645,13 +645,17 @@ local function moveHost(b)
     end
     check(false, "MOVE host: no teleport reached %d cm from B (%s cm)", HOST_AWAY, d and string.format("%.0f", d) or "?")
 end
--- Story 11 (watcher-near.txt): the host within HOST_NEAR of B, beside or behind B, facing where B faces (the spawn), each
--- try measured. The facing matters: the Watcher only changes its speed while its Target looks at it
--- (EyeMonster_AI_C.cpp:2187-2207, dot >= 0.95), so a host Target looking away left it standing (first host-near run,
--- d5-grab-modded-20261117-183343: no grab in 120 s).
+-- Story 11 (watcher-near.txt): the host within HOST_NEAR of B, first a little in front of B (between B and the spawn, a
+-- bit to the side), facing where B faces (the spawn), each try measured. In front: the Watcher chases B (its Target, B
+-- is who it spawned at) but grabs its attack context's locked victim (AttackMulti(chance, GetLockedVictim),
+-- EyeMonster_AI_C.cpp:2027-2033), so a host nearer the Watcher can be grabbed while B is the Target, the mismatch the
+-- victim rule handles; beside B, B was both (second host-near run, d5-grab-modded-20261117-184447). The facing matters:
+-- the Watcher only changes its speed while its Target looks at it (EyeMonster_AI_C.cpp:2187-2207, dot >= 0.95), so a
+-- host Target looking away left it standing (first host-near run, d5-grab-modded-20261117-183343: no grab in 120 s).
 local HOST_NEAR = 200
-local NEAR_OFFSETS = { { 0, 150, 0 }, { 0, -150, 0 }, { -150, 0, 0 }, { 0, 120, 30 }, { 0, -120, 30 }, { -120, 0, 30 },
-                       { 100, 100, 30 }, { 100, -100, 30 } } -- { forward, right, up } in B's frame, cm
+local NEAR_OFFSETS = { { 150, 50, 0 }, { 150, -50, 0 }, { 120, 60, 30 }, { 120, -60, 30 }, { 0, 150, 0 }, { 0, -150, 0 },
+                       { -150, 0, 0 }, { 0, 120, 30 }, { 0, -120, 30 } } -- { forward, right, up } in B's frame, cm
+
 -- The host's actor and control rotation set to B's yaw (pitch 0).
 local function faceLikeB(m, b)
     local okR, r = pcall(function() return b:K2_GetActorRotation() end)

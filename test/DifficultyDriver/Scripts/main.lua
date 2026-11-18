@@ -1161,7 +1161,7 @@ if SC.special == "boss" then
                     if now - (c.clearAt or 0) >= 2 then c.clearAt = now clearOthers(c.actor) end
                     local el = now - t0
                     -- A grab under way (the boss's AttackingPlayer, or its StartWatching seen): no more teleports or
-                    -- nudges while it lasts, which could break the presentation; a first grab gets up to 20 s past the 60.
+                    -- nudges while it lasts, which could break the presentation; a grab under way at 60 s gets up to 20 s more.
                     local x1 = StaticFindObject(c.actor)
                     local okG, grabbing = pcall(function() return x1.AttackingPlayer end)
                     local busyNow = (okG and grabbing == true) or (c.watchAt ~= nil and now - c.watchAt < 15)
@@ -1172,7 +1172,7 @@ if SC.special == "boss" then
                             say("BOSSGRAB %s t=%.0f AttackingPlayer=%s StartWatching=%s", c.name, el, tostring(okG and grabbing), tostring(c.watchAt ~= nil))
                         end
                     end
-                    if el >= GIVE_UP and not (c.grabSeen and now - c.grabSeen < 20 and busyNow) then
+                    if el >= GIVE_UP and not (busyNow and el < GIVE_UP + 20) then
                         S.notShown = S.notShown + 1
                         say("NOTSHOWN %s: no CommitLethalDamage in %d s (%d BOSSTRY attempts)", c.name, GIVE_UP, c.tries)
                         return true

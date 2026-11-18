@@ -19,8 +19,10 @@
 --                      the same way when it has no character. Clears infection timers (story 2's hook) and, every 2 s,
 --                      either player's StartedInfection? on the host (it decides a playable monster at death).
 --                      With Scripts\watcher-near.txt (story 11, d5-grab-modded) the Watcher case instead keeps the host
---                      within 2 m of B (MOVE host ... (near ...)), re-placed outside grab windows, so the Watcher has two
---                      players in reach: it guards the Watcher's victim rule (Target vs AttackedPlayer).
+--                      within 2 m of B (MOVE host ... (near ...)), facing where B faces (FACE), re-placed outside grab
+--                      windows, and logs the Watcher's state every 5 s (WATCH), so the Watcher has two players in reach:
+--                      it guards the Watcher's victim rule (Target vs AttackedPlayer).
+
 --   client-watch       (B, VM; story 5) logs only: each grab on B with its montage, and B's montage, PlayingMontage,
 --                      movement mode and Health 6 s and 12 s later (AFTERGRAB). The real Difficulty (or none) decides.
 --                      Clears infection timers like the host.
@@ -643,29 +645,56 @@ local function moveHost(b)
     end
     check(false, "MOVE host: no teleport reached %d cm from B (%s cm)", HOST_AWAY, d and string.format("%.0f", d) or "?")
 end
--- Story 11 (watcher-near.txt): the host within HOST_NEAR of B, beside or behind B (B faces the spawn), each try measured.
+-- Story 11 (watcher-near.txt): the host within HOST_NEAR of B, beside or behind B, facing where B faces (the spawn), each
+-- try measured. The facing matters: the Watcher only changes its speed while its Target looks at it
+-- (EyeMonster_AI_C.cpp:2187-2207, dot >= 0.95), so a host Target looking away left it standing (first host-near run,
+-- d5-grab-modded-20261117-183343: no grab in 120 s).
 local HOST_NEAR = 200
 local NEAR_OFFSETS = { { 0, 150, 0 }, { 0, -150, 0 }, { -150, 0, 0 }, { 0, 120, 30 }, { 0, -120, 30 }, { -120, 0, 30 },
                        { 100, 100, 30 }, { 100, -100, 30 } } -- { forward, right, up } in B's frame, cm
+-- The host's actor and control rotation set to B's yaw (pitch 0).
+local function faceLikeB(m, b)
+    local okR, r = pcall(function() return b:K2_GetActorRotation() end)
+    if not okR or not r then say("FACE host: no B rotation") return end
+    local yaw = num(r.Yaw) or 0
+    local rot = { Pitch = 0, Yaw = yaw, Roll = 0 }
+    local okA = pcall(function() m:K2_SetActorRotation(rot, false) end)
+    local okC = pcall(function() pc():SetControlRotation(rot) end)
+    say("FACE host yaw=%.0f actor=%s control=%s", yaw, tostring(okA), tostring(okC))
+end
 local function moveHostNear(b, why)
     local m = me()
     if not m then check(false, "MOVE host near: no host character") return end
     local d = distance(m, b)
-    if d and d <= HOST_NEAR then say("MOVE host %.0f cm from B (near, %s, already)", d, why) return end
+    if d and d <= HOST_NEAR then say("MOVE host %.0f cm from B (near, %s, already)", d, why) faceLikeB(m, b) return end
     local okL, loc = pcall(function() return b:K2_GetActorLocation() end)
     local okF, fwd = pcall(function() return b:GetActorForwardVector() end)
     local okG, rgt = pcall(function() return b:GetActorRightVector() end)
-    local okR, rot = pcall(function() return m:K2_GetActorRotation() end)
+    local okR, rot = pcall(function() return b:K2_GetActorRotation() end)
     if okL and okF and okG and okR then
         for i, o in ipairs(NEAR_OFFSETS) do
             local at = { X = loc.X + fwd.X * o[1] + rgt.X * o[2], Y = loc.Y + fwd.Y * o[1] + rgt.Y * o[2], Z = loc.Z + o[3] }
             local okT, r = pcall(function() return m:K2_TeleportTo(at, rot) end)
             d = distance(m, b)
-            if d and d <= HOST_NEAR then say("MOVE host %.0f cm from B (near, %s, try %d)", d, why, i) return end
+            if d and d <= HOST_NEAR then say("MOVE host %.0f cm from B (near, %s, try %d)", d, why, i) faceLikeB(m, b) return end
             say("MOVE near try %d teleport ok=%s returned=%s: %s cm from B", i, tostring(okT), tostring(r), d and string.format("%.0f", d) or "?")
         end
     end
     check(false, "MOVE host near: no teleport reached %d cm of B (%s cm)", HOST_NEAR, d and string.format("%.0f", d) or "?")
+end
+-- watcher-near: what the Watcher does (its chase Target and AttackedPlayer, distances, speed), every 5 s of the case.
+local function watchState(path, b)
+    local w = path and StaticFindObject(path)
+    if not valid(w) then say("WATCH watcher gone") return end
+    local t, ap, sp
+    pcall(function() t = w.Target end)
+    pcall(function() ap = w.AttackedPlayer end)
+    pcall(function() sp = num(w.CharacterMovement.MaxWalkSpeed) end)
+    local m = me()
+    local dB, dH = b and distance(w, b), m and distance(w, m)
+    say("WATCH target=%s attacked=%s toB=%s toHost=%s hostToB=%s speed=%s", whoP(t), whoP(ap),
+        dB and string.format("%.0f", dB) or "?", dH and string.format("%.0f", dH) or "?",
+        (m and b and distance(m, b)) and string.format("%.0f", distance(m, b)) or "?", sp and string.format("%.0f", sp) or "?")
 end
 
 -- revive(tag, whom): whom "B" (other(), B's controller, the dead path S.bPath) or "host" (me(), the local controller,
@@ -787,6 +816,8 @@ local function buildHostSpawn()
                 -- window (10 s after any grab on either player).
                 if near and os.clock() - (c.nearAt or 0) >= 5 then
                     c.nearAt = os.clock()
+                    watchState(c.actor, tg)
+
                     local m2 = me()
                     if m2 and not dead(m2) and os.clock() - (S.anyGrabAt or -100) >= 10 then
                         local d2 = distance(m2, tg)

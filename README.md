@@ -61,6 +61,13 @@ runtime refuse core 0.3.0.
   `HasPerk(0x27)` on its `Target` (story 11). After a Watcher's GRAB line comes one `WATCHER target=<local|client|none>
   attacked=<local|client|none>` line, read from that Watcher at the decision (its own line, so the GRAB line keeps the
   format the pair checks match).
+- **The Watcher's victim** (story 11). The Watcher calls `HasPerk(0x27)` on its chase `Target`, but the game decides
+  its grab from `AttackedPlayer`'s Health (`AttackMulti` sets `AttackedPlayer` to the grabbed player first). So before
+  deciding, the HasPerk self v is resolved to the real victim: v when another grab-class AI's locked victim is v;
+  else the `AttackedPlayer` of a live Watcher whose `Target` is v, when that is another live player within 10 m of
+  the Watcher (and that Watcher is the attacker, `enemy=watcher`); else v. Everything after that (spare, flip, GRAB
+  line, recovery note) is for the resolved victim. A client flips only when the resolved victim is its own player:
+  when its player is only the Watcher's `Target`, it writes and logs nothing.
 - Everything waits for the match to start (`UpdateFriendlyFire` in this world), acts only on the host, and does
   nothing at all for a knob that is Default. Two exceptions (story 5): a modded client's grab on its own player, from
   the host's values, and the soft-lock recovery, on every machine with the mod for its own player, Default knobs too.
@@ -452,7 +459,8 @@ Watcher case instead keeps the host within 2 m of B, just in front of B and faci
 (near, ...)`, `FACE host ...`), re-placed outside grab windows, and logs the Watcher's `Target`, `AttackedPlayer`,
 distances and speed every 5 s (`WATCH ...`): two players in the Watcher's reach (user, 2026-11-17: the mod must not
 need players apart). In three runs on 2026-11-17 (Tower Island) the Watcher grabbed B, its `Target`, every time
-(`target=other attacked=other`), even with the host 88 cm from it and B 216 cm.
+(`target=other attacked=other`), even with the host 88 cm from it and B 216 cm. The victim resolution above was merged
+anyway (user, 2026-11-17): the 2026-11-15 mismatch was real, and it changes nothing when `Target == AttackedPlayer`.
 
 - `d5-grab-modded`: both machines modded. FAILs unless both logs show `decision=s` for B per enemy at full Health,
   B's driver sees the survivable montage and B is alive and moving 6 s later. `RECOVER` lines are reported.

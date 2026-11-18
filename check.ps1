@@ -101,7 +101,7 @@ param(
     [string] $FirstLog, # signal only: launch 1's log (-Log is launch 2's)
     [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit', 'scaled', 'flip', 'per-enemy', 'default', 'clash',
                  'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen',
-                 'spread', 'spread-grab', 'signal')]
+                 'spread', 'spread-grab', 'signal', 'boss', 'boss-default')]
     [string] $Scenario = 'ready',
     [ValidateSet('host', 'vm')] [string] $Target = 'host'
 )
@@ -131,7 +131,7 @@ $lines1 = if ($Scenario -eq 'signal') { @(Get-Content $FirstLog) } else { @() }
 Write-Host "--- $name lines ($Scenario) ---"
 @($lines1) + @($lines) | Where-Object {
     ($_ -match "\[$C\]" -and $_ -notmatch "\[$C\] (DEBUG )?hud ") -or
-    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM|DRIVE|BASELINE|STALE|CLEANUP|SIDECAR|NAME|SETHP|SPREAD|SPREADMODE|SPREADRUN|DEVLUA|SIGHOST|SIGSESSION|SIGCREATE|SIGBACK|SIGCLEAN|SIGDRAG|MENU|INFECTCLEAR) ") -or
+    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM|DRIVE|BASELINE|STALE|CLEANUP|SIDECAR|NAME|SETHP|SPREAD|SPREADMODE|SPREADRUN|DEVLUA|SIGHOST|SIGSESSION|SIGCREATE|SIGBACK|SIGCLEAN|SIGDRAG|MENU|INFECTCLEAR|BOSS\w*|TEMP) ") -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -198,6 +198,11 @@ foreach ($s4Key in $story4.Keys) { $story3[$s4Key] = $story4[$s4Key] }
 # Story 8: the spread scenarios (the rolled values and the grabs are judged below).
 $story3['spread'] = @("\[$C\] MATCH start knobs=spread=20\s*$", "!\[$C\] HIT enemy=meek .* kind=execution\s*$")
 $story3['spread-grab'] = @("\[$C\] MATCH start knobs=enemyDamage=25 spread=50\s*$", "!\[$C\] GRAB enemy=meek .* decision=e ", "!\[$C\] HIT enemy=meek .* kind=execution\s*$")
+# Story 13: the bosses' finisher grabs (amounts are findings, not fixed). A boss the driver couldn't make grab
+# (NOTSHOWN <boss>) drops only its own HIT line below; boss-default's expected death is judged below too.
+$bossHit = @{ 'Slug Queen' = "\[$C\] HIT enemy=slugQueen via=CommitLethalDamage "; 'Apex' = "\[$C\] HIT enemy=apex via=CommitLethalDamage " }
+$story3['boss'] = @("\[$C\] MATCH start knobs=enemyDamage=25\s*$") + @($bossHit.Values)
+$story3['boss-default'] = @("\[$C\] MATCH start knobs=all Default\s*$", "!\[$C\] HIT ")
 # signal: the six values the screen gets, in Difficulty's knob order (knobs.lua).
 $K8 = @(@('enemyDamage', '25'), @('spread', '20'), @('revives', '8'), @('cold', '0'), @('frostbite', '0'), @('dmg.stalker', '200'))
 $K8Text = ($K8 | ForEach-Object { "$($_[0])=$($_[1])" }) -join ' '
@@ -225,8 +230,11 @@ foreach ($nc in 'no-core', 'old-core') {
 # RESTORE and WARN expectations are skipped and the run ends as not shown (exit 2), never as failed or passed.
 $driverNotShown = ($Scenario -in $story3.Keys) -and @($lines | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
     @($lines | Where-Object { $_ -match "\[$D\] FAIL " }).Count -eq 0
+# Story 13: a boss the driver made grab keeps its HIT line even when the other boss was not shown.
+function Test-BossNotShown([string] $boss) { @($lines | Where-Object { $_ -match "\[$D\] NOTSHOWN $([regex]::Escape($boss)): " }).Count -gt 0 }
 foreach ($s3 in $story3.Keys) {
     $own = if ($driverNotShown) { @($story3[$s3] | Where-Object { $_ -match 'MATCH start' }) } else { $story3[$s3] }
+    if ($s3 -eq 'boss' -and $driverNotShown) { $own = @($own) + @($bossHit.Keys | Where-Object { -not (Test-BossNotShown $_) } | ForEach-Object { $bossHit[$_] }) }
     $expect[$s3] = $running + @($menuWorld, $hostWorld) + $driverOk + $own
 }
 # Story 6: menu only (no match, so no WHITEOUT line and no MATCH start); the counted lines are judged below.
@@ -502,6 +510,34 @@ if ($Scenario -eq 'spread-grab' -and -not $driverNotShown) {
     $ok = @($lines | Where-Object { $_ -match "\[$D\] OK spread-grab Meek #\d+ hit took " }).Count
     if ($ok -ge 20) { Pass "spread-grab: the driver saw Health >= 1 after $ok grabs" } else { Fail "spread-grab: the driver's OK line for 20 grabs, found $ok" }
 }
+# Story 13: per boss the driver made grab, CommitLethalDamage's pre and post lines and the player's state at 0 (with the
+# return and the presentation), 6 and 12 s; a boss it couldn't make grab needs its BOSSTRY attempts. boss-default: the
+# stock kill (BOSSDEATH) unless no boss grabbed; the control's Apex after that death is not a not-shown case.
+$bossControlSkip = "\[$D\] NOTSHOWN Apex: the control player is dead\s*$"
+if ($Scenario -in 'boss', 'boss-default') {
+    $bossClass = [ordered]@{ 'Slug Queen' = 'SlugQueen_AI_C'; 'Apex' = 'ApexPredatorAI_C' }
+    $grabbed = 0
+    foreach ($b in $bossClass.Keys) {
+        $bRx = [regex]::Escape($b)
+        if (Test-BossNotShown $b) {
+            if (@($lines | Where-Object { $_ -match $bossControlSkip }).Count -and $b -eq 'Apex' -and $Scenario -eq 'boss-default') { Pass "${b}: not run (the control player died to the stock grab)"; continue }
+            $tries = @($lines | Where-Object { $_ -match "\[$D\] BOSSTRY $bRx route=\S+" }).Count
+            if ($tries -ge 1) { Pass "${b}: not shown, $tries BOSSTRY attempt(s) logged" } else { Fail "${b}: not shown without any BOSSTRY attempt logged" }
+            continue
+        }
+        $grabbed++
+        $cls = $bossClass[$b]
+        Test-Patterns @(
+            "\[$D\] BOSSCLD pre boss=$cls victim=local hp=\S+\s*$"
+            "\[$D\] BOSSCLD post boss=$cls hp=\S+ ret=(true|false|\?)\s*$"
+            "#1|\[$D\] BOSSSTATE $bRx t=0 alive=(true|false) hp=\S+ playing=\S+ movement=\S+ montage=\S+ ret=(true|false|\?) presentation=(yes|no)\s*$"
+            "#1|\[$D\] BOSSSTATE $bRx t=6 alive=(true|false) "
+            "#1|\[$D\] BOSSSTATE $bRx t=12 alive=(true|false) "
+        ) $lines
+    }
+    if ($Scenario -eq 'boss-default' -and $grabbed) { Test-Patterns @("\[$D\] BOSSDEATH .+ expected \(stock\)\s*$") $lines }
+}
+
 if ($Scenario -eq 'signal' -and -not $launch2Missing -and -not $signalNotShown) {
     # MATCH start: exactly the six values from the screen (a difference names the knob; a knob not set there too).
     $m = @($lines | Where-Object { $_ -match "\[$C\] MATCH start knobs=(.*?)\s*$" } | ForEach-Object { $null = $_ -match "\[$C\] MATCH start knobs=(.*?)\s*$"; $Matches[1] })
@@ -524,7 +560,8 @@ if ($Scenario -eq 'signal' -and -not $launch2Missing -and -not $signalNotShown) 
 }
 
 if ($failed) { Write-Host "$failed check(s) failed."; exit 1 }
-$notShown = @(@($lines1) + @($lines) | Where-Object { $_ -match "\[$([regex]::Escape("${name}Driver"))\] (NOTSHOWN |END result=NOTSHOWN)" })
+$notShown = @(@($lines1) + @($lines) | Where-Object { $_ -match "\[$([regex]::Escape("${name}Driver"))\] (NOTSHOWN |END result=NOTSHOWN)" } |
+    Where-Object { -not ($Scenario -eq 'boss-default' -and $_ -match $bossControlSkip) })
 if ($coldNotShown) { $notShown += "NOTSHOWN $coldNotShown" }
 if ($notShown.Count) {
     $notShown | ForEach-Object { Write-Host "not shown: $($_ -replace '^.*?NOTSHOWN ', '')" }

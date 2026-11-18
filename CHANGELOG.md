@@ -28,6 +28,9 @@ Not released yet. Earlier work is described in `README.md`.
   and `no-core` / `old-core` through `run.ps1 -Target vm` (`old-core` from an older core package already on disk, exit 3
   when there is none). Pair scenario `d8-tokens` (Reinforcement Tokens across machines: Difficulty, not the driver,
   closes an unmodded client's computer after N). README: "The user's check", the success signal as steps.
+- Story 13 (tests only, no change to the mod): new `run.ps1` scenarios `boss` (the Slug Queen's and the Apex
+  Predator's finisher grabs at Enemy Damage 25: `CommitLethalDamage`'s Health in and out, the presentation and the
+  player's state 0, 6 and 12 s after it) and `boss-default` (the stock control: the grab kills, an expected death).
 
 ### Changed
 

@@ -1511,10 +1511,12 @@ end
 
 -- ---------------------------------------------------------------- story 11: the Watcher's grab, the attacker named
 local WATCHER_ATTACK = "/Game/AI/EyeMonster_AI.EyeMonster_AI_C:AttackMulti"
--- A Watcher in W.all (near both players unless loc is given).
+-- A Watcher in W.all (near both players unless loc is given). The setup's Meek is moved 50 m away, so the Watcher is
+-- the nearest grab-class AI (a client's unnamed attacker, story 11's guard); a case that wants it near moves it back.
 local function addWatcher(loc)
     T.watcher = actor("EyeMonster_AI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.EyeMonster_AI_C_1", { loc = loc or { X = 150, Y = 0, Z = 0 } })
     W.all.EyeMonster_AI_C = { T.watcher }
+    T.meek._loc = { X = 5000, Y = 0, Z = 0 }
     return T.watcher
 end
 -- A Watcher grab as EyeMonster_AI_C:AttackMulti runs it: AttackedPlayer = the grabbed character, HasPerk(0x27) on the
@@ -1717,6 +1719,242 @@ do -- unticked = identical: the same grabs and hits with and without other enemi
     eq(b, a, "unticked = identical lines")
     eq(hpB, hpA, "unticked = identical Health")
     ok(not a:find("kill=", 1, true), "unticked: no kill= anywhere")
+end
+
+-- ---------------------------------------------------------------- story 11: the Watcher's victim (I/O matrix)
+do -- host: B is the Watcher's Target, the host is attacked: the host is flipped and restored, B untouched
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    net.compat[T.ps[2]] = true
+    addWatcher()
+    eq(watcherGrab(T.other, T.me), "s", "host attacked, B Target: the game's test on the host picks survivable")
+    eq(T.me._hp, 100, "host attacked, B Target: the host restored in the multicast hook")
+    eq(T.me.writes, 2, "host attacked, B Target: the host flipped (101) and restored")
+    eq(T.other.writes, 0, "host attacked, B Target: B untouched")
+    eq(count("^GRAB enemy=watcher hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "host attacked, B Target: GRAB line", dump())
+    eq(count("^GRAB "), 1, "host attacked, B Target: one GRAB")
+    eq(count("^WATCHER target=client attacked=local$"), 1, "host attacked, B Target: WATCHER line", dump())
+    eq(count("^RESTORE enemy=watcher hp=101 %-> 100 via=multicast$"), 1, "host attacked, B Target: restored via the multicast", dump())
+    eq(#net.compatCalls, 0, "host attacked, B Target: no presence asked for B")
+end
+do -- host: the host is the Target, B (compatible) is attacked: B flipped, the host untouched
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    net.compat[T.ps[2]] = true
+    addWatcher()
+    eq(watcherGrab(T.me, T.other), "s", "B attacked, host Target: survivable for B")
+    eq(T.other._hp, 100, "B attacked, host Target: B restored in the multicast hook")
+    eq(T.other.writes, 2, "B attacked, host Target: B flipped and restored")
+    eq(T.me.writes, 0, "B attacked, host Target: the host untouched")
+    eq(count("^GRAB enemy=watcher hp=100 E=25 game=e decision=s flip=101 victim=client spare=yes$"), 1, "B attacked, host Target: GRAB line", dump())
+    eq(count("^WATCHER target=local attacked=client$"), 1, "B attacked, host Target: WATCHER line", dump())
+    eq(runDelayed(hits.RECOVER_DELAY), 0, "B attacked, host Target: no recovery on the host for B's grab")
+end
+do -- host: B absent (unmodded) is attacked: spare=no(absent), no write anywhere
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    addWatcher()
+    eq(watcherGrab(T.me, T.other), "e", "B absent attacked: the game's execution")
+    eq(T.other.writes + T.me.writes, 0, "B absent attacked: no write")
+    eq(count("^GRAB enemy=watcher hp=100 E=25 game=e decision=e flip=none victim=client spare=no%(absent%)$"), 1, "B absent attacked: spare=no(absent)", dump())
+end
+do -- client: the local player is only the Target, the host is attacked: nothing written, logged or noted
+    local net = clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    addWatcher()
+    eq(watcherGrab(T.me, T.other, { noLock = true }), "e", "client Target only: the host's own grab")
+    eq(T.me.writes + T.other.writes, 0, "client Target only: no write")
+    eq(count("^GRAB "), 0, "client Target only: no GRAB", dump())
+    eq(count("^WATCHER "), 0, "client Target only: no WATCHER line")
+    eq(T.H.recover.seq, 0, "client Target only: no recovery note")
+    eq(runDelayed(hits.RECOVER_DELAY), 0, "client Target only: no recovery check")
+    eq(net.reads, 0, "client Target only: the host's values not even read")
+end
+do -- client: the host is the Target, the local player is attacked: flipped from the host's values
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    addWatcher()
+    eq(watcherGrab(T.other, T.me, { noLock = true }), "s", "client attacked: survivable")
+    eq(T.me._hp, 100, "client attacked: restored in the multicast hook")
+    eq(T.me.writes, 2, "client attacked: flipped and restored")
+    eq(T.other.writes, 0, "client attacked: the remote host never written")
+    eq(count("^GRAB enemy=watcher hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "client attacked: GRAB line", dump())
+    eq(count("^WATCHER target=client attacked=local$"), 1, "client attacked: WATCHER line", dump())
+    eq(T.H.recover.seq, 1, "client attacked: the grab noted for the recovery")
+    -- next tick fallback when the multicast hook doesn't come
+    T.now = T.now + 30
+    watcherGrab(T.other, T.me, { noLock = true, noMulticast = true })
+    eq(T.me._hp, 101, "client attacked fallback: temporary value")
+    runDelayed(hits.RESTORE_DELAY)
+    eq(T.me._hp, 100, "client attacked fallback: restored next tick")
+end
+do -- client attacked with no usable host values: the inactive line, as today
+    clientSetup({})
+    addWatcher()
+    eq(watcherGrab(T.other, T.me, { noLock = true }), "e", "client attacked, no host values: the game's decision")
+    eq(T.me.writes, 0, "client attacked, no host values: no write")
+    eq(count("^host has no Difficulty, inactive %(absent%)$"), 1, "client attacked, no host values: one inactive line", dump())
+    eq(count("^GRAB "), 0, "client attacked, no host values: no GRAB")
+end
+do -- another AI's grab on v: a Meek has v locked, the Watcher's stale AttackedPlayer is the other player: decided for v
+    setup{ knobs = "enemyDamage=25", diff = 0, net = F.net() }
+    addWatcher()
+    rawset(T.watcher, "Target", T.me)
+    rawset(T.watcher, "AttackedPlayer", T.other)
+    T.locked[T.meek._path] = T.me
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    eq(T.me._hp, 101, "Meek's grab on v: v flipped")
+    eq(T.other.writes, 0, "Meek's grab on v: the stale AttackedPlayer untouched")
+    W.fire(MEEK_ATTACK, W.p(T.meek), W.p(0), W.p(T.me))
+    eq(T.me._hp, 100, "Meek's grab on v: restored")
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "Meek's grab on v: GRAB line", dump())
+end
+do -- the Watcher's AttackedPlayer more than 10 m from it: decided for v
+    setup{ knobs = "enemyDamage=25", diff = 0, net = F.net() }
+    addWatcher()
+    T.other._loc = { X = 5000, Y = 0, Z = 0 }
+    rawset(T.watcher, "Target", T.me)
+    rawset(T.watcher, "AttackedPlayer", T.other)
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    eq(T.me._hp, 101, "Watcher far: v flipped")
+    eq(T.other.writes, 0, "Watcher far: the far AttackedPlayer untouched")
+    eq(count("^GRAB enemy=watcher hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "Watcher far: decided for v", dump())
+    eq(count("^WATCHER target=local attacked=client$"), 1, "Watcher far: WATCHER line", dump())
+end
+do -- a dead or non-player AttackedPlayer: decided for v
+    setup{ knobs = "enemyDamage=25", diff = 0, net = F.net() }
+    addWatcher()
+    rawset(T.other, "_garbage", true)
+    rawset(T.watcher, "Target", T.me)
+    rawset(T.watcher, "AttackedPlayer", T.other)
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    eq(T.me._hp, 101, "AttackedPlayer not live: decided for v")
+    setup{ knobs = "enemyDamage=25", diff = 0, net = F.net() }
+    addWatcher()
+    rawset(T.watcher, "Target", T.me)
+    rawset(T.watcher, "AttackedPlayer", T.meek)
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    eq(T.me._hp, 101, "AttackedPlayer not a player: decided for v")
+end
+do -- solo / the same player (Target == AttackedPlayer) on a client: unchanged
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    addWatcher()
+    eq(watcherGrab(T.me, T.me, { noLock = true }), "s", "client same player: survivable")
+    eq(count("^GRAB enemy=watcher hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "client same player: GRAB line", dump())
+end
+do -- a raising AttackedPlayer read: v stays the victim, no fault escapes
+    setup{ knobs = "enemyDamage=25", diff = 0, net = F.net() }
+    addWatcher()
+    setmetatable(T.watcher, { __index = function(a, k)
+        if k == "AttackedPlayer" or k == "Target" then error("read failed") end
+        return Actor.__index(a, k)
+    end, __newindex = Actor.__newindex })
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    eq(T.me._hp, 101, "raising Watcher reads: decided for v")
+    eq(count("^ERROR "), 0, "raising Watcher reads: no ERROR", dump())
+end
+
+-- ---------------------------------------------------------------- story 11 guard (user, 2026-11-18): only the Watcher's own grab
+-- A second Watcher in W.all (after T.watcher), at loc.
+local function addWatcher2(loc)
+    T.watcher2 = actor("EyeMonster_AI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.EyeMonster_AI_C_2", { loc = loc })
+    W.all.EyeMonster_AI_C = { T.watcher, T.watcher2 }
+    return T.watcher2
+end
+do -- host: the Stalker grabs v next to a Watcher with a stale AttackedPlayer (no locked victim): v keeps its grab
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    net.compat[T.ps[2]] = true
+    addWatcher()
+    rawset(T.watcher, "Target", T.me)
+    rawset(T.watcher, "AttackedPlayer", T.other)
+    T.presenting = T.stalker
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    eq(T.me._hp, 101, "host Stalker + stale Watcher: v flipped")
+    eq(T.other.writes, 0, "host Stalker + stale Watcher: the stale AttackedPlayer untouched")
+    W.fire(FPC .. ":PlayDamageEvent", W.p(T.me), W.p(T.stalker), W.p(false))
+    eq(T.me._hp, 100, "host Stalker + stale Watcher: restored in PlayDamageEvent")
+    eq(count("^GRAB enemy=stalker hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "host Stalker + stale Watcher: the Stalker's GRAB for v", dump())
+    eq(count("^GRAB "), 1, "host Stalker + stale Watcher: one GRAB")
+end
+do -- host: a stale Watcher alone (Target v, AttackedPlayer the other player, no locked victim): unnamed on the host, v
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    net.compat[T.ps[2]] = true
+    addWatcher()
+    W.all.Stalker_AI_C = {}
+    watcherGrab(T.me, T.other, { noLock = true, noMulticast = true })
+    eq(T.me._hp, 101, "host unnamed Watcher: v flipped")
+    eq(T.other.writes, 0, "host unnamed Watcher: no redirect on the host without the Watcher's own lock")
+    eq(count("victim=client"), 0, "host unnamed Watcher: no client GRAB", dump())
+end
+do -- host: a Watcher whose own lock names a dead AttackedPlayer (Health 0): not a live player, v
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    net.compat[T.ps[2]] = true
+    addWatcher()
+    T.other._hp = 0
+    watcherGrab(T.me, T.other, { noMulticast = true })
+    eq(T.me._hp, 101, "host dead AttackedPlayer: decided for v")
+    eq(T.other.writes, 0, "host dead AttackedPlayer: the dead body untouched")
+end
+do -- host: two Watchers on v, the first stale, the second's own lock names its AttackedPlayer: that one is the attacker
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    net.compat[T.ps[2]] = true
+    addWatcher()
+    addWatcher2({ X = 100, Y = 0, Z = 0 })
+    rawset(T.watcher, "Target", T.me)
+    rawset(T.watcher, "AttackedPlayer", T.me)
+    rawset(T.watcher2, "Target", T.me)
+    rawset(T.watcher2, "AttackedPlayer", T.other)
+    T.locked[T.watcher2._path] = T.other
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    eq(T.other._hp, 101, "host two Watchers: the named Watcher's AttackedPlayer flipped")
+    eq(T.me.writes, 0, "host two Watchers: v untouched")
+    W.fire(WATCHER_ATTACK, W.p(T.watcher2), W.p(0), W.p(T.other))
+    eq(T.other._hp, 100, "host two Watchers: restored in the multicast hook")
+    eq(count("^GRAB enemy=watcher hp=100 E=25 game=e decision=s flip=101 victim=client spare=yes$"), 1, "host two Watchers: GRAB line", dump())
+end
+do -- client: a lock-less Meek grabs the local player, nearer than a Watcher with a stale AttackedPlayer: not redirected
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    addWatcher()
+    T.meek._loc = { X = 50, Y = 0, Z = 0 }
+    rawset(T.watcher, "Target", T.me)
+    rawset(T.watcher, "AttackedPlayer", T.other)
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    eq(T.me._hp, 101, "client Meek + stale Watcher: the local player flipped")
+    eq(T.other.writes, 0, "client Meek + stale Watcher: the remote host never written")
+    W.fire(MEEK_ATTACK, W.p(T.meek), W.p(0), W.p(T.me))
+    eq(T.me._hp, 100, "client Meek + stale Watcher: restored in the multicast hook")
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "client Meek + stale Watcher: the Meek's GRAB", dump())
+    eq(T.H.recover.seq, 1, "client Meek + stale Watcher: the grab noted for the recovery")
+end
+do -- client: two Watchers, the stale one farther, the nearer one grabbing the local player (Target == AttackedPlayer)
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    addWatcher({ X = 600, Y = 0, Z = 0 })
+    addWatcher2({ X = 100, Y = 0, Z = 0 })
+    rawset(T.watcher, "Target", T.me)
+    rawset(T.watcher, "AttackedPlayer", T.other)
+    rawset(T.watcher2, "Target", T.me)
+    rawset(T.watcher2, "AttackedPlayer", T.me)
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    eq(T.me._hp, 101, "client two Watchers: the nearest Watcher's grab on the local player decided")
+    eq(T.other.writes, 0, "client two Watchers: the stale one's AttackedPlayer untouched")
+    eq(count("^GRAB enemy=watcher hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "client two Watchers: GRAB line", dump())
+end
+do -- client: the Watcher's own lock names its AttackedPlayer (replicated lock): redirected, both orientations
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    addWatcher()
+    T.meek._loc = { X = 0, Y = 0, Z = 0 } -- even with a Meek nearer: the Watcher named by its lock
+    eq(watcherGrab(T.other, T.me), "s", "client named, attacked: survivable")
+    eq(T.me.writes, 2, "client named, attacked: flipped and restored")
+    eq(count("^GRAB enemy=watcher hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "client named, attacked: GRAB line", dump())
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
+    addWatcher()
+    T.meek._loc = { X = 0, Y = 0, Z = 0 }
+    eq(watcherGrab(T.me, T.other), "e", "client named, Target only: the host's grab")
+    eq(T.me.writes + T.other.writes, 0, "client named, Target only: no write")
+    eq(count("^GRAB "), 0, "client named, Target only: no GRAB", dump())
+    eq(T.H.recover.seq, 0, "client named, Target only: no recovery note")
 end
 
 -- ---------------------------------------------------------------- the source: rules from AGENTS.md

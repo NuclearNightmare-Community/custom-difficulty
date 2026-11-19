@@ -34,6 +34,8 @@ local ROWS = {
     { "enemyDamage", "Enemy Damage", 0, 200, 1, "all" },
     { "spread", "Damage Spread", 0, 50, 1, "host" },
     { "revives", "Reinforcement Tokens", 0, 20, 1, "host" },
+    { "classifiedTokens", "Tokens per Classified", 0, 4, 1, "host" },
+    { "classifiedTokensMax", "Max Classified Tokens", 0, 40, 1, "host" },
     { "cold", "Cold Exposure", 0, 400, 1, "host" },
     { "frostbite", "Frostbite Damage", 0, 20, 0.5, "host" },
     { "dmg.meek", "Damage: Meek", 0, 500, 5, "all" },
@@ -53,8 +55,8 @@ local ROWS = {
 }
 local S = m.settings
 ok(type(S) == "table" and S.__keys, "settings is an object")
-eq(#S.__keys, 19, "19 settings")
-eq(#ROWS, 19, "(the expected table has 19 rows)")
+eq(#S.__keys, 21, "21 settings")
+eq(#ROWS, 21, "(the expected table has 21 rows)")
 local ALLOWED = { type = 1, min = 1, max = 1, step = 1, default = 1, label = 1, scope = 1, changeable = 1, source = 1, __keys = 1 }
 for i, r in ipairs(ROWS) do
     local key, label, min, max, step, scope = r[1], r[2], r[3], r[4], r[5], r[6]
@@ -68,7 +70,7 @@ for i, r in ipairs(ROWS) do
         eq(s.step, step, key .. ": step")
         ok(s.min < s.max, key .. ": min < max")
         ok(s.step > 0 and ((s.max - s.min) / s.step) % 1 == 0, key .. ": the range is a whole number of steps")
-        eq(s.default, J.null, key .. ": default null (Default = follow Difficulty)")
+        eq(s.default, J.null, key .. ": default null (Default: the row's own default)")
         eq(s.label, label, key .. ": label")
         eq(s.scope, scope, key .. ": scope")
         eq(s.changeable, "menu", key .. ": changeable menu")

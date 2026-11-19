@@ -40,10 +40,17 @@
                     "TOKENS disabled at used=4"; the driver saw the text 4, four accepted reinforcements, then Disable.
     tokens-fewer    Classified Minium 3 (limit 8), N 2: TOKENS start limit=8 N=2 count=6, one "disabled at used=2";
                     the driver saw Disable after two and the text 0.
+    Neither has a TOKENS bonus or TOKENS classified line (Tokens per Classified Default: story 9's lines unchanged).
     Both tokens scenarios also need the native terminal to open (TERMINAL open active=true): a terminal that
     doesn't open fails here, though the driver ends NOTSHOWN. A reinforcement through it needs a queued player, so
     solo falls back (synthetic, then spectator) and dp-revive proves that route. The terminal refusing past the
     stock limit is a driver FAIL (the story is blocked).
+  Story 12 (difficulty v1, the same way):
+    tokens-classified  Classified Minium 3 (limit 8), N 2, Tokens per Classified 2, Max Classified Tokens 3: TOKENS start
+                    limit=8 N=2 count=6 and "TOKENS classified k=2 cap=3"; "disabled at used=2 N=2"; exactly two TOKENS bonus
+                    lines: +2 (count=6 left=2) and +1 (count=5 left=3, "capped at 3"), each via UpdateClassifieds or poll
+                    (which one is printed); "TOKENS reopened at used=2 N=4"; "disabled at used=5 N=5"; the driver's two
+                    CLASSIFIED done lines (via intel or UpdateClassifieds, printed) and its PASS (text 2, then 3, then 0).
   Story 9 (V8.2): every driver scenario needs exactly one WHITEOUT disabled=true, except the opt-in one:
     cold-whiteout   Nightmare, Cold Exposure 50, White Outs on: WHITEOUT disabled=false, the last COLD summary's applied
                     is 0.25 x raw (+-10%), and the driver saw a rise above a quarter of Nightmare's stock range during
@@ -58,7 +65,7 @@
   Story 7 (run.ps1 -Scenario screen -Target vm, the main menu only, real input):
     screen          everything 'ready' needs, the driver's END result=PASS with no driver FAIL line, its SCTEN line (ten
                     opens, the rows in order) and SCPICKTEN (the Difficulty picker changed by real clicks on every open);
-                    exactly one "ROWS declared 19"; Enemy Damage's "ROWS change" lines in the order dragged value (the
+                    exactly one "ROWS declared 21" and SCNEWROWS (story 12's rows Default: hints 0 and "no cap"); Enemy Damage's "ROWS change" lines in the order dragged value (the
                     driver's SCDRAG), 57, 200, default, 17, 40, with the model text "rows=enemyDamage=57" after 57 (what a
                     capture would encode); "ROWS change cold=150"; "ROWS change frostbite=2.5" (2.3 typed, step 0.5) and
                     SCSTEP; a ROWS follow line for Nightmare (enemyDamage=100 cold=200) and one for Hard (50, 133); a
@@ -101,7 +108,7 @@ param(
     [string] $FirstLog, # signal only: launch 1's log (-Log is launch 2's)
     [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit', 'scaled', 'flip', 'per-enemy', 'default', 'clash',
                  'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen',
-                 'spread', 'spread-grab', 'signal', 'boss', 'boss-default')]
+                 'spread', 'spread-grab', 'signal', 'boss', 'boss-default', 'tokens-classified')]
     [string] $Scenario = 'ready',
     [ValidateSet('host', 'vm')] [string] $Target = 'host'
 )
@@ -131,7 +138,7 @@ $lines1 = if ($Scenario -eq 'signal') { @(Get-Content $FirstLog) } else { @() }
 Write-Host "--- $name lines ($Scenario) ---"
 @($lines1) + @($lines) | Where-Object {
     ($_ -match "\[$C\]" -and $_ -notmatch "\[$C\] (DEBUG )?hud ") -or
-    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM|DRIVE|BASELINE|STALE|CLEANUP|SIDECAR|NAME|SETHP|SPREAD|SPREADMODE|SPREADRUN|DEVLUA|SIGHOST|SIGSESSION|SIGCREATE|SIGBACK|SIGCLEAN|SIGDRAG|MENU|INFECTCLEAR|BOSS\w*|TEMP) ") -or
+    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM|DRIVE|BASELINE|STALE|CLEANUP|SIDECAR|NAME|SETHP|SPREAD|SPREADMODE|SPREADRUN|DEVLUA|SIGHOST|SIGSESSION|SIGCREATE|SIGBACK|SIGCLEAN|SIGDRAG|MENU|INFECTCLEAR|BOSS\w*|TEMP|CLASSIFIED) ") -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -188,10 +195,24 @@ $story4 = @{
     'tokens-more'    = @("\[$C\] MATCH start knobs=revives=4\s*$", "#1|\[$C\] TOKENS start limit=2 N=4 count=-2\s*$",
                          "\[$C\] TOKENS used=4 left=0 count=2 via=\S+\s*$", "#1|\[$C\] TOKENS disabled at used=4 N=4 via=\S+\s*$",
                          "!\[$C\] TOKENS disabled at used=(?!4 )", "!\[$C\] TOKENS minimum changed ", "!\[$C\] COLD ",
+                         "!\[$C\] TOKENS bonus ", "!\[$C\] TOKENS classified ", "!\[$C\] TOKENS reopened ",
                          "\[$D\] TERMINAL open active=true original=\S+\s*$")
     'tokens-fewer'   = @("\[$C\] MATCH start knobs=revives=2\s*$", "#1|\[$C\] TOKENS start limit=8 N=2 count=6\s*$",
                          "\[$C\] TOKENS used=2 left=0 count=8 via=\S+\s*$", "#1|\[$C\] TOKENS disabled at used=2 N=2 via=\S+\s*$",
                          "!\[$C\] TOKENS disabled at used=(?!2 )", "!\[$C\] TOKENS minimum changed ", "!\[$C\] COLD ",
+                         "!\[$C\] TOKENS bonus ", "!\[$C\] TOKENS classified ", "!\[$C\] TOKENS reopened ",
+                         "\[$D\] TERMINAL open active=true original=\S+\s*$")
+    # Story 12: two objectives after both tokens are used: +2 reopens, +1 is capped (cap 3), closed again at used 5.
+    'tokens-classified' = @("\[$C\] MATCH start knobs=revives=2 classifiedTokens=2 classifiedTokensMax=3\s*$",
+                         "#1|\[$C\] TOKENS start limit=8 N=2 count=6\s*$", "#1|\[$C\] TOKENS classified k=2 cap=3 baseline=\d+\s*$",
+                         "#1|\[$C\] TOKENS disabled at used=2 N=2 via=\S+\s*$",
+                         "#2|\[$C\] TOKENS bonus ",
+                         "#1|\[$C\] TOKENS bonus classified=\d+ \+2 count=6 left=2 via=(UpdateClassifieds|poll)\s*$",
+                         "#1|\[$C\] TOKENS reopened at used=2 N=4: Disable Reinforcement cleared via=(UpdateClassifieds|poll)\s*$",
+                         "#1|\[$C\] TOKENS bonus classified=\d+ \+1 count=5 left=3 via=(UpdateClassifieds|poll) capped at 3\s*$",
+                         "\[$C\] TOKENS used=5 left=0 count=8 via=\S+\s*$", "#1|\[$C\] TOKENS disabled at used=5 N=5 via=\S+\s*$",
+                         "!\[$C\] TOKENS disabled at used=(?!2 |5 )", "!\[$C\] TOKENS minimum changed ", "!\[$C\] COLD ",
+                         "#2|\[$D\] CLASSIFIED #\d done via=(intel|UpdateClassifieds) value \d+ -> \d+\s*$",
                          "\[$D\] TERMINAL open active=true original=\S+\s*$")
 }
 foreach ($s4Key in $story4.Keys) { $story3[$s4Key] = $story4[$s4Key] }
@@ -248,9 +269,10 @@ $expect['presets'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ 
 $screenNotShown = ($Scenario -eq 'screen') -and @($lines | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
     @($lines | Where-Object { $_ -match "\[$D\] FAIL " }).Count -eq 0
 $expect['screen'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ -notmatch 'WHITEOUT' }) + @(
-    "#1|\[$C\] ROWS declared 19\s*$"
+    "#1|\[$C\] ROWS declared 21\s*$"
     "!\[$C\] MATCH start "
     "\[$D\] OK SCTEN "
+    "\[$D\] OK SCNEWROWS "
     "\[$D\] OK SCPICKTEN "
 ) + $(if ($screenNotShown) { @() } else { @(
     "\[$C\] ROWS change frostbite=2\.5 rows=\S*frostbite=2\.5\S*\s*$"
@@ -510,6 +532,14 @@ if ($Scenario -eq 'spread-grab' -and -not $driverNotShown) {
     $ok = @($lines | Where-Object { $_ -match "\[$D\] OK spread-grab Meek #\d+ hit took " }).Count
     if ($ok -ge 20) { Pass "spread-grab: the driver saw Health >= 1 after $ok grabs" } else { Fail "spread-grab: the driver's OK line for 20 grabs, found $ok" }
 }
+# Story 12: which detection path awarded each bonus (the UpdateClassifieds callback or the poll) and how the driver
+# completed each objective (a real intel pickup or the game state's UpdateClassifieds): printed, not judged.
+if ($Scenario -eq 'tokens-classified') {
+    $bonusVia = @($lines | Where-Object { $_ -match "\[$C\] TOKENS bonus .* via=(\S+)" } | ForEach-Object { if ($_ -match ' via=(\S+)') { $Matches[1] } })
+    $doneVia = @($lines | Where-Object { $_ -match "\[$D\] CLASSIFIED #\d done via=(\S+)" } | ForEach-Object { if ($_ -match ' via=(\S+)') { $Matches[1] } })
+    Write-Host "info: TOKENS bonus via $(if ($bonusVia.Count) { $bonusVia -join ', ' } else { 'none' }); objectives completed via $(if ($doneVia.Count) { $doneVia -join ', ' } else { 'none' })"
+}
+
 # Story 13: per boss the driver made grab, CommitLethalDamage's pre and post lines and the player's state at 0 (with the
 # return and the presentation), 6 and 12 s; a boss it couldn't make grab needs its BOSSTRY attempts. boss-default: the
 # stock kill (BOSSDEATH) unless no boss grabbed; the control's Apex after that death is not a not-shown case.

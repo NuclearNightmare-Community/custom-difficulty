@@ -257,6 +257,38 @@ Expect ($fewer -replace 'limit=8 N=2 count=6', 'limit=8 N=2 count=0') 'tokens-fe
 Expect ($fewer + @(& $tok 'minimum changed limit=8 -> 6 used=1 count=5')) 'tokens-fewer' 1 'tokens-fewer: an unexpected minimum change -> fails' 'minimum'
 Expect (Without $fewer 'TERMINAL open') 'tokens-fewer' 1 'tokens-fewer: terminal never opened -> fails' 'TERMINAL open'
 Expect ($fewer -replace 'TERMINAL open active=true', 'TERMINAL open active=false') 'tokens-fewer' 1 'tokens-fewer: terminal not active -> fails' 'TERMINAL open'
+# Story 12: Tokens per Classified Default keeps story 9's lines; a bonus line in either scenario fails.
+Expect ($fewer + @(& $tok 'bonus classified=1 +2 count=6 left=2 via=poll')) 'tokens-fewer' 1 'tokens-fewer: a TOKENS bonus line -> fails' 'TOKENS bonus'
+Expect ($more + @(& $tok 'classified k=2 cap=none baseline=0')) 'tokens-more' 1 'tokens-more: a TOKENS classified line -> fails' 'TOKENS classified'
+
+# ---------------------------------------------------------------- story 12: tokens-classified
+$cls = Story3 'tokens-classified' 'revives=2 classifiedTokens=2 classifiedTokensMax=3' @((& $tok 'start limit=8 N=2 count=6'), (& $tok 'classified k=2 cap=3 baseline=0'),
+    (& $tok 'used=1 left=1 count=7 via=ReinforceSpecficPlayer'), (& $tok 'used=2 left=0 count=8 via=ReinforceSpecficPlayer'),
+    (& $tok 'disabled at used=2 N=2 via=ReinforceSpecficPlayer'),
+    (& $tok 'bonus classified=1 +2 count=6 left=2 via=UpdateClassifieds'), (& $tok 'reopened at used=2 N=4: Disable Reinforcement cleared via=UpdateClassifieds'),
+    (& $tok 'bonus classified=2 +1 count=5 left=3 via=poll capped at 3'),
+    (& $tok 'used=3 left=2 count=6 via=ReinforceSpecficPlayer'), (& $tok 'used=4 left=1 count=7 via=ReinforceSpecficPlayer'),
+    (& $tok 'used=5 left=0 count=8 via=SpawnReinforcmentSpectator'), (& $tok 'disabled at used=5 N=5 via=SpawnReinforcmentSpectator')) @(
+    (DR 'TERMINAL open active=true original=NukeComputer_UI_C'), (DR 'REVIVE #1 via=synthetic count 6 -> 7'), (DR 'REVIVE #2 via=synthetic count 7 -> 8'),
+    (DR 'CLASSIFIED #1 intel BP_CM_V1_C /Game/Maps/SmallLoweIsland/SmallMap.SmallMap:PersistentLevel.BP_CM_V1_C_1 PrimaryInteraction ok=true '),
+    (DR 'CLASSIFIED #1 done via=intel value 0 -> 1'), (DR 'TEXT after classified objective #1 Reinforcement Tokens 2'),
+    (DR 'CLASSIFIED #2 no unused intel pickup on this map; the game state''s UpdateClassifieds'),
+    (DR 'CLASSIFIED #2 UpdateClassifieds(2) ok=true '), (DR 'CLASSIFIED #2 done via=UpdateClassifieds value 1 -> 2'),
+    (DR 'TEXT after classified objective #2 Reinforcement Tokens 3'),
+    (DR 'REVIVE #3 via=synthetic count 5 -> 6'), (DR 'REVIVE #4 via=synthetic count 6 -> 7'), (DR 'REVIVE #5 via=spectator count 7 -> 8'),
+    (DR 'OK tokens-classified the computer''s text after N reinforcements is ''Reinforcement Tokens 0'' (got Reinforcement Tokens 0)'))
+Expect $cls 'tokens-classified' 0 'tokens-classified: passes as written' 'All checks passed'
+Expect $cls 'tokens-classified' 0 'tokens-classified: prints the detection paths' 'TOKENS bonus via UpdateClassifieds, poll; objectives completed via intel, UpdateClassifieds'
+Expect (Without $cls 'capped at 3') 'tokens-classified' 1 'tokens-classified: no capped +1 -> fails' 'capped at 3'
+Expect ($cls -replace '\+1 count=5 left=3 via=poll capped at 3', '+2 count=4 left=4 via=poll') 'tokens-classified' 1 'tokens-classified: the cap not applied -> fails' 'capped at 3'
+Expect (Without $cls 'TOKENS reopened') 'tokens-classified' 1 'tokens-classified: Disable never cleared -> fails' 'reopened'
+Expect (Without $cls 'disabled at used=5') 'tokens-classified' 1 'tokens-classified: not closed again at 5 -> fails' 'used=5'
+Expect ($cls + @(& $tok 'bonus classified=3 +0 capped at 3')) 'tokens-classified' 1 'tokens-classified: a third bonus line -> fails' 'TOKENS bonus'
+Expect (Without $cls 'CLASSIFIED #2 done') 'tokens-classified' 1 'tokens-classified: one objective only -> fails' 'CLASSIFIED'
+Expect ($cls -replace 'MATCH start knobs=revives=2 classifiedTokens=2 classifiedTokensMax=3', 'MATCH start knobs=revives=2') 'tokens-classified' 1 'tokens-classified: other knobs -> fails' 'MATCH start'
+Expect ($cls + @(DR 'FAIL tokens-classified Disable Reinforcement cleared after classified objective #1 (got true)')) 'tokens-classified' 1 'tokens-classified: a driver FAIL -> fails' 'FAIL'
+$clsNs = @($cls | Where-Object { $_ -notmatch 'TOKENS (used|disabled|bonus|reopened)|CLASSIFIED #|OK tokens|END result' }) + @((DR 'NOTSHOWN classified #1: ClassifiedDynamicValue didn''t rise (0)'), (DR 'END result=NOTSHOWN checks=3 failures=0 notshown=1 dead=false'))
+Expect $clsNs 'tokens-classified' 2 'tokens-classified: no objective could be completed -> not shown' 'NOT SHOWN'
 
 # ---------------------------------------------------------------- story 6: presets (menu only)
 $presets = @((D 'CONNECT ok Nucleus 0.15.1 (pong 0.15.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.15.1 need=0.15.0'),
@@ -291,10 +323,11 @@ $presetsNs = @(Without $presets 'END result|PRESETS (save|update|delete|select)|
 Expect $presetsNs 'presets' 2 'presets: a handler not driven -> not shown' 'NOT SHOWN'
 
 # ---------------------------------------------------------------- story 7: screen (menu only, VM)
-$screen = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 19'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
+$screen = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 21'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
     (DR 'SCENARIO screen'), (D 'PRESETS open presets=1 entries=1 changed=false'),
     (D 'ROWS follow difficulty=2 classified=2 enemyDamage=25 cold=100 revives=6'),
-    (DR 'OK SCORDER open 1: the knob rows at children 2-6 after Overlay_28, the per-enemy rows right after Overlay_738 (enemyDamage at 2)'),
+    (DR 'OK SCORDER open 1: the knob rows at children 2-8 after Overlay_28, the per-enemy rows right after Overlay_738 (enemyDamage at 2)'),
+    (DR 'OK SCNEWROWS Tokens per Classified Default (box '''', hint 0, bar 0; want empty, 0, 0) and Max Classified Tokens Default (box '''', hint no cap, bar 40; want empty, no cap, 40)'),
     (D 'ROWS follow difficulty=1 classified=2 enemyDamage=50 cold=133 revives=6'), (D 'ROWS follow difficulty=2 classified=2 enemyDamage=25 cold=100 revives=6'),
     (DR 'OK SCTEN 10 opens by real clicks: every row once, in order, the game rows in stock order; 10 distinct row widgets, 11 Construct snapshots'),
     (DR 'OK SCPICKTEN the Difficulty picker changed its value by real clicks (and back) on 10 of 10 opens'),
@@ -325,7 +358,9 @@ $screen = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROW
     (DR 'OK SCREOPEN a new open starts Default on Normal: Enemy Damage box '''' hint 25, Cold box '''' hint 100 (want empty 25, empty 100)'),
     (DR 'END result=PASS checks=60 failures=0 notshown=0 dead=false'))
 Expect $screen 'screen' 0 'screen: passes as written (no WHITEOUT, no match)' 'All checks passed'
-Expect ($screen + @(D 'ROWS declared 19')) 'screen' 1 'screen: rows declared twice -> fails' 'ROWS declared'
+Expect ($screen + @(D 'ROWS declared 21')) 'screen' 1 'screen: rows declared twice -> fails' 'ROWS declared'
+Expect ($screen -replace 'ROWS declared 21', 'ROWS declared 19') 'screen' 1 'screen: the old 19 rows -> fails' 'ROWS declared 21'
+Expect (Without $screen 'SCNEWROWS') 'screen' 1 'screen: story 12''s rows not checked -> fails' 'SCNEWROWS'
 Expect (Without $screen 'SCTEN') 'screen' 1 'screen: no ten-open line -> fails' 'SCTEN'
 Expect (Without $screen 'enemyDamage=57 rows') 'screen' 1 'screen: no 57 -> fails' 'enemyDamage=57'
 Expect ($screen -replace 'enemyDamage=57 rows=enemyDamage=57', 'enemyDamage=57 rows=') 'screen' 1 'screen: 57 not in the model text -> fails' 'rows=enemyDamage=57'
@@ -452,7 +487,7 @@ Expect ($ctl -replace 'NOTSHOWN Apex: the control player is dead', 'NOTSHOWN Ape
 
 # ---------------------------------------------------------------- story 8: signal (two launches, the screen's values)
 $k8 = 'enemyDamage=25 spread=20 revives=8 cold=0 frostbite=0 dmg.stalker=200'
-$sigA = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 19'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
+$sigA = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 21'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
     (DR 'SCENARIO signal-a'), (DR 'DEVLUA absent C:\nn\x\Difficulty\Scripts\dev.lua'),
     (DR 'OK SIGDEV no dev.lua in Difficulty''s Scripts (the values come only from the screen, the preset and the capture)'),
     (D 'PRESETS open presets=1 entries=1 changed=false'),
@@ -467,7 +502,7 @@ $sigA = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS 
     (DR 'OK SIGROWS before the save: every row shows its value and the screen is on Nightmare (Diffculty 0, shown Nightmare)'),
     (D "PRESETS save index=1 name=DT8-SIGNAL knobs=$k8"), (DR 'OK SIGSAVED DT8-SIGNAL is in the game''s presets'),
     (DR 'END result=PASS checks=12 failures=0 notshown=0 dead=false'))
-$sigB = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 19'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
+$sigB = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 21'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
     (DR 'SCENARIO signal-b'), (DR 'DEVLUA absent C:\nn\x\Difficulty\Scripts\dev.lua'),
     (DR 'OK SIGFOUND DT8-SIGNAL is in the game''s presets after the restart (presets across a restart)'),
     (D "PRESETS select index=1 name=DT8-SIGNAL knobs=$k8"),

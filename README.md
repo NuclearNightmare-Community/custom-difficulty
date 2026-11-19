@@ -6,7 +6,8 @@ Version 0.1.0: the skeleton (story 1) connects to Nucleus (core) and works out p
 Story 3 adds enemy damage on the host and survivable grabs for the host's own player; story 4 adds cold, frostbite and
 reinforcement tokens on the host; story 5 adds survivable grabs on modded clients (below); story 6 keeps the knob
 values with the game's own world presets in a sidecar file (below, "World presets"); story 7 shows and edits the
-values in 19 rows on the create-world screen (below, "Rows"). A row left empty is Default, so a host who never
+values in 21 rows on the create-world screen (below, "Rows"); story 12 gives reinforcement tokens back per completed
+classified objective (below, "Tokens per Classified"). A row left empty is Default, so a host who never
 touches the rows plays the stock game, except the soft-lock recovery (story 5, every machine with the mod, own player
 only). Targets V8.2.3 (build 26601774) with the pinned UE4SS
 `v3.0.1-1181-g83330635`, and needs Nucleus `^0.15.0` (story 7: core's game-style rows and sliders on the
@@ -97,6 +98,28 @@ runtime refuse core 0.3.0.
   revived (the revive's multicast carries the count). Other unmodded clients show the stock limit until
   `Disable Reinforcement` closes their computer. At a back-off, the count goes back to stock (`used`) once,
   with one `TOKENS released at back-off used=` line, and the tokens are left alone for the rest of that match.
+- **Tokens per Classified** (`classifiedTokens`, k, 0-4) and **Max Classified Tokens** (`classifiedTokensMax`, cap,
+  0-40; story 12): the game never gives tokens back for intel. On the host, every rise of the game state's
+  `ClassifiedDynamicValue` (the counter the game's own `UpdateClassifieds` server event sets, once per completed
+  classified objective) lowers `TimesUsedReinforcements` by k per objective, at most cap in total per match (a rise
+  that would pass it gives only the rest; at the cap it gives 0 and logs `TOKENS bonus classified=<v> +0 capped at
+  <cap>`). Tokens are added to the pool, so the computer can show more than N or more than the stock limit. With
+  Reinforcement Tokens set, the bonus raises the effective N (the computer shows `N + bonus - used`, Disable closes at
+  that total, a `Classified Minium` change re-writes with it), and a bonus that reopens tokens clears the
+  `Disable Reinforcement` Difficulty itself wrote (`TOKENS reopened ...`), never one the lobby or another writer set.
+  With Reinforcement Tokens Default only the count is lowered and the game's own gate closes the computer. Detected
+  in two places that share one award, deduplicated by the last value seen: a callback on
+  `BP_FirstPersonGameState_C:UpdateClassifieds` and the 250 ms poll, so a callback the pinned UE4SS doesn't run only
+  delays an award by one poll; the baseline is the value at the match start (no award for it), a lower value only
+  resets it. One line per award: `TOKENS bonus classified=<value> +<n> count=<c> left=<left|stock> via=<UpdateClassifieds|poll>`
+  (`capped at <cap>` appended when the cap cut it). Default or 0: nothing is written or logged (Max Classified
+  Tokens alone does nothing). Host only, nothing published: clients' computers may show a stale count (as with
+  Reinforcement Tokens). Imposter mode and a lobby that disabled reinforcements are left alone; a back-off stops the
+  awards and puts the count back to stock. Seen in game (V8.2.3, VM solo host, Tower Island, 2026-11-19,
+  `tokens-classified`): the pinned UE4SS runs the `UpdateClassifieds` callback, both for a real intel pickup's
+  `PrimaryInteraction` on the host and for a direct call, so both awards came `via=UpdateClassifieds` (the poll found
+  nothing left to award). Tower Island has one `BP_ClassifiedMaterial_C` pickup (`BP_CM_V4_C_1`), so the driver's
+  second objective uses the direct call.
 - **Guards against other mods:** after each scaled hit or frostbite tick, `Health` must read what the mod planned;
   after a grab it must still hold the temporary value. Otherwise one `WARN clash: ...; every knob off until the next
   match`. A failing hook body or poll logs one `ERROR ...; every knob off until the next match` the same way. Any
@@ -168,27 +191,29 @@ next to the game's `WorldPresets_Sav.sav`:
 
 ## Rows (story 7)
 
-On the create-world screen (START GAME, then CONFIGURE) the mod adds 19 rows that look like the game's own (core
+On the create-world screen (START GAME, then CONFIGURE) the mod adds 21 rows that look like the game's own (core
 0.15.0's game-style rows, `like = "Overlay_28"`), each with a slider and a number box:
 
 - **Knob rows**, right after Difficulty: Enemy Damage (0-200), Damage Spread (0-50), Reinforcement Tokens (0-20),
-  Cold Exposure (0-400), Frostbite Damage (0-20, step 0.5).
+  Tokens per Classified (0-4), Max Classified Tokens (0-40), Cold Exposure (0-400), Frostbite Damage (0-20, step 0.5).
 - **Per-enemy rows**, right after the enemy slots (`Overlay_738`): Damage: Meek, Mimic, Psycho, Husk, Watcher,
   Stalker, Slug Queen, Apex Predator, Worm, Leech, Bat, Infected Dog, Infected Player, Playable Monster (0-500 %,
   step 5). If `Overlay_738` is missing from the screen, they follow the knob rows instead, with one WARN.
 - **Default** is an empty box. Its hint (and the slider) shows the value the screen's own Difficulty gives:
   Enemy Damage 100 / 50 / 25 / 17 and Cold Exposure 200 / 133 / 100 / 50 for Nightmare / Hard / Normal / Easy,
-  Reinforcement Tokens 2 / 4 / 6 / 8 by Classified Minimum, Damage Spread 0, Frostbite Damage 1, every enemy 100.
+  Reinforcement Tokens 2 / 4 / 6 / 8 by Classified Minimum, Damage Spread 0, Frostbite Damage 1, every enemy 100,
+  Tokens per Classified 0; Max Classified Tokens' hint is "no cap" and its Default slider sits at 40, its max.
   A Default row follows the Difficulty and Classified Minimum pickers, a preset select and the screen's first state;
   a row with a value keeps it. Dragging or typing makes a row custom; clearing its box makes it Default again.
 - **The "?"** shows the game's own tooltip: what the knob does, its defaults per difficulty, its range, and
-  "Empty = follow Difficulty" (per-enemy rows: "Empty = 100").
+  "Empty = follow Difficulty" (per-enemy rows: "Empty = 100"; Tokens per Classified: "Empty = 0 (the game gives
+  none)"; Max Classified Tokens: "Empty = no cap").
 - **Values** live in the presets model (story 6): a slider change writes it (`ROWS change <key>=<value|default>
   rows=<what a capture would encode>`), and every change from outside (an open: all Default; a preset select) is
   pushed back into the sliders. Save, update and the session capture read the model as before; a slider change
   never writes the sidecar.
 - **How:** `Scripts/rows.lua` is the only file that calls `core.ui`. It declares the rows and sliders once per Lua
-  state at ready (`ROWS declared 19`) through `core.ui.row`, `core.ui.slider` and `core.ui.place`, and watches the
+  state at ready (`ROWS declared 21`) through `core.ui.row`, `core.ui.slider` and `core.ui.place`, and watches the
   screen with `core.ui.game.watch("createServer")`; core rebuilds the rows on every open. The pickers are followed
   through post-hooks on `MultipleSelectBox_6`'s and `MultipleSelectBox`'s `OnSelectionChanged` handlers
   (`presets.lua`), reading `Diffculty` and `Minium Classified` from the hook's context; an index outside 0..3 uses
@@ -273,6 +298,7 @@ cases (test only, logged).
 | `frostbite-zero` | Normal, `frostbite=0` | only `HIT enemy=frostbite ... applied=0`; no HP lost in 20 s |
 | `tokens-more` | Normal, Classified Minimum 0 (limit 2), `revives=4` | `TOKENS start limit=2 N=4 count=-2`; the computer's text 4; four reinforcements accepted, `Disable Reinforcement` only after the 4th |
 | `tokens-fewer` | Normal, Classified Minimum 3 (limit 8), `revives=2` | `TOKENS start limit=8 N=2 count=6`; Disable after the 2nd, the text 0 |
+| `tokens-classified` (story 12) | Normal, Tower Island, Classified Minimum 3 (limit 8), `revives=2;classifiedTokens=2;classifiedTokensMax=3`; two reinforcements, then two classified objectives completed on the host (a real intel pickup's `PrimaryInteraction`, its authority branch calling `UpdateClassifieds(value + 1)`; else the game state's `UpdateClassifieds(value + 1)`; `CLASSIFIED #<j> done via=intel|UpdateClassifieds`), then three more reinforcements | `TOKENS classified k=2 cap=3`; `disabled at used=2`; `TOKENS bonus ... +2 count=6 left=2` and `TOKENS reopened`, the text 2; `TOKENS bonus ... +1 count=5 left=3 ... capped at 3`, the text 3; `disabled at used=5 N=5`, the text 0. `check.ps1` prints which path awarded each bonus (`via=UpdateClassifieds` or `via=poll`) and how each objective was completed. Neither `tokens-more` nor `tokens-fewer` may log `TOKENS bonus` or `TOKENS classified` |
 | `cold-whiteout` (opt-in, never in a default list) | Nightmare, `cold=50`, White Outs on; the driver calls `NNBlizzardController:RequestBlizzard()` and samples 60 s outdoors in the storm phase | `WHITEOUT disabled=false`; `COLD` applied is 0.25 x raw (+-10%); the rise is above a quarter of Nightmare's stock range. No storm, or a rise inside that range: not shown |
 
 #### In the VM (`-Target vm`)
@@ -336,7 +362,8 @@ real click on the picker's previous arrow (Hard, hint 50), a real click on the C
 Default Cold row follows DT7-A's Hard: hint 133; `SCPRESET`, `SCPRESETDIFF`; screenshot `screen-preset`), `DT7-A`
 deleted, CONFIRM and Back, then one more real START GAME open whose Enemy Damage and Cold boxes are empty with
 Normal's hints 25 and 100 (`SCREOPEN`), and Back. `check.ps1 -Scenario screen -Target vm` needs the running checks,
-the driver's PASS, `SCTEN` and `SCPICKTEN`, one `ROWS declared 19`, Enemy Damage's `ROWS change` lines in the order
+the driver's PASS, `SCTEN`, `SCPICKTEN` and `SCNEWROWS` (story 12's rows Default on the first open: Tokens per
+Classified empty with the hint 0, Max Classified Tokens empty with the hint "no cap" and its slider at 40), one `ROWS declared 21`, Enemy Damage's `ROWS change` lines in the order
 dragged value, 57, 200, default, 17, 40 (with `rows=enemyDamage=57` after 57: what a capture would encode),
 `ROWS change cold=150` and `ROWS change frostbite=2.5`, the Nightmare and Hard `ROWS follow` lines, one with
 `classified=1 ... revives=4`, the Easy one before the select and DT7-A's Hard one right after it, the `DT7-A` save
@@ -478,8 +505,9 @@ Verdict PASS, no miss, no driver FAIL; `docs/game-internals.md` in the workspace
 
 ## Settings
 
-`mod.json` declares the five v1 knobs (`enemyDamage`, `spread`, `revives`, `cold`, `frostbite`) and the 14 per-enemy
+`mod.json` declares the seven knobs (`enemyDamage`, `spread`, `revives`, story 12's `classifiedTokens` and
+`classifiedTokensMax`, `cold`, `frostbite`) and the 14 per-enemy
 rows (`dmg.<enemy>`), each `{ type number, min, max, step, default null, label, scope, changeable menu, source
-presets }`. `null` is Default (follow Difficulty). Their values come from the game's world presets (stories 6 and 7),
+presets }`. `null` is Default (follow Difficulty; Tokens per Classified 0, Max Classified Tokens no cap). Their values come from the game's world presets (stories 6 and 7),
 not from core's settings service, so nothing is generated from them. `scope` is `all` for the inputs of the
 survivable-grab decision (`enemyDamage` and the six grabbing enemies) and `host` for the rest.

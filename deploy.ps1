@@ -23,7 +23,7 @@
   8: spread "spread=20", spread-grab "enemyDamage=25;spread=50", no-core and old-core none (the driver only waits on
   the menu; deploy with -Force), signal-a and signal-b no dev.lua at all (the signal's values come only from the
   screen, the preset and the capture; -Knobs is refused with them); story 13: boss "enemyDamage=25", boss-default
-  none (the control). A
+  none (the control); story 12: tokens-classified "revives=2;classifiedTokens=2;classifiedTokensMax=3". A
   deploy without -Scenario removes the driver. Neither the driver nor dev.lua is ever shipped: a deploy without -Test installs no knob source at all.
   -PreCore (only with -Test) is the dev core mode: it also accepts an installed core ^0.3.0 (before core 0.4.0, which
   brings the UI) and writes dev.lua with preCore = true, so main.lua connects with need 0.3.0 and logs one WARN. On a
@@ -50,7 +50,7 @@ param(
     [string] $Knobs,
     [ValidateSet('', 'scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite', 'frostbite-zero',
                  'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen', 'spread', 'spread-grab', 'signal-a', 'signal-b',
-                 'no-core', 'old-core', 'boss', 'boss-default')] [string] $Scenario = '',
+                 'no-core', 'old-core', 'boss', 'boss-default', 'tokens-classified')] [string] $Scenario = '',
     [switch] $Force,
     [switch] $Remove,
     [switch] $Staged
@@ -72,7 +72,8 @@ $ScenarioKnobs = @{ 'scaled' = 'enemyDamage=17'; 'flip' = 'enemyDamage=25'; 'per
                    'cold' = 'cold=50'; 'cold-zero' = 'cold=0'; 'frostbite' = 'frostbite=3'; 'frostbite-zero' = 'frostbite=0'
                    'tokens-more' = 'revives=4'; 'tokens-fewer' = 'revives=2'; 'cold-whiteout' = 'cold=50'; 'presets' = ''; 'screen' = ''
                    'spread' = 'spread=20'; 'spread-grab' = 'enemyDamage=25;spread=50'; 'signal-a' = ''; 'signal-b' = ''
-                   'no-core' = ''; 'old-core' = ''; 'boss' = 'enemyDamage=25'; 'boss-default' = '' }
+                   'no-core' = ''; 'old-core' = ''; 'boss' = 'enemyDamage=25'; 'boss-default' = ''
+                   'tokens-classified' = 'revives=2;classifiedTokens=2;classifiedTokensMax=3' }
 # Story 8's signal takes its values only from the screen, the preset and the capture: no dev.lua at all (and no -Knobs).
 $NoDevLua = @('signal-a', 'signal-b')
 

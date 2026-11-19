@@ -41,6 +41,8 @@
   driver only waits on the menu (host limit 300 s).
   Story 13: boss and boss-default (the bosses' finisher grabs at Enemy Damage 25, and the stock control) run like the
   story 3 scenarios (host limit 900 s); story 13 runs them only with -Target vm.
+  Story 12: tokens-classified (two reinforcements, two classified objectives completed on the host, three more
+  reinforcements; Tower Island) runs like the story 4 tokens scenarios (host limit 900 s).
 .EXAMPLE
   ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario flip
   ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario default -Target vm
@@ -49,7 +51,7 @@ param(
     [Parameter(Mandatory)] [string] $Instance,
     [Parameter(Mandatory)] [ValidateSet('scaled', 'flip', 'per-enemy', 'default', 'clash', 'cold', 'cold-zero', 'frostbite',
                  'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen', 'spread', 'spread-grab',
-                 'signal', 'no-core', 'old-core', 'boss', 'boss-default')] [string] $Scenario,
+                 'signal', 'no-core', 'old-core', 'boss', 'boss-default', 'tokens-classified')] [string] $Scenario,
     [int] $TimeoutSec = 0, # 0: the scenario's host limit (900; spread and spread-grab 2400; no-core and old-core 300), x1.5 in the VM
     [ValidateSet('host', 'vm')] [string] $Target = 'host',
     [string] $OldCorePackage, # old-core: a core package folder (Mods\Nucleus, LogicMods\Nucleus.pak) older than dependsOn; default: the first under mods\Nucleus\build\package-*

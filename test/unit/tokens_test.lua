@@ -186,6 +186,218 @@ do -- release at a back-off: the count back to stock (used), once
     eq(tokens.release(nil, g, op), nil, "release with no state: nothing")
 end
 
+-- ---------------------------------------------------------------- story 12: the classified bonus
+do -- award: the pure function
+    local add, base, capped = tokens.award(nil, 3, 2, 0, nil)
+    ok(add == 0 and base == 3 and not capped, "award: no baseline yet -> the reading is the baseline, nothing awarded")
+    add, base = tokens.award(0, 2, 2, 0, nil)
+    ok(add == 4 and base == 2, "award: 0 -> 2 with k 2 -> +4 (two objectives in one reading)")
+    add, base = tokens.award(2, 2, 2, 4, nil)
+    ok(add == 0 and base == 2, "award: no rise -> nothing")
+    add, base = tokens.award(5, 1, 2, 4, nil)
+    ok(add == 0 and base == 1, "award: a lower value resets the baseline, nothing awarded")
+    add, base, capped = tokens.award(0, 1, 2, 2, 3)
+    ok(add == 1 and base == 1 and capped, "award: a rise past the cap awards only the rest")
+    add, base, capped = tokens.award(1, 2, 2, 3, 3)
+    ok(add == 0 and base == 2 and capped, "award: at the cap -> 0, capped")
+    add, base, capped = tokens.award(0, 1, 2, 0, 2)
+    ok(add == 2 and not capped, "award: exactly reaching the cap is not capped")
+end
+local function cls(k, cap) return { k = k, cap = cap } end
+-- The game's own UpdateClassifieds (value + 1), then the award and the re-check (as the hook does).
+local function objective(t, g, f, op, how, by)
+    f.ClassifiedDynamicValue = f.ClassifiedDynamicValue + (by or 1)
+    tokens.classified(t, g, how or "UpdateClassifieds", op)
+    tokens.check(t, g, how or "UpdateClassifieds", op)
+end
+do -- Default: no classified state, no write, no new line (tokens.start without cls is story 4's)
+    local op = o()
+    local g, f, w = gs{ ClassifiedDynamicValue = 0 }
+    eq(tokens.start(g, nil, op, nil), nil, "classified Default: no token state")
+    eq(next(w), nil, "classified Default: nothing written")
+    eq(#lines, 0, "classified Default: no line")
+    local t = tokens.start(g, 2, op)
+    f.ClassifiedDynamicValue = 1
+    tokens.classified(t, g, "poll", op)
+    eq(count("bonus"), 0, "revives only: an objective awards nothing, no bonus line", dump())
+    eq(f.TimesUsedReinforcements, 4, "revives only: the count untouched by the objective")
+end
+do -- Stock tokens: revives Default, CM 3 (limit 8), k=2, used 3, one objective
+    local op = o()
+    local g, f, w = gs{ ["Classified Minium"] = 3, TimesUsedReinforcements = 3, ClassifiedDynamicValue = 0 }
+    local t = tokens.start(g, nil, op, cls(2))
+    ok(t ~= nil, "stock: a token state")
+    eq(w.TimesUsedReinforcements, nil, "stock: the count is not written at the start")
+    eq(count("^TOKENS start limit=8 N=stock count=3$"), 1, "stock: the start line", dump())
+    eq(count("^TOKENS classified k=2 cap=none baseline=0$"), 1, "stock: the classified line", dump())
+    objective(t, g, f, op)
+    eq(f.TimesUsedReinforcements, 1, "stock: count 3 -> 1")
+    eq(8 - f.TimesUsedReinforcements, 7, "stock: the computer shows 7")
+    eq(count("^TOKENS bonus classified=1 %+2 count=1 left=stock via=UpdateClassifieds$"), 1, "stock: one bonus line", dump())
+    eq(w["Disable Reinforcement"], nil, "stock: Disable never written")
+    -- The game's own gate closes it: 7 more reinforcements reach count 8 = limit; Difficulty writes no Disable.
+    for i = 1, 7 do reinforce(t, g, f, op, "poll") end
+    eq(f.TimesUsedReinforcements, 8, "stock: count at the limit after 7 more")
+    eq(w["Disable Reinforcement"], nil, "stock: still no Disable (the game's gate closes)")
+    eq(count("^TOKENS disabled"), 0, "stock: no disabled line")
+    -- A minimum change leaves the stock count alone.
+    f["Classified Minium"] = 2
+    tokens.check(t, g, "poll", op)
+    eq(f.TimesUsedReinforcements, 8, "stock: a minimum change doesn't re-write the count")
+    -- Release: the count back to stock (used = count + bonus).
+    tokens.release(t, g, op)
+    eq(f.TimesUsedReinforcements, 10, "stock release: back to used (10)")
+end
+do -- With N, disabled: N=2, k=2, used 2 (Difficulty set Disable), one objective
+    local op = o()
+    local g, f, w = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 0 }
+    local t = tokens.start(g, 2, op, cls(2))
+    reinforce(t, g, f, op) reinforce(t, g, f, op)
+    eq(f["Disable Reinforcement"], true, "N disabled: Disable at used 2")
+    objective(t, g, f, op)
+    eq(f.TimesUsedReinforcements, 6, "N disabled: count lowered by 2 (8 -> 6)")
+    eq(f["Disable Reinforcement"], false, "N disabled: Disable cleared")
+    eq(8 - f.TimesUsedReinforcements, 2, "N disabled: the computer shows 2")
+    eq(count("^TOKENS bonus classified=1 %+2 count=6 left=2 via=UpdateClassifieds$"), 1, "N disabled: the bonus line", dump())
+    eq(count("^TOKENS reopened at used=2 N=4: Disable Reinforcement cleared via=UpdateClassifieds$"), 1, "N disabled: the reopened line", dump())
+    reinforce(t, g, f, op)
+    eq(f["Disable Reinforcement"], false, "N disabled: still open at used 3")
+    reinforce(t, g, f, op, "poll")
+    eq(f["Disable Reinforcement"], true, "N disabled: closes again at used 4")
+    eq(count("^TOKENS disabled at used=4 N=4 via=poll$"), 1, "N disabled: the second disabled line", dump())
+    eq(w["Disable Reinforcement"], 3, "N disabled: Disable written set, cleared, set")
+    -- Release keeps used: count 8 = limit - (2 + 2) + 4 -> 4.
+    tokens.release(t, g, op)
+    eq(f.TimesUsedReinforcements, 4, "N release: the count back to used 4")
+end
+do -- Lobby/other Disable: set by someone else mid-match; the bonus is counted, Disable stays set
+    local op = o()
+    local g, f, w = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 0 }
+    local t = tokens.start(g, 1, op, cls(2))
+    f["Disable Reinforcement"] = true
+    reinforce(t, g, f, op)
+    eq(count("Disable Reinforcement was already set"), 1, "other Disable: the already-set line", dump())
+    objective(t, g, f, op)
+    eq(t.bonus, 2, "other Disable: the bonus counted")
+    eq(f["Disable Reinforcement"], true, "other Disable: left set")
+    eq(w["Disable Reinforcement"], nil, "other Disable: never written by Difficulty")
+    eq(count("set by someone else and stays set"), 1, "other Disable: one line", dump())
+end
+do -- Two objectives in one poll: value 0 -> 2, +2k once, one line
+    local op = o()
+    local g, f = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 0 }
+    local t = tokens.start(g, 2, op, cls(2))
+    objective(t, g, f, op, "poll", 2)
+    eq(f.TimesUsedReinforcements, 2, "two at once: count 6 -> 2 (+4)")
+    eq(count("^TOKENS bonus "), 1, "two at once: one line", dump())
+    eq(count("^TOKENS bonus classified=2 %+4 count=2 left=6 via=poll$"), 1, "two at once: +4", dump())
+end
+do -- Hook and poll both see it: awarded once
+    local op = o()
+    local g, f, w = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 0 }
+    local t = tokens.start(g, 2, op, cls(2))
+    objective(t, g, f, op, "UpdateClassifieds")
+    tokens.classified(t, g, "poll", op)
+    tokens.classified(t, g, "UpdateClassifieds", op)
+    eq(f.TimesUsedReinforcements, 4, "dedup: count lowered once (6 -> 4)")
+    eq(count("^TOKENS bonus "), 1, "dedup: one bonus line", dump())
+    eq(w.TimesUsedReinforcements, 2, "dedup: two count writes (start and the award)")
+end
+do -- CM changes mid-match: the rewrite uses N + bonus
+    local op = o()
+    local g, f = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 0 }
+    local t = tokens.start(g, 2, op, cls(2))
+    reinforce(t, g, f, op)
+    objective(t, g, f, op)
+    eq(8 - f.TimesUsedReinforcements, 3, "minimum + bonus: shows 3 (N 2 + 2 - 1)")
+    f["Classified Minium"] = 1
+    tokens.check(t, g, "poll", op)
+    eq(f.TimesUsedReinforcements, 1, "minimum + bonus: re-written to 4 - (2 + 2) + 1 = 1")
+    eq(4 - f.TimesUsedReinforcements, 3, "minimum + bonus: the computer still shows 3")
+end
+do -- Unreadable value: no award, one WARN; a later good reading becomes the baseline
+    local op = o()
+    local g, f, w = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 1.5 }
+    local t = tokens.start(g, 2, op, cls(2))
+    eq(count("^TOKENS classified k=2 cap=none baseline=nil$"), 1, "unreadable at start: no baseline", dump())
+    tokens.classified(t, g, "poll", op)
+    eq(count("^WARN TOKENS ClassifiedDynamicValue reads 1%.5"), 1, "unreadable: one WARN", dump())
+    f.ClassifiedDynamicValue = "x"
+    tokens.classified(t, g, "poll", op)
+    eq(count("^WARN TOKENS ClassifiedDynamicValue"), 1, "unreadable: still one WARN")
+    f.ClassifiedDynamicValue = 3
+    tokens.classified(t, g, "poll", op)
+    eq(count("^TOKENS bonus"), 0, "first good reading: the baseline, no award")
+    eq(w.TimesUsedReinforcements, 1, "unreadable: only the start wrote the count")
+    f.ClassifiedDynamicValue = 4
+    tokens.classified(t, g, "poll", op)
+    eq(count("^TOKENS bonus classified=4 %+2 "), 1, "after the baseline: a rise awards", dump())
+end
+do -- Imposter / lobby Disable at the start: the knob does nothing, one info line as today
+    local op = o()
+    local g, _, w = gs{ GameMode = 1, ClassifiedDynamicValue = 0 }
+    eq(tokens.start(g, nil, op, cls(2)), nil, "imposter: no state for the classified knob")
+    eq(next(w), nil, "imposter: nothing written")
+    eq(count("^TOKENS imposter mode"), 1, "imposter: one line")
+    local g2, _, w2 = gs{ ["Disable Reinforcement"] = true, ClassifiedDynamicValue = 0 }
+    eq(tokens.start(g2, nil, op, cls(2)), nil, "lobby Disable: no state for the classified knob")
+    eq(next(w2), nil, "lobby Disable: nothing written")
+    eq(count("^TOKENS the lobby disabled reinforcements: untouched$"), 1, "lobby Disable: one line")
+end
+do -- The cap (the approved change): k=2, cap 3: +2, then +1 capped, then +0 capped at 3
+    local op = o()
+    local g, f, w = gs{ ["Classified Minium"] = 0, ClassifiedDynamicValue = 0 }
+    local t = tokens.start(g, 2, op, cls(2, 3))
+    eq(count("^TOKENS classified k=2 cap=3 baseline=0$"), 1, "cap: the classified line names the cap", dump())
+    reinforce(t, g, f, op) reinforce(t, g, f, op)
+    eq(f["Disable Reinforcement"], true, "cap: Disable at used 2")
+    objective(t, g, f, op)
+    eq(2 - f.TimesUsedReinforcements, 2, "cap: 2 left after the first objective")
+    eq(f["Disable Reinforcement"], false, "cap: reopened")
+    objective(t, g, f, op)
+    eq(2 - f.TimesUsedReinforcements, 3, "cap: 3 left after the second (capped at +1)")
+    eq(count("^TOKENS bonus classified=2 %+1 count=%-1 left=3 via=UpdateClassifieds capped at 3$"), 1, "cap: the second line +1 capped", dump())
+    local before = w.TimesUsedReinforcements
+    objective(t, g, f, op, "poll")
+    eq(w.TimesUsedReinforcements, before, "cap: at the cap nothing is written")
+    eq(count("^TOKENS bonus classified=3 %+0 capped at 3$"), 1, "cap: one +0 capped line", dump())
+    tokens.classified(t, g, "poll", op)
+    eq(count("capped at 3$"), 2, "cap: the +0 line once per rise, not per reading")
+    for i = 1, 3 do reinforce(t, g, f, op, "poll") end
+    eq(count("^TOKENS disabled at used=5 N=5 via=poll$"), 1, "cap: disabled at used 5", dump())
+    -- Cap 0: every rise is +0 capped.
+    local op2 = o()
+    local g2, f2, w2 = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 0 }
+    local t2 = tokens.start(g2, nil, op2, cls(2, 0))
+    objective(t2, g2, f2, op2)
+    eq(w2.TimesUsedReinforcements, nil, "cap 0: nothing written")
+    eq(count("^TOKENS bonus classified=1 %+0 capped at 0$"), 1, "cap 0: one +0 line", dump())
+end
+do -- floats from knobs.parse (2.0) log as integers; a k that isn't a whole number > 0 does nothing
+    local op = o()
+    local g, f = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 0 }
+    local t = tokens.start(g, 2.0, op, cls(2.0, 3.0))
+    eq(count("^TOKENS classified k=2 cap=3 baseline=0$"), 1, "floats: integer line", dump())
+    objective(t, g, f, op, "poll")
+    eq(count("^TOKENS bonus classified=1 %+2 count=4 left=4 via=poll$"), 1, "floats: integer bonus line", dump())
+    local op2 = o()
+    local g2, _, w2 = gs{ ClassifiedDynamicValue = 0 }
+    eq(tokens.start(g2, nil, op2, cls(2.5)), nil, "k 2.5 without revives: no state")
+    eq(next(w2), nil, "k 2.5: nothing written")
+    eq(count("^WARN TOKENS classified k=2%.5"), 1, "k 2.5: one WARN", dump())
+    local t3 = tokens.start(g2, 2, op2, cls(-1))
+    ok(t3 ~= nil and t3.k == nil, "k -1 with revives: revives still acts, no bonus")
+end
+do -- A failed count write at an award raises (the guard backs off)
+    local op = o()
+    local g, f = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 0 }
+    local t = tokens.start(g, nil, op, cls(2))
+    f.ClassifiedDynamicValue = 1
+    f._readonly = true
+    ok(not pcall(tokens.classified, t, g, "poll", op), "a failed award write raises")
+    eq(tokens.classified(nil, g, "poll", op), nil, "classified with no state: nothing")
+end
+
 -- ---------------------------------------------------------------- the source
 do
     local f = assert(io.open(ROOT .. "/Scripts/tokens.lua", "r"))

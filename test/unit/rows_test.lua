@@ -20,9 +20,9 @@ for _, r in ipairs(knobs.ROWS) do ENEMY[#ENEMY + 1] = "dmg." .. r end
 
 -- ---------------------------------------------------------------- pure data
 do
-    eq(#rows.ORDER, 19, "19 rows")
-    eq(table.concat(rows.ORDER, ",", 1, 5), "enemyDamage,spread,revives,cold,frostbite", "the knob rows first, in the screen's order")
-    eq(table.concat(rows.ORDER, ",", 6), table.concat(ENEMY, ","), "then the per-enemy rows in knobs.ROWS order")
+    eq(#rows.ORDER, 21, "21 rows")
+    eq(table.concat(rows.ORDER, ",", 1, 7), "enemyDamage,spread,revives,classifiedTokens,classifiedTokensMax,cold,frostbite", "the knob rows first, in the screen's order (story 12's two right after Reinforcement Tokens)")
+    eq(table.concat(rows.ORDER, ",", 8), table.concat(ENEMY, ","), "then the per-enemy rows in knobs.ROWS order")
     local f = assert(io.open(ROOT .. "/mod.json", "r"))
     local m = J.decode(f:read("a"))
     f:close()
@@ -41,6 +41,10 @@ do
         ok(help:find(range, 1, true), key .. ": help names the range " .. range, help)
         if key:match("^dmg%.") then
             ok(help:find("Empty = 100.", 1, true), key .. ": help says Empty = 100")
+        elseif key == "classifiedTokens" then
+            ok(help:find("Default: 0 on every difficulty.", 1, true) and help:find("Empty = 0 (the game gives none).", 1, true), key .. ": help says Default 0 and Empty = 0", help)
+        elseif key == "classifiedTokensMax" then
+            ok(help:find("Default: no cap.", 1, true) and help:find("Empty = no cap.", 1, true), key .. ": help says Default no cap and Empty = no cap", help)
         elseif key == "revives" then
             ok(help:find("Empty = follow Classified Minimum.", 1, true) and not help:find("follow Difficulty", 1, true), key .. ": help says Empty = follow Classified Minimum")
         else
@@ -65,6 +69,8 @@ do -- the defaults per difficulty (EDiffculty 0..3 = Nightmare, Hard, Normal, Ea
         eq(d.revives, WANT[i][3], "index " .. i .. ": revives by Classified Minimum")
         eq(d.spread, 0, "index " .. i .. ": spread 0")
         eq(d.frostbite, 1, "index " .. i .. ": frostbite 1")
+        eq(d.classifiedTokens, 0, "index " .. i .. ": classifiedTokens 0")
+        eq(d.classifiedTokensMax, 40, "index " .. i .. ": classifiedTokensMax sits at 40 (no cap)")
         for _, k in ipairs(ENEMY) do eq(d[k], 100, "index " .. i .. ": " .. k .. " 100") end
     end
     local d = rows.defaults(0, 3)
@@ -109,14 +115,14 @@ local function values()
     for _, key in ipairs(rows.ORDER) do t[#t + 1] = tostring(sl(key).value) end
     return table.concat(t, " ")
 end
-local ALL_NIL = ("nil "):rep(19):sub(1, -2)
-local NORMAL_HINTS = "25 0 6 100 1" .. (" 100"):rep(14)
+local ALL_NIL = ("nil "):rep(21):sub(1, -2)
+local NORMAL_HINTS = "25 0 6 0 no cap 100 1" .. (" 100"):rep(14)
 local function writes() local n = 0 for _, l in ipairs(D.log) do if l:find("^write ") then n = n + 1 end end return n end
 
-do -- declare: 19 rows with sliders, once
+do -- declare: 21 rows with sliders, once
     setup()
     ok(R:declare(), "declare returns true")
-    eq(#U.order, 19, "19 rows declared")
+    eq(#U.order, 21, "21 rows declared")
     for i, key in ipairs(rows.ORDER) do
         local rh = U.rows["r-" .. key]
         eq(U.order[i], "r-" .. key, "row " .. i .. " is " .. key .. " (creation order = screen order)")
@@ -132,7 +138,10 @@ do -- declare: 19 rows with sliders, once
         eq(s.value, nil, key .. ": Default at declare")
     end
     eq(hints(), NORMAL_HINTS, "declare: the hints are Normal's")
-    eq(count("^ROWS declared 19$"), 1, "one ROWS declared line")
+    eq(count("^ROWS declared 21$"), 1, "one ROWS declared line")
+    eq(U.shown("s-classifiedTokens"), 0, "Tokens per Classified: Default sits at 0")
+    eq(U.shown("s-classifiedTokensMax"), 40, "Max Classified Tokens: Default sits at the max (40)")
+    eq(sl("classifiedTokensMax").hint, "no cap", "Max Classified Tokens: the hint says no cap")
     local n = #U.calls
     ok(R:declare(), "declare again: true")
     eq(#U.calls, n, "declare again: no core call")

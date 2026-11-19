@@ -3,7 +3,7 @@
 --   * pure data and functions, unit-tested without the game: LABELS and HELP per knob key (the labels are mod.json's,
 --     the ranges and steps knobs.lua's), ORDER (the screen's order) and defaults(diff, cm), the value each knob has
 --     on a difficulty (EDiffculty 0..3 = Nightmare, Hard, Normal, Easy; tokens follow Classified Minimum instead);
---   * the adapter (new): 19 game-style rows, each holding a slider with a number box, declared once per Lua state
+--   * the adapter (new): 21 game-style rows, each holding a slider with a number box, declared once per Lua state
 --     through core's public UI (core.ui.row, core.ui.slider, core.ui.place; core 0.15.0). It is the only file that
 --     calls core.ui. Core rebuilds the rows on every open of the screen.
 -- The presets model (presets.lua, model.rows) is the only truth: a slider's onChange writes it, refresh() pushes it
@@ -16,14 +16,15 @@ local tokens = require("tokens")
 
 local M = {}
 M.HOST, M.BOX, M.LIKE = "createServer", "VerticalBox_202", "Overlay_28"
-M.KNOB_AFTER = "Overlay_28"   -- the Difficulty row: the five knob rows go right after it
+M.KNOB_AFTER = "Overlay_28"   -- the Difficulty row: the seven knob rows go right after it
 M.ENEMY_AFTER = "Overlay_738" -- the enemy slots: the fourteen per-enemy rows go right after them
 M.NORMAL = 2                  -- an unknown difficulty index uses Normal
 M.MAX_HELP_LINES, M.MAX_HELP_BYTES, M.MAX_LABEL = 8, 512, 64
+M.NO_CAP, M.NO_CAP_AT = "no cap", 40 -- Max Classified Tokens' Default: its hint, and where its slider sits
 M.WALK_MAX, M.WALK_DEPTH = 1024, 16 -- the bounded walk for the enemy-slot anchor (about 263 widgets on V8.2.3)
 
-M.KNOB_KEYS = { "enemyDamage", "spread", "revives", "cold", "frostbite" }
--- Every row in the screen's order: the five knob rows, then the per-enemy rows (knobs.ROWS).
+M.KNOB_KEYS = { "enemyDamage", "spread", "revives", "classifiedTokens", "classifiedTokensMax", "cold", "frostbite" }
+-- Every row in the screen's order: the seven knob rows, then the per-enemy rows (knobs.ROWS).
 M.ORDER = {}
 for _, k in ipairs(M.KNOB_KEYS) do M.ORDER[#M.ORDER + 1] = k end
 for _, r in ipairs(knobs.ROWS) do M.ORDER[#M.ORDER + 1] = "dmg." .. r end
@@ -35,6 +36,7 @@ M.ENEMY = { meek = "Meek", mimic = "Mimic", psycho = "Psycho", husk = "Husk", wa
             slugQueen = "Slug Queen", apex = "Apex Predator", worm = "Worm", leech = "Leech", bat = "Bat",
             infectedDog = "Infected Dog", infectedPlayer = "Infected Player", monster = "Playable Monster" }
 M.LABELS = { enemyDamage = "Enemy Damage", spread = "Damage Spread", revives = "Reinforcement Tokens",
+             classifiedTokens = "Tokens per Classified", classifiedTokensMax = "Max Classified Tokens",
              cold = "Cold Exposure", frostbite = "Frostbite Damage" }
 for _, r in ipairs(knobs.ROWS) do M.LABELS["dmg." .. r] = "Damage: " .. M.ENEMY[r] end
 
@@ -70,6 +72,10 @@ M.HELP = {
     revives = table.concat({ "Reinforcement tokens the team can use in a match.",
         "Default follows Classified Minimum: Nightmare 2, Hard 4, Normal 6, Easy 8.", range("revives"),
         "Empty = follow Classified Minimum." }, "\n"),
+    classifiedTokens = table.concat({ "Reinforcement tokens given back per completed classified objective.",
+        "Default: 0 on every difficulty.", range("classifiedTokens"), "Empty = 0 (the game gives none)." }, "\n"),
+    classifiedTokensMax = table.concat({ "The most tokens Tokens per Classified gives back in a match.",
+        "Default: no cap.", range("classifiedTokensMax"), "Empty = no cap." }, "\n"),
     cold = table.concat({ "How fast players freeze, in % of Normal's rate. 0 = never freezes.",
         "Default: Nightmare 200, Hard 133, Normal 100, Easy 50.", range("cold"), FOLLOW }, "\n"),
     frostbite = table.concat({ "HP lost per second at a full freeze meter.",
@@ -101,9 +107,17 @@ function M.defaults(diff, cm)
         revives = tokens.LIMIT[c],
         spread = 0,
         frostbite = 1,
+        classifiedTokens = 0,
+        classifiedTokensMax = M.NO_CAP_AT, -- no cap: a Default slider sits at the max (its hint says "no cap")
     }
     for _, r in ipairs(knobs.ROWS) do t["dmg." .. r] = 100 end
     return t, problems
+end
+
+-- hint(key, v): the text a Default box shows for the default v ("no cap" for Max Classified Tokens).
+function M.hint(key, v)
+    if key == "classifiedTokensMax" then return M.NO_CAP end
+    return num(v)
 end
 
 -- A slider value the model accepts: nil (Default) or a finite number inside the knob's range.
@@ -141,7 +155,7 @@ function A:onChange(key, v)
     self:say("info", "ROWS change %s=%s rows=%s", key, v == nil and "default" or num(v), knobs.encode(self.model.rows))
 end
 
--- Declares the 19 rows and sliders once per Lua state (core rebuilds them on every open). Returns true when all were
+-- Declares the 21 rows and sliders once per Lua state (core rebuilds them on every open). Returns true when all were
 -- declared; a failure is one ERROR line and the rows declared so far stay.
 function A:declare()
     if self.declared then return true end
@@ -155,7 +169,7 @@ function A:declare()
                                      place = intent(M.IS_KNOB[key] and M.KNOB_AFTER or M.ENEMY_AFTER) }
             self.rowH[key] = rh
             self.sliderH[key] = U.slider.create{ id = "s-" .. key, min = k.min, max = k.max, step = k.step,
-                value = self.model.rows[key], defaultValue = defs[key], hint = num(defs[key]),
+                value = self.model.rows[key], defaultValue = defs[key], hint = M.hint(key, defs[key]),
                 onChange = function(_, v) self:onChange(key, v) end, place = { row = rh } }
         end)
         if not ok then self:say("error", "ROWS %s could not be declared: %s", key, tostring(err)) return false end
@@ -184,7 +198,7 @@ function A:follow(diff, cm)
     for _, key in ipairs(M.ORDER) do
         local h = self.sliderH[key]
         if h then
-            local ok, err = pcall(self.ui.slider.setDefault, h, defs[key], num(defs[key]))
+            local ok, err = pcall(self.ui.slider.setDefault, h, defs[key], M.hint(key, defs[key]))
             if not ok then self.o.warnOnce("rows-default-" .. key, "ROWS %s default could not be set: %s", key, tostring(err)) end
         end
     end

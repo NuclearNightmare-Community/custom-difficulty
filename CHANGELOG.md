@@ -13,8 +13,8 @@ Not released yet. Earlier work is described in `README.md`.
   synced by hooks on the create-world screen's open, select, save, update and delete. `CreateSteamSession` captures
   the rows, and a match starts with `dev.lua`'s knobs, else the captured values, else Default. Until story 7 adds the
   rows, the mod writes only Default values. New `presets` scenario (`run.ps1`, the main menu only, in the VM).
-- Story 7: 19 rows on the create-world screen show and edit the knob values (`Scripts/rows.lua`, through core
-  0.15.0's game-style rows and sliders only): the five knob rows right after Difficulty, the fourteen per-enemy rows
+- Story 7: 21 rows on the create-world screen show and edit the knob values (`Scripts/rows.lua`, through core
+  0.15.0's game-style rows and sliders only): the seven knob rows (story 12's two included) right after Difficulty, the fourteen per-enemy rows
   right after the enemy slots (after the knob rows, with one WARN, if the slots' row is missing). An empty box is
   Default; its hint and slider follow the screen's Difficulty and Classified Minimum (post-hooks on both pickers'
   handlers, a preset select, the screen's first state). A slider change writes the presets model
@@ -31,6 +31,13 @@ Not released yet. Earlier work is described in `README.md`.
 - Story 13 (tests only, no change to the mod): new `run.ps1` scenarios `boss` (the Slug Queen's and the Apex
   Predator's finisher grabs at Enemy Damage 25: `CommitLethalDamage`'s Health in and out, the presentation and the
   player's state 0, 6 and 12 s after it) and `boss-default` (the stock control: the grab kills, an expected death).
+- Story 12: two host-scope knobs, **Tokens per Classified** (`classifiedTokens`, 0-4, Default 0) and **Max Classified
+  Tokens** (`classifiedTokensMax`, 0-40, Default no cap), rows 4 and 5 right after Reinforcement Tokens, saved with the
+  presets. On the host, each completed classified objective (a rise of the game state's `ClassifiedDynamicValue`,
+  seen in the `UpdateClassifieds` callback or the 250 ms poll, deduplicated) gives k reinforcement tokens back, up to
+  the cap per match; with Reinforcement Tokens set the bonus raises N and reopens a `Disable Reinforcement` Difficulty
+  wrote. Clients' computers may show a stale count (nothing is published). New `tokens-classified` scenario;
+  `tokens-more`, `tokens-fewer` and `screen` check that nothing changed with the knobs Default (`ROWS declared 21`).
 
 ### Changed
 

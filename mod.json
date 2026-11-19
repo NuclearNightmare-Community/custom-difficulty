@@ -10,6 +10,8 @@
     "enemyDamage": { "type": "number", "min": 0, "max": 200, "step": 1, "default": null, "label": "Enemy Damage", "scope": "all", "changeable": "menu", "source": "presets" },
     "spread": { "type": "number", "min": 0, "max": 50, "step": 1, "default": null, "label": "Damage Spread", "scope": "host", "changeable": "menu", "source": "presets" },
     "revives": { "type": "number", "min": 0, "max": 20, "step": 1, "default": null, "label": "Reinforcement Tokens", "scope": "host", "changeable": "menu", "source": "presets" },
+    "classifiedTokens": { "type": "number", "min": 0, "max": 4, "step": 1, "default": null, "label": "Tokens per Classified", "scope": "host", "changeable": "menu", "source": "presets" },
+    "classifiedTokensMax": { "type": "number", "min": 0, "max": 40, "step": 1, "default": null, "label": "Max Classified Tokens", "scope": "host", "changeable": "menu", "source": "presets" },
     "cold": { "type": "number", "min": 0, "max": 400, "step": 1, "default": null, "label": "Cold Exposure", "scope": "host", "changeable": "menu", "source": "presets" },
     "frostbite": { "type": "number", "min": 0, "max": 20, "step": 0.5, "default": null, "label": "Frostbite Damage", "scope": "host", "changeable": "menu", "source": "presets" },
     "dmg.meek": { "type": "number", "min": 0, "max": 500, "step": 5, "default": null, "label": "Damage: Meek", "scope": "all", "changeable": "menu", "source": "presets" },

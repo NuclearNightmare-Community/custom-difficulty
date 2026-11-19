@@ -22,6 +22,8 @@ M.KNOBS = {
     { key = "enemyDamage", min = 0, max = 200, step = 1 },
     { key = "spread", min = 0, max = 50, step = 1 },
     { key = "revives", min = 0, max = 20, step = 1 },
+    { key = "classifiedTokens", min = 0, max = 4, step = 1 },     -- story 12: tokens per classified objective
+    { key = "classifiedTokensMax", min = 0, max = 40, step = 1 }, -- story 12: the most classified bonus per match
     { key = "cold", min = 0, max = 400, step = 1 },
     { key = "frostbite", min = 0, max = 20, step = 0.5 },
 }

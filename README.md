@@ -66,9 +66,10 @@ runtime refuse core 0.3.0.
   Slug Queen and Apex Predator; unticked on every difficulty). Ticked, that enemy's grab is the execution whatever
   Enemy Damage, its row's % (0 % included) and the victim's Health: the grab decision is `e` (flipped to 0.01 only
   where the game's own test would pick the survivable animation) and the execution's hit applies at least `Health`.
-  A ticked boss's `CommitLethalDamage` hit applies at least `Health` too (`kind=execution`). The spare rule still
-  gates the decision: a client victim whose machine doesn't run a compatible Difficulty keeps the game's decision
-  (a survivable grab stays survivable and capped). A dodge (Elusive Fighter) stays the game's. Hits outside a grab
+  For the six grab enemies the spare rule still gates the decision: a client victim whose machine doesn't run a
+  compatible Difficulty keeps the game's decision (a survivable grab stays survivable and capped). A ticked boss has
+  no decision to flip: its `CommitLethalDamage` hit is host-side and applies at least `Health` (`kind=execution`) to
+  every victim, modded or not, like the stock finisher. A dodge (Elusive Fighter) stays the game's. Hits outside a grab
   and other enemies are unchanged; unticked changes nothing at all (no line, no flip, no cap on boss grabs). The
   GRAB line ends with ` kill=yes` when the box is ticked. No box on the Worm, Leech, Bat, Infected Dog, Infected
   Player or Playable Monster (no grab decision Difficulty sees).

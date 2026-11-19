@@ -509,11 +509,11 @@ for i, c in ipairs(SC.cases) do
                 end
                 return false
             end
-            -- story 14: the killed player still possessed: dead once Health stays <= 0 for 12 s after the hit
+            -- story 14: the killed player still possessed: dead once Health has stayed <= 0 for 12 s
             if c.kills and c.judged and c.hitAt then
                 local hp = hpOf(m)
                 if hp and hp > 0 then c.lowSince = nil else c.lowSince = c.lowSince or os.clock() end
-                if c.lowSince and os.clock() - c.hitAt >= 12 then c.died = "Health " .. fmt1(hp) .. " for 12 s" return true end
+                if c.lowSince and os.clock() - c.lowSince >= 12 then c.died = "Health " .. fmt1(hp) .. " for 12 s" return true end
                 if os.clock() - t > 120 then return true end
                 return false
             end

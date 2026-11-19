@@ -97,12 +97,22 @@ local function setup(opts)
     rawset(T.me, "PlayerState", T.ps[1])
     rawset(T.other, "PlayerState", T.ps[2])
     -- story 5's recovery: the montage, PlayingMontage and the movement mode of each character
+    -- (story 10: the montage named, the stop's argument kept, the movement mode readable, a call can be made to fail)
     for _, ch in ipairs({ T.me, T.other }) do
-        rawset(ch, "montage", { IsValid = function() return true end })
+        rawset(ch, "montage", { IsValid = function() return true end,
+                                GetFName = function() return { ToString = function() return "AnimSeq_EyeGouge_Vic_Montage" end } end })
         rawset(ch, "stops", 0)
         rawset(ch, "GetCurrentMontage", function(c) return rawget(c, "montage") end)
-        rawset(ch, "StopAnimMontage", function(c) rawset(c, "stops", rawget(c, "stops") + 1) end)
-        rawset(ch, "CharacterMovement", { SetMovementMode = function(m, mode) rawset(ch, "mode", mode) end })
+        rawset(ch, "StopAnimMontage", function(c, m)
+            if rawget(c, "stopFails") then error("bad argument #1 to StopAnimMontage") end
+            rawset(c, "stops", rawget(c, "stops") + 1)
+            rawset(c, "stoppedWith", m)
+        end)
+        rawset(ch, "CharacterMovement", { MovementMode = 0, SetMovementMode = function(m, mode)
+            if rawget(ch, "modeFails") then error("SetMovementMode:\nno such function") end
+            rawset(ch, "mode", mode)
+            if not rawget(ch, "modeSticks") then m.MovementMode = mode end
+        end })
         rawset(ch, "PlayingMontage", true)
     end
     -- story 5: core.net (a fake; nil without opts.net)
@@ -1451,9 +1461,72 @@ do -- after an execution began here, the player alive at 6 s, no newer grab: REC
     eq(runDelayed(hits.RECOVER_DELAY), 1, "recovery: one check 6 s later")
     eq(count("^RECOVER hp=40 montage=yes stop=true playing=true movement=true$"), 1, "recovery: RECOVER line", dump())
     eq(T.me.stops, 1, "recovery: StopAnimMontage")
+    eq(rawget(T.me, "stoppedWith"), rawget(T.me, "montage"), "recovery: StopAnimMontage(the current montage)")
     eq(rawget(T.me, "PlayingMontage"), false, "recovery: PlayingMontage = false")
     eq(T.me.mode, 1, "recovery: SetMovementMode(1)")
-    eq(T.freed > 0, true, "recovery: the weak handle freed")
+    -- story 10: the readback 0.5 s after the writes, the handle kept until then
+    local freedBefore = T.freed
+    eq(count("^RECOVER readback"), 0, "readback: not before its delay")
+    eq(runDelayed(hits.READBACK_DELAY), 1, "readback: one readback 0.5 s later")
+    eq(count("^RECOVER readback playing=false movement=1 montage=AnimSeq_EyeGouge_Vic_Montage hp=40$"), 1, "readback: what the pawn reads now", dump())
+    eq(T.freed, freedBefore + 1, "recovery: the weak handle freed after the readback")
+end
+do -- story 10: no current montage: no stop call, stop=skip; the readback still runs
+    setup{ knobs = nil, diff = 0 }
+    meekGrab(T.me)
+    T.me._hp = 40
+    rawset(T.me, "montage", nil)
+    runDelayed(hits.RECOVER_DELAY)
+    eq(count("^RECOVER hp=40 montage=none stop=skip playing=true movement=true$"), 1, "no montage: stop=skip", dump())
+    eq(T.me.stops, 0, "no montage: no StopAnimMontage call")
+    eq(T.me.mode, 1, "no montage: SetMovementMode(1) all the same")
+    runDelayed(hits.READBACK_DELAY)
+    eq(count("^RECOVER readback playing=false movement=1 montage=none hp=40$"), 1, "no montage: readback", dump())
+end
+do -- story 10: a failed call logs its error text (one line); the readback shows the server's correction
+    setup{ knobs = nil, diff = 0 }
+    meekGrab(T.me)
+    T.me._hp = 40
+    rawset(T.me, "stopFails", true)
+    rawset(T.me, "modeFails", true)
+    runDelayed(hits.RECOVER_DELAY)
+    eq(count("^RECOVER hp=40 montage=yes stop=false playing=true movement=false err=stop: .*bad argument #1 to StopAnimMontage; movement: .*SetMovementMode: no such function$"), 1,
+       "failed calls: stop=false movement=false and their error text", dump())
+    runDelayed(hits.READBACK_DELAY)
+    eq(count("^RECOVER readback playing=false movement=0 montage=AnimSeq_EyeGouge_Vic_Montage hp=40$"), 1, "failed calls: readback", dump())
+    setup{ knobs = nil, diff = 0 }
+    meekGrab(T.me)
+    T.me._hp = 40
+    rawset(T.me, "modeSticks", true) -- the call returns, the mode reads back unchanged (a server correction)
+    runDelayed(hits.RECOVER_DELAY)
+    eq(count("^RECOVER hp=40 montage=yes stop=true playing=true movement=true$"), 1, "mode corrected: the call itself succeeded")
+    runDelayed(hits.READBACK_DELAY)
+    eq(count("^RECOVER readback playing=false movement=0 "), 1, "mode corrected: the readback shows movement=0", dump())
+end
+do -- story 10: the pawn gone or another world by the readback: one line, the handle freed; none when nothing acted
+    setup{ knobs = nil, diff = 0 }
+    meekGrab(T.me)
+    T.me._hp = 40
+    runDelayed(hits.RECOVER_DELAY)
+    rawset(T.me, "_gone", true)
+    local freedBefore = T.freed
+    runDelayed(hits.READBACK_DELAY)
+    eq(count("^RECOVER readback gone$"), 1, "readback: pawn gone", dump())
+    eq(T.freed, freedBefore + 1, "readback: pawn gone, handle freed")
+    setup{ knobs = nil, diff = 0 }
+    meekGrab(T.me)
+    T.me._hp = 40
+    runDelayed(hits.RECOVER_DELAY)
+    T.world = "World /Game/Maps/Other.Other"
+    runDelayed(hits.READBACK_DELAY)
+    eq(count("^RECOVER readback gone$"), 1, "readback: another world")
+    setup{ knobs = nil, diff = 0 }
+    meekGrab(T.me)
+    T.me._hp = 0
+    local f0 = T.freed
+    runDelayed(hits.RECOVER_DELAY)
+    eq(runDelayed(hits.READBACK_DELAY), 0, "dead at 6 s: no readback scheduled")
+    eq(T.freed, f0 + 1, "dead at 6 s: the handle freed at once")
 end
 do -- not fired if a newer grab began (even a survivable one), nor when dead, nor for a survivable grab
     setup{ knobs = nil, diff = 1 }

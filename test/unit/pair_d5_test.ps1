@@ -254,6 +254,60 @@ try {
     Logs ($h14 + $ends) ($v14 + $vEnds)
     Ok ((Get-DpD14Report).Verdict -eq 'FAIL') 'd14-kill-modded: a failed session fails'
     $result.Outcome = 'PASS'
+
+    # Story 10: d10-measure (host: the driver only, with measure.txt; B: core, Difficulty, client-watch with measure.txt).
+    $sc = $PairScenarios['d10-measure']
+    Ok ($null -ne $sc) 'd10-measure is registered with pair.ps1'
+    foreach ($key in 'Summary', 'Prereq', 'HostModPaths', 'VMSetup', 'VMRestore', 'AfterJoin', 'Check', 'HostFiles') { Ok ($null -ne $sc[$key]) "d10-measure has $key" }
+    Ok ($sc.HostFiles['PairDriver\Scripts\difficulty.txt'] -eq '0') 'd10-measure runs a Nightmare lobby'
+    $mp = @(& $sc.HostModPaths)
+    Ok ($mp.Count -eq 1 -and (Split-Path $mp[0] -Leaf) -eq 'DifficultyPair') 'd10-measure: only the driver on the host (no core, no Difficulty)' ($mp -join ' | ')
+    Ok ((Get-Content (Join-Path $mp[0] 'Scripts\role.txt') -Raw) -eq 'host-spawn' -and (Test-Path (Join-Path $mp[0] 'Scripts\measure.txt'))) 'd10-measure: host-spawn with measure.txt'
+    Ok (-not (Test-Path (Join-Path $mp[0] 'Scripts\watcher-near.txt'))) 'd10-measure: no watcher-near.txt'
+    Ok ($sc.VMSetup.ToString() -match 'Set-DpVMModded -Modded -Measure') 'd10-measure: B modded, client-watch with measure.txt'
+    Ok (Test-Path (Join-Path (Get-DpStage -Role 'client-watch' -Measure) 'Scripts\measure.txt')) 'client-watch -Measure: measure.txt staged'
+    Ok (-not (Test-Path (Join-Path (Get-DpStage -Role 'client-watch') 'Scripts\measure.txt'))) 'client-watch: no measure.txt otherwise'
+    Ok (-not (Test-Path (Join-Path (@(& $PairScenarios['d5-grab-modded'].HostModPaths)[2]) 'Scripts\measure.txt'))) 'd5-grab-modded: no measure.txt'
+
+    $hEnd = '[DifficultyPair] END result=PASS checks=4 failures=0 role=host-spawn'
+    $vEnd = '[DifficultyPair] END result=PASS checks=1 failures=0 role=client-watch'
+    # One execution on B: B's grab (seq bs), the host's grab (seq hs); B walks from +6 s; the host sees B move (or not).
+    function D10Exec([int] $bs, [int] $hs, [string] $enemy, [string] $montage, [int] $mode16 = 1, [int] $step = 30, [switch] $Cut) {
+        $v = @("[DifficultyPair] GRAB #$bs $enemy AttackMulti victim=me hpSeen=100.00 hpNow=100.00 montage=$montage diff=0 (start 0)")
+        $h = @("[DifficultyPair] GRAB #$hs $enemy AttackMulti victim=other hpSeen=100.00 hpNow=100.00 montage=$montage diff=0 (start 0)")
+        foreach ($t in 5, 6, 12) { $v += "[DifficultyPair] AFTERGRAB #$bs me $t s: montage=none PlayingMontage=false movement=1 hp=75.00 x=0 y=0 z=0" }
+        if (-not $Cut) { $v += "[DifficultyPair] AFTERGRAB #$bs me 16 s: montage=none PlayingMontage=false movement=$mode16 hp=75.00 x=300 y=0 z=0" }
+        $v += "[DifficultyPair] WALK #$bs done dist=300 start=(x=0 y=0 z=0) end=(x=300 y=0 z=0) inputs=330 fails=0"
+        foreach ($t in 1..16) { $x = if ($t -le 6) { 0 } else { ($t - 6) * $step }; $h += "[DifficultyPair] OTHERPOS #$hs t=$t x=$x y=0 z=0 montage=none PlayingMontage=false movement=1 hp=75.00" }
+        @{ H = $h; V = $v }
+    }
+    $vReady = @('[Difficulty] READY version=0.1.0 Nucleus=0.15.0 need=0.15.0', '[Difficulty] host has no Difficulty, inactive (no-state)',
+                '[Difficulty] RECOVER hp=75 montage=yes stop=true playing=true movement=true',
+                '[Difficulty] RECOVER readback playing=false movement=1 montage=none hp=75')
+    $a = D10Exec 3 7 'Meek' 'AM_StabAndDump'; $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage'
+    Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
+    $r = Get-DpD10Report
+    Ok ($r.Verdict -eq 'NOT-STUCK' -and $r.D10.Executions.Count -eq 2) 'd10: both executions moved -> NOT-STUCK' (($r.D10.Notes + $r.D10.Executions) -join '; ')
+    Ok ($r.D10.Rows[1].HostMovedCm -eq 300 -and $r.D10.Rows[1].HostSeq -eq 15) 'd10: the host''s view paired by order, 300 cm from +6 s' ($r.D10.Rows[1] | Out-String)
+    Ok ($r.D10.Recover.Count -eq 2) 'd10: RECOVER and readback reported' ($r.D10.Recover -join '; ')
+    $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage' -step 0
+    Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
+    $r = Get-DpD10Report
+    Ok ($r.Verdict -eq 'STUCK' -and $r.D10.Rows[1].State -eq 'stuck') 'd10: the host never sees B move -> STUCK' (($r.D10.Notes + $r.D10.Executions) -join '; ')
+    $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage' -mode16 0
+    Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
+    Ok ((Get-DpD10Report).Verdict -eq 'STUCK') 'd10: B not walking on its own screen at 16 s -> STUCK'
+    $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage' -Cut
+    Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
+    $r = Get-DpD10Report
+    Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'no judged Watcher EyeGouge')) 'd10: the EyeGouge window cut by a newer grab -> INCONCLUSIVE' (($r.D10.Notes) -join '; ')
+    $b = D10Exec 9 15 'Watcher' 'AnimSeq_Headbutt_PunchCombo'
+    Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
+    Ok ((Get-DpD10Report).Verdict -eq 'INCONCLUSIVE') 'd10: no Watcher EyeGouge (a survivable Watcher grab) -> INCONCLUSIVE'
+    $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage'
+    Logs ($a.H + $b.H + '[Difficulty] GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=client spare=yes' + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
+    $r = Get-DpD10Report
+    Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'must run no Difficulty')) 'd10: a host running Difficulty -> INCONCLUSIVE' (($r.D10.Notes) -join '; ')
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

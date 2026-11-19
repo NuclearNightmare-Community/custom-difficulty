@@ -52,6 +52,9 @@
 --                   removes the screen, appends a stale line "99<tab>DT6-gone<tab>cold=50" to the sidecar, reopens,
 --                   deletes B. After each step it reads Difficulty's sidecar: the DT6 entries by index and name, all
 --                   Default, the baseline entries unchanged. A handler that can't be driven is NOTSHOWN.
+--                   Story 14: after B, Meek's Insta-kill box is clicked through its button's click function (core's
+--                   checkbox), DT6-K saved (its entry kill.meek=1), the box clicked again (unticked); after the reopen
+--                   DT6-K is selected (Difficulty's PRESETS select line has kill.meek=1) and deleted at the end.
 -- Story 7 (menu only, no match; VM only: real clicks, a drag and typing through run.ps1 -Target vm):
 --   screen          ten opens of the create-world screen by real clicks on START GAME and Back: the 21 rows in
 --                   VerticalBox_202 (knob rows at children 2-8 after Overlay_28, per-enemy rows right after
@@ -62,7 +65,9 @@
 --                   and on the Classified Minimum picker's (tokens hint follows), Cold cleared, a preset DT7-A with
 --                   Enemy Damage 17 saved on Hard, None (rows kept), the screen on Easy, DT7-A (17, Default rows follow
 --                   its Hard), DT7-A deleted; one more open starts Default on Normal. Screenshots screen-rows,
---                   screen-nightmare, screen-preset.
+--                   screen-nightmare, screen-preset. Story 14: before the preset part, an Insta-kill box in the eight
+--                   kill rows only (SCBOXES), a real click on Meek's box (Difficulty's ROWS change kill.meek=1 is
+--                   check.ps1's; DT7-A is then saved with it) and the screenshot screen-kill.
 -- Story 8 (the epic's success checks):
 --   spread          Normal, Damage Spread 20: 200 Meek standard hits at full Health (refilled between hits), straight
 --                   through the hooked static NNEnemyAttackContext:ApplyLockedDamage(<an idle spawned Meek>, 25) after
@@ -92,6 +97,15 @@
 --   boss-default    the same with no knobs (the control): OK when the stock grab kills (alive=false by 12 s). That
 --                   death is expected: BOSSDEATH <boss> expected (stock), never DEATH, and the run ends there (a
 --                   remaining Apex is "NOTSHOWN Apex: the control player is dead", not counted).
+-- Story 14 (difficulty v1; the Insta-kill boxes):
+--   insta-kill      Normal, kill.meek=1: a Stalker grab at 100 HP takes the stock 25 and the player moves again 8 s
+--                   after the hit (an unticked enemy is unchanged); then a Meek grab at 100 HP plays the execution
+--                   (StabAndDump: Difficulty flips the game's survivable test) and its hit leaves Health <= 0. That
+--                   death is expected: INSTAKILL <case> death expected (the pawn gone, or Health <= 0 for 12 s), never
+--                   DEATH, and the run ends there.
+--   insta-kill-boss Nightmare, Enemy Damage 25, kill.slugQueen=1: as boss, the Apex first (alive at 12 s with 75 HP,
+--                   moving), then the Slug Queen: the stock presentation and the player dead at 12 s (BOSSDEATH Slug
+--                   Queen expected (insta-kill)); the run ends there.
 -- White Outs: every scenario sets the game instance's DisableWhiteOuts before the match (cold-whiteout clears it) and
 -- logs one WHITEOUT line after the start; check.ps1 requires disabled=true, or disabled=false for cold-whiteout.
 -- Lines: OK / FAIL <check>; NOTSHOWN <case> (the driver couldn't make the case happen: not a pass);
@@ -144,6 +158,13 @@ local SCENARIOS = {
     -- Story 13: the bosses' finisher grabs (Nightmare; boss Enemy Damage 25, boss-default the stock control).
     ["boss"] = { diff = 0, special = "boss", cases = {} },
     ["boss-default"] = { diff = 0, special = "boss", control = true, cases = {} },
+    -- Story 14: the Insta-kill boxes (insta-kill: kill.meek=1 on Normal; insta-kill-boss: Enemy Damage 25 and
+    -- kill.slugQueen=1 on Nightmare, the Apex first).
+    ["insta-kill"] = { diff = 2, cases = {
+        { enemy = STALKER, want = 25, tol = 0.05, moves = true, moveAfterHit = true, moveDelay = 8 }, -- unticked: stock
+        { enemy = MEEK, kills = true, execution = "StabAndDump" },                                     -- ticked: killed
+    } },
+    ["insta-kill-boss"] = { diff = 0, special = "boss", kill = "SlugQueen_AI_C", order = { "Apex", "Slug Queen" }, apexHp = 75, cases = {} },
 }
 -- spread-grab: 20 Meek grabs, each at Health 26 (E 25: survivable; the hit takes at most 25).
 for _ = 1, 20 do
@@ -260,6 +281,8 @@ local function onHit(via, attacker)
     local loss = hp and ((c.base or 100) - hp) or nil
     if c.lo then -- a rolled hit: within the knob's 2-sigma range
         check(loss ~= nil and loss >= c.lo - 0.05 and loss <= c.hi + 0.05, "%s %s hit took %s HP (want %s..%s) via %s, hp now %s", SCENARIO, c.label, fmt1(loss), fmt1(c.lo), fmt1(c.hi), via, fmt1(hp))
+    elseif c.kills then -- story 14: a ticked enemy's grab kills (at least Health applied)
+        check(hp ~= nil and hp <= 0, "%s %s the grab's hit killed: took %s HP, hp now %s (want Health <= 0) via %s", SCENARIO, c.label, fmt1(loss), fmt1(hp), via)
     elseif c.maxLoss then -- a survivable grab from c.base: at most maxLoss taken, never below 1 HP
         check(loss ~= nil and hp >= 1 and loss <= c.maxLoss + 0.05, "%s %s hit took %s HP from %s (want at most %s, Health >= 1) via %s, hp now %s", SCENARIO, c.label, fmt1(loss), fmt1(c.base), fmt1(c.maxLoss), via, fmt1(hp))
     else
@@ -321,6 +344,7 @@ local function installGrabHook(path)
             local m = montageOf(v)
             say("GRABSEEN %s montage=%s hp=%s", c.label, m, fmt1(hpOf(v)))
             if c.survivable then check(m:find(c.survivable, 1, true) ~= nil, "%s %s grab played the survivable montage (%s; want *%s*)", SCENARIO, c.label, m, c.survivable) end
+            if c.execution then check(m:find(c.execution, 1, true) ~= nil, "%s %s grab played the execution montage (%s; want *%s*)", SCENARIO, c.label, m, c.execution) end
         end
     end)
 end
@@ -477,7 +501,22 @@ for i, c in ipairs(SC.cases) do
         local t = os.clock()
         return function()
             local m = me()
-            if not m then if gone() then S.dead = true return true end return false end
+            if not m then
+                if gone() then
+                    -- story 14: a ticked enemy's kill is the expected end (only after its hit was judged)
+                    if c.kills and c.judged then c.died = c.died or "the pawn gone" return true end
+                    S.dead = true return true
+                end
+                return false
+            end
+            -- story 14: the killed player still possessed: dead once Health stays <= 0 for 12 s after the hit
+            if c.kills and c.judged and c.hitAt then
+                local hp = hpOf(m)
+                if hp and hp > 0 then c.lowSince = nil else c.lowSince = c.lowSince or os.clock() end
+                if c.lowSince and os.clock() - c.hitAt >= 12 then c.died = "Health " .. fmt1(hp) .. " for 12 s" return true end
+                if os.clock() - t > 120 then return true end
+                return false
+            end
             pcall(function() m.Temperature = 0 end) -- no frostbite during the cases (test only)
             if os.clock() - (c.clearAt or 0) >= 2 then c.clearAt = os.clock() clearOthers(c.actor) end
             if os.clock() - (c.pokeAt or 0) >= 10 and not c.judged then
@@ -490,13 +529,17 @@ for i, c in ipairs(SC.cases) do
                     pcall(function() x2:FindNewTarget() end)
                 end
             end
-            -- flip: 6 s after the grab, the player must be free (no montage, walking).
-            if c.moves and c.grabAt and not c.moveChecked and os.clock() - c.grabAt >= 6 then
+            -- flip: 6 s after the grab, the player must be free (no montage, walking). Story 14's Stalker case (no grab
+            -- hook for it) counts moveDelay seconds from its hit instead.
+            local from = c.grabAt or (c.moveAfterHit and c.hitAt) or nil
+            local delay = c.moveDelay or 6
+            if c.moves and from and not c.moveChecked and os.clock() - from >= delay then
                 c.moveChecked = true
                 local playing, mode
                 pcall(function() playing = m.PlayingMontage end)
                 pcall(function() mode = num(m.CharacterMovement.MovementMode) end)
-                check(playing ~= true and mode == 1, "%s %s moving again 6 s after the grab (PlayingMontage=%s movement=%s montage=%s hp=%s)", SCENARIO, c.label, tostring(playing), tostring(mode), montageOf(m), fmt1(hpOf(m)))
+                check(playing ~= true and mode == 1, "%s %s moving again %d s after the %s (PlayingMontage=%s movement=%s montage=%s hp=%s)", SCENARIO, c.label, delay,
+                    c.grabAt and "grab" or "hit", tostring(playing), tostring(mode), montageOf(m), fmt1(hpOf(m)))
             end
             local done = c.judged and (not c.moves or c.moveChecked) and (not c.survivable or c.grabs) and (not c.grab or c.grabs)
             if done then return true end
@@ -505,15 +548,24 @@ for i, c in ipairs(SC.cases) do
         end, 130, c.label
     end)
     step("despawn " .. c.label, function()
-        if S.dead then return end
+        if S.dead or S.over then return end
         if not c.judged then S.notShown = S.notShown + 1 say("NOTSHOWN %s: the %s didn't hit in 120 s", c.label, c.enemy.name)
-        elseif (c.survivable or c.grab) and not c.grabs then S.notShown = S.notShown + 1 say("NOTSHOWN %s: no grab seen", c.label) end
+        elseif (c.survivable or c.grab or c.execution) and not c.grabs then S.notShown = S.notShown + 1 say("NOTSHOWN %s: no grab seen", c.label) end
+        if c.kills and c.judged then
+            -- story 14: the expected death ends the run (no refill, no later case)
+            if check(c.died ~= nil, "%s %s the player died after the grab (%s)", SCENARIO, c.label, tostring(c.died or "still alive")) then
+                say("INSTAKILL %s death expected (%s)", c.label, c.died)
+            end
+            S.over = true
+            S.case = nil
+            return
+        end
         S.case = nil
         local x = c.actor and StaticFindObject(c.actor)
         if valid(x) then pcall(function() x:K2_DestroyActor() end) end
         return after(4), 6
     end)
-    step("refill after " .. c.label, function() refill("after " .. c.label) return after(1), 3 end)
+    step("refill after " .. c.label, function() if S.over then return end refill("after " .. c.label) return after(1), 3 end)
 end
 
 -- ---------------------------------------------------------------- story 4 phases
@@ -1177,6 +1229,13 @@ if SC.special == "boss" then
         { name = "Apex", path = "/Game/AI/ApexPredator/ApexPredatorAI.ApexPredatorAI_C", short = "ApexPredatorAI_C" },
     }
     local NEAR, NUDGE_EVERY, LADDER_AT, ATTACK_EVERY, GIVE_UP = 100, 2, 20, 5, 60
+    -- Story 14: insta-kill-boss runs the Apex first (SC.order) and expects the ticked boss (SC.kill) to kill.
+    if SC.order then
+        local byName = {}
+        for _, b in ipairs(BOSSES) do byName[b.name] = b end
+        BOSSES = {}
+        for _, n in ipairs(SC.order) do BOSSES[#BOSSES + 1] = byName[n] end
+    end
     local B = { cur = nil, over = false, tempLogged = false }
     local control = SC.control == true
     local function tf(v) if v == nil then return "?" end return tostring(v) end
@@ -1341,15 +1400,23 @@ if SC.special == "boss" then
                     local s = snap(c.vpath)
                     stateLine(c, 12, s)
                     local died = not s.alive -- the spec's rule: alive=false at 12 s
-                    if control then
-                        check(died, "%s %s the stock grab kills (alive=false at 12 s; at 0/6/12 s alive=%s/%s/%s hp=%s)", SCENARIO, c.name,
-                            tostring(c.s0.alive), tostring(c.s6.alive), tostring(s.alive), fmt1(s.hp))
+                    local ticked = SC.kill ~= nil and SC.kill == c.short -- story 14: this boss's Insta-kill box
+                    if control or ticked then
+                        local why = control and "stock" or "insta-kill"
+                        check(died, "%s %s the %s grab kills (alive=false at 12 s; at 0/6/12 s alive=%s/%s/%s hp=%s)", SCENARIO, c.name,
+                            control and "stock" or "ticked", tostring(c.s0.alive), tostring(c.s6.alive), tostring(s.alive), fmt1(s.hp))
+                        if ticked then
+                            check(c.presentation == "yes", "%s %s the kill presentation played (presentation=%s)", SCENARIO, c.name, tostring(c.presentation))
+                        end
                         if died then
-                            say("BOSSDEATH %s expected (stock)", c.name)
+                            say("BOSSDEATH %s expected (%s)", c.name, why)
                             B.over = true
                         end
                     else
                         check(s.alive and s.hp ~= nil and s.hp >= 1, "%s %s alive at 12 s with Health >= 1 (alive=%s hp=%s)", SCENARIO, c.name, tostring(s.alive), fmt1(s.hp))
+                        if SC.apexHp and c.short == "ApexPredatorAI_C" then
+                            check(s.hp ~= nil and math.abs(s.hp - SC.apexHp) <= 0.05, "%s %s left %s HP at 12 s (want %s: unticked, the scaled hit)", SCENARIO, c.name, fmt1(s.hp), fmt1(SC.apexHp))
+                        end
                         check(s.playing == false and s.movement == 1, "%s %s moving at 12 s (PlayingMontage=%s movement=%s montage=%s)", SCENARIO, c.name,
                             tf(s.playing), tf(s.movement), s.montage)
                         if not s.alive then S.dead = true end
@@ -1393,6 +1460,8 @@ if SC.special == "presets" then
     local H_TEXT = "BndEvt__CreateServer_EditableText_K2Node_ComponentBoundEvent_32_OnEditableTextChangedEvent__DelegateSignature"
     local PREFIX = "DT6-"
     local P = { baseline = nil, file = nil, abort = false }
+    local KPRESET = { PREFIX .. "K", "kill.meek=1" } -- story 14: the preset saved with Meek's Insta-kill box ticked
+    local BOX_TAG = "nucleus:" .. ME:gsub("Driver$", "") .. ":c-kill.meek"
     local function str(v) if type(v) == "string" then return v end local ok, s = pcall(function() return v:ToString() end) return ok and s or nil end
     local function isOurs(name) return name:sub(1, #PREFIX) == PREFIX end
     local function screen()
@@ -1434,23 +1503,59 @@ if SC.special == "presets" then
         return #t > 0 and table.concat(t, ",") or "-"
     end
     -- After a step: the baseline entries unchanged, and exactly the DT6-* entries in want (names in order, right after
-    -- the baseline, all Default); the game's own DT6 presets the same names.
+    -- the baseline, all Default unless an entry of want is { name, values }); the game's own DT6 presets the same names.
     local function judge(label, want)
         local list = readFile()
         if not check(list ~= nil, "%s the sidecar exists (%s)", label, P.file) then return end
         local base, ours = {}, {}
         for _, e in ipairs(list) do if isOurs(e.name) then ours[#ours + 1] = e else base[#base + 1] = e end end
         check(show(base) == show(P.baseline), "%s baseline entries unchanged (%s)", label, show(base))
-        local exp = {}
-        for i, n in ipairs(want) do exp[i] = { index = #P.baseline + i - 1, name = n, values = "" } end
+        local exp, wantNames = {}, {}
+        for i, n in ipairs(want) do
+            local nm, v = n, ""
+            if type(n) == "table" then nm, v = n[1], n[2] end
+            exp[i] = { index = #P.baseline + i - 1, name = nm, values = v }
+            wantNames[i] = nm
+        end
         check(show(ours) == show(exp), "%s DT6 entries %s (want %s)", label, show(ours), show(exp))
         local cs = screen()
         local game = cs and names(cs)
         if game then
             local g = {}
             for _, n in ipairs(game) do if isOurs(n) then g[#g + 1] = n end end
-            check(table.concat(g, ",") == table.concat(want, ","), "%s the game's DT6 presets [%s] (want [%s])", label, table.concat(g, ","), table.concat(want, ","))
+            check(table.concat(g, ",") == table.concat(wantNames, ","), "%s the game's DT6 presets [%s] (want [%s])", label, table.concat(g, ","), table.concat(wantNames, ","))
         end
+    end
+    -- Story 14: Meek's Insta-kill box (core's checkbox, a tagged button widget in the Meek row), found in the screen's
+    -- tree (a user widget's own tree through its HBox), and clicked through the button's click function, which core's
+    -- click hook routes to the checkbox (Difficulty's onChange logs ROWS change kill.meek=...).
+    local function tagged(cs, tag)
+        local ok0, root = pcall(function() return cs.WidgetTree.RootWidget end)
+        if not ok0 or not valid(root) then return nil end
+        local stack, seen = { root }, 0
+        while #stack > 0 and seen < 4096 do
+            local w = table.remove(stack)
+            seen = seen + 1
+            local okT, t = pcall(function() return w.CoreTag:ToString() end)
+            if okT and t == tag then return w end
+            local okN, n = pcall(function() return w:GetChildrenCount() end)
+            if okN and type(n) == "number" then
+                for i = n - 1, 0, -1 do
+                    local okC, c = pcall(function() return w:GetChildAt(i) end)
+                    if okC and valid(c) then stack[#stack + 1] = c end
+                end
+            end
+            local okH, hb = pcall(function() return w.HBox end)
+            if okH and valid(hb) then stack[#stack + 1] = hb end
+        end
+        return nil
+    end
+    local function clickBox(what)
+        return drive(what, function(cs)
+            local w = tagged(cs, BOX_TAG)
+            if not w then error("no widget tagged " .. BOX_TAG .. " on the screen") end
+            w:Nucleus_OnClicked()
+        end)
     end
     -- Calls one of the screen's handlers; a handler that can't be driven is NOTSHOWN (and ends the scenario).
     local function drive(what, fn)
@@ -1546,19 +1651,23 @@ if SC.special == "presets" then
     end)
     pstep("2 save A", function() if save(PREFIX .. "A") then judge("2 save A:", { PREFIX .. "A" }) end return after(1), 3 end)
     pstep("2 save B", function() if save(PREFIX .. "B") then judge("2 save B:", { PREFIX .. "A", PREFIX .. "B" }) end return after(1), 3 end)
+    -- Story 14: K saved with Meek's box ticked, then the box unticked again (the later steps stay Default).
+    pstep("2 tick Meek's box", function() clickBox("tick Meek's Insta-kill box") return after(1), 3 end)
+    pstep("2 save K", function() if save(KPRESET[1]) then judge("2 save K:", { PREFIX .. "A", PREFIX .. "B", KPRESET }) end return after(1), 3 end)
+    pstep("2 untick Meek's box", function() clickBox("untick Meek's Insta-kill box") return after(1), 3 end)
     pstep("3 select A", function()
-        if selectName("select " .. PREFIX .. "A", PREFIX .. "A") then judge("3 select A:", { PREFIX .. "A", PREFIX .. "B" }) end
+        if selectName("select " .. PREFIX .. "A", PREFIX .. "A") then judge("3 select A:", { PREFIX .. "A", PREFIX .. "B", KPRESET }) end
         return after(1), 3
     end)
     pstep("4 update A", function()
-        if drive("update " .. PREFIX .. "A", function(cs) cs[H_UPDATE](cs) end) then judge("4 update A:", { PREFIX .. "A", PREFIX .. "B" }) end
+        if drive("update " .. PREFIX .. "A", function(cs) cs[H_UPDATE](cs) end) then judge("4 update A:", { PREFIX .. "A", PREFIX .. "B", KPRESET }) end
         return after(1), 3
     end)
     pstep("4 select None", function()
-        if drive("select None", function(cs) selectAt(cs, 0, "None") end) then judge("4 select None:", { PREFIX .. "A", PREFIX .. "B" }) end
+        if drive("select None", function(cs) selectAt(cs, 0, "None") end) then judge("4 select None:", { PREFIX .. "A", PREFIX .. "B", KPRESET }) end
         return after(1), 3
     end)
-    pstep("4 delete A", function() if deleteName(PREFIX .. "A") then judge("4 delete A:", { PREFIX .. "B" }) end return after(1), 3 end)
+    pstep("4 delete A", function() if deleteName(PREFIX .. "A") then judge("4 delete A:", { PREFIX .. "B", KPRESET }) end return after(1), 3 end)
     pstep("5 remove the screen", function()
         drive("remove the screen", function(cs) cs:RemoveFromParent() end)
         return function() return screen() == nil end, 5, "the screen removed"
@@ -1575,8 +1684,14 @@ if SC.special == "presets" then
         if not open("open #2") then return end
         return after(2), 4
     end)
-    pstep("5 after reopen", function() judge("5 reopen:", { PREFIX .. "B" }) end)
-    pstep("6 delete B", function() if deleteName(PREFIX .. "B") then judge("6 delete B:", {}) end return after(1), 3 end)
+    pstep("5 after reopen", function() judge("5 reopen:", { PREFIX .. "B", KPRESET }) end)
+    -- Story 14: K read back after the reopen (Difficulty's PRESETS select line carries kill.meek=1: check.ps1).
+    pstep("5 select K", function()
+        if selectName("select " .. KPRESET[1], KPRESET[1]) then judge("5 select K:", { PREFIX .. "B", KPRESET }) end
+        return after(1), 3
+    end)
+    pstep("6 delete B", function() if deleteName(PREFIX .. "B") then judge("6 delete B:", { KPRESET }) end return after(1), 3 end)
+    pstep("6 delete K", function() if deleteName(KPRESET[1]) then judge("6 delete K:", {}) end return after(1), 3 end)
     step("6 close", function()
         local cs = screen()
         if cs then pcall(function() cs:RemoveFromParent() end) say("CLOSE the screen removed") end
@@ -1671,6 +1786,22 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
         end
         return nil
     end
+    -- Story 14: the Insta-kill box in an enemy's row (a button widget tagged c-kill.<enemy>), or nil; any c-* widget
+    -- there counts for the "no box" rows.
+    local function boxW(enemy, any)
+        local r = rowW("dmg." .. enemy)
+        if not r then return nil end
+        local stack, seen = { prop(r, "HBox") }, 0
+        while #stack > 0 and seen < 256 do
+            local w = table.remove(stack)
+            seen = seen + 1
+            local t = tagOf(w)
+            if type(t) == "string" and (t == TAG .. "c-kill." .. enemy or (any and t:sub(1, #TAG + 2) == TAG .. "c-")) then return w end
+            for i = nchild(w) - 1, 0, -1 do local c = child(w, i) if c then stack[#stack + 1] = c end end
+        end
+        return nil
+    end
+    local KILLROW = { meek = true, mimic = true, psycho = true, husk = true, watcher = true, stalker = true, slugQueen = true, apex = true }
     -- A slider's bar value, box text and hint text.
     local function sstate(key)
         local w = sliderW(key)
@@ -1981,6 +2112,33 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
         local val, box, hint = sstate("revives")
         check(cm == 1 and opt == "Hard", "SCCLASS a real click on the Classified Minimum picker's arrow: Minium Classified %s, shown %s (want 1, Hard)", tostring(cm), tostring(opt))
         check(box == "" and hint == "4" and near(val, 4), "SCCLASS the Default Reinforcement Tokens row follows: hint %s, slider at %s, box '%s' (want 4)", tostring(hint), fmtv(val), tostring(box))
+    end)
+
+    -- Story 14: the Insta-kill boxes in the eight kill rows only, then a real click on Meek's (the list scrolled to its
+    -- row first and back to its start after, so the later clicks find their rows on screen).
+    sstep("sc: boxes", function()
+        local bad = {}
+        for _, e in ipairs(ENEMY) do
+            local has = boxW(e, not KILLROW[e]) ~= nil
+            if has ~= (KILLROW[e] == true) then bad[#bad + 1] = e .. (has and " has a box" or " has no box") end
+        end
+        check(#bad == 0, "SCBOXES an Insta-kill box in the eight kill rows only (Meek .. Apex Predator; none for Worm, Leech, Bat, Infected Dog, Infected Player, Playable Monster)%s",
+            #bad > 0 and (": " .. table.concat(bad, ", ")) or "")
+    end)
+    sstep("sc: scroll to Meek", function()
+        local s = screen()
+        local sb = s and rootOf(s) and findIn(rootOf(s), "ScrollBox_54")
+        local r = rowW("dmg.meek")
+        if sb and r then pcall(function() sb:ScrollWidgetIntoView(r, false, 2, 0) end) end
+        return after(1), 3
+    end)
+    click("Meek Insta-kill box", function() return boxW("meek") end)
+    shot("screen-kill")
+    sstep("sc: scroll back", function()
+        local s = screen()
+        local sb = s and rootOf(s) and findIn(rootOf(s), "ScrollBox_54")
+        if sb then pcall(function() sb:ScrollToStart() end) end
+        return after(1), 3
     end)
 
     -- A preset: Enemy Damage 17 (Cold back to Default) saved as DT7-A on Hard; 40 typed; None leaves the rows; the

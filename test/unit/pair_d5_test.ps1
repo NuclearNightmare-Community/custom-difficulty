@@ -207,6 +207,53 @@ try {
     Logs $h8 $v8
     Ok ((Get-DpD8Report).Verdict -eq 'FAIL') 'd8-tokens: a failed session fails'
     $result.Outcome = 'PASS'
+
+    # ---------------------------------------------------------------- story 14: d14-kill-modded
+    $sc14 = $PairScenarios['d14-kill-modded']
+    Ok ($null -ne $sc14) 'd14-kill-modded is registered with pair.ps1'
+    foreach ($key in 'Summary', 'Prereq', 'HostModPaths', 'VMSetup', 'VMRestore', 'AfterJoin', 'Check', 'HostFiles') { Ok ($null -ne $sc14[$key]) "d14-kill-modded has $key" }
+    Ok ($sc14.HostFiles['PairDriver\Scripts\difficulty.txt'] -eq '0') 'd14-kill-modded runs a Nightmare lobby'
+    $p14 = @(& $sc14.HostModPaths)
+    Ok ($p14.Count -eq 3 -and $p14[0] -like '*Nucleus\build\package' -and (Split-Path $p14[1] -Leaf) -eq 'Difficulty' -and (Split-Path $p14[2] -Leaf) -eq 'DifficultyPair') 'd14-kill-modded: host mods core, Difficulty, DifficultyPair' ($p14 -join ' | ')
+    Ok ((Get-Content (Join-Path $p14[1] 'Scripts\dev.lua') -Raw) -match 'return \{ debug = true, knobs = "enemyDamage=25;kill\.meek=1" \}') 'd14-kill-modded: the host''s Difficulty has enemyDamage=25;kill.meek=1 (dev.lua)'
+    Ok ((Get-Content (Join-Path $p14[2] 'Scripts\role.txt') -Raw) -eq 'host-spawn') 'd14-kill-modded: host role host-spawn (revives B)'
+    Ok ($sc14.VMSetup.ToString() -match 'Set-DpVMModded -Modded') 'd14-kill-modded: B modded'
+    $h14 = @('[Difficulty] MATCH start knobs=enemyDamage=25 kill.meek=1',
+             '[Difficulty] GRAB enemy=meek hp=100 E=25 game=e decision=e flip=none victim=client spare=yes kill=yes',
+             '[Difficulty] HIT enemy=meek via=ApplyLockedDamage stock=100 scaled=25 rolled=25 applied=100 hp=100 kind=execution',
+             '[DifficultyPair] CASE Meek on B: B died (grabs=1 hp=0.00)',
+             '[DifficultyPair] REVIVE before Mimic B dead after 6 s: radio:ReinforceSpecficPlayer(B) ok=true ; radio:Reinformant() every 5 s as the fallback',
+             '[DifficultyPair] REVIVE before Mimic B back after 8 s')
+    foreach ($e in @('mimic', 'psycho', 'watcher', 'stalker')) { $h14 += "[Difficulty] GRAB enemy=$e hp=100 E=25 game=e decision=s flip=101 victim=client spare=yes" }
+    $v14 = @('[Difficulty] READY version=0.1.0 Nucleus=0.15.0 need=0.15.0',
+             '[Difficulty] GRAB enemy=meek hp=100 E=25 game=e decision=e flip=none victim=local spare=yes kill=yes',
+             '[DifficultyPair] GRAB #1 Meek Attack victim=me hpSeen=100.00 hpNow=100.00 montage=AM_StabAndDump diff=0 (start 0)',
+             '[DifficultyPair] MYHP 0.00')
+    Logs ($h14 + $ends) ($v14 + $vEnds)
+    $r = Get-DpD14Report
+    Ok ($r.Verdict -eq 'PASS' -and $r.D14.Misses.Count -eq 0) 'd14-kill-modded: a clean run passes' (($r.D14.Misses) -join '; ')
+    Logs (($h14 -replace ' kill=yes', '') + $ends) ($v14 + $vEnds)
+    $r = Get-DpD14Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D14.Misses -join ';') -match 'victim=client spare=yes kill=yes')) 'd14-kill-modded: no kill=yes on the host -> FAIL' (($r.D14.Misses) -join '; ')
+    Logs ($h14 + $ends) (($v14 -replace 'decision=e flip=none victim=local', 'decision=s flip=101 victim=local') + $vEnds)
+    $r = Get-DpD14Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D14.Misses -join ';') -match '^B: no GRAB enemy=meek')) 'd14-kill-modded: B spares itself -> FAIL' (($r.D14.Misses) -join '; ')
+    Logs ($h14 + $ends) (($v14 -replace 'AM_StabAndDump', 'AM_StabStomach' -replace 'MYHP 0.00', 'MYHP 75.00') + $vEnds)
+    $r = Get-DpD14Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D14.Misses -join ';') -match 'not the execution montage') -and (($r.D14.Misses -join ';') -match "never read <= 0")) 'd14-kill-modded: B survives on its screen -> FAIL' (($r.D14.Misses) -join '; ')
+    Logs (($h14 | Where-Object { $_ -notmatch 'B back after' }) + $ends) ($v14 + $vEnds)
+    $r = Get-DpD14Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D14.Misses -join ';') -match 'revived 0 of 1')) 'd14-kill-modded: B not revived (a lock-up) -> FAIL' (($r.D14.Misses) -join '; ')
+    Logs (($h14 -replace 'enemy=mimic hp=100 E=25 game=e decision=s flip=101 victim=client spare=yes', 'enemy=mimic hp=100 E=25 game=e decision=e flip=none victim=client spare=yes kill=yes') + $ends) ($v14 + $vEnds)
+    $r = Get-DpD14Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D14.Misses -join ';') -match 'unticked Mimic')) 'd14-kill-modded: an unticked enemy killing -> FAIL' (($r.D14.Misses) -join '; ')
+    Logs (($h14 -replace 'applied=100 hp=100 kind=execution', 'applied=25 hp=100 kind=execution') + $ends) ($v14 + $vEnds)
+    $r = Get-DpD14Report
+    Ok ($r.Verdict -eq 'FAIL' -and (($r.D14.Misses -join ';') -match 'less than Health')) 'd14-kill-modded: the execution below Health -> FAIL' (($r.D14.Misses) -join '; ')
+    $result.Outcome = 'FAIL: players dropped'
+    Logs ($h14 + $ends) ($v14 + $vEnds)
+    Ok ((Get-DpD14Report).Verdict -eq 'FAIL') 'd14-kill-modded: a failed session fails'
+    $result.Outcome = 'PASS'
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

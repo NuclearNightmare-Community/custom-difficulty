@@ -297,24 +297,34 @@ $presets = @((D 'CONNECT ok Nucleus 0.15.1 (pong 0.15.1 boot=1)'), $menu, (D 'RE
     (DR 'CLEANUP deleted 1 leftover DT6- preset(s)'), (DR 'BASELINE presets=1 entries=0:Mine:cold=70'),
     (D 'PRESETS save index=1 name=DT6-A knobs=all Default'), (DR 'OK 2 save A: DT6 entries 1:DT6-A:Default (want 1:DT6-A:Default)'),
     (D 'PRESETS save index=2 name=DT6-B knobs=all Default'),
+    (DR 'DRIVE tick Meek''s Insta-kill box'), (D 'ROWS change kill.meek=1 rows=kill.meek=1'),
+    (D 'PRESETS save index=3 name=DT6-K knobs=kill.meek=1'),
+    (DR 'DRIVE untick Meek''s Insta-kill box'), (D 'ROWS change kill.meek=default rows='),
     (D 'PRESETS select index=1 name=DT6-A knobs=all Default'), (D 'PRESETS update index=1 name=DT6-A knobs=all Default'),
     (D 'PRESETS select none (rows unchanged)'), (D 'PRESETS select index=1 name=DT6-A knobs=all Default'), (D 'PRESETS delete index=1 name=DT6-A'),
-    (DR 'STALE appended 99 DT6-gone cold=50 (test only)'), (D 'PRESETS open presets=2 entries=3 changed=true'),
+    (DR 'STALE appended 99 DT6-gone cold=50 (test only)'), (D 'PRESETS open presets=3 entries=4 changed=true'),
+    (D 'PRESETS select index=2 name=DT6-K knobs=kill.meek=1'),
     (D 'PRESETS select index=1 name=DT6-B knobs=all Default'), (D 'PRESETS delete index=1 name=DT6-B'),
+    (D 'PRESETS select index=1 name=DT6-K knobs=kill.meek=1'), (D 'PRESETS delete index=1 name=DT6-K'),
     (DR 'END result=PASS checks=30 failures=0 notshown=0 dead=false'))
 Expect $presets 'presets' 0 'presets: passes as written (no WHITEOUT, no match)' 'All checks passed'
 Expect (Without $presets 'PRESETS update') 'presets' 1 'presets: no update line -> fails' 'PRESETS update after BASELINE'
-Expect (Without $presets 'PRESETS save index=2') 'presets' 1 'presets: one save -> fails' 'PRESETS save after BASELINE: found 1'
-Expect (Without $presets 'PRESETS delete index=1 name=DT6-B') 'presets' 1 'presets: one delete after BASELINE -> fails' 'PRESETS delete after BASELINE: found 1'
+Expect (Without $presets 'PRESETS save index=2') 'presets' 1 'presets: one save fewer -> fails' 'PRESETS save after BASELINE: found 2'
+Expect (Without $presets 'PRESETS delete index=1 name=DT6-B') 'presets' 1 'presets: one delete fewer after BASELINE -> fails' 'PRESETS delete after BASELINE: found 2'
 Expect (Without $presets 'BASELINE') 'presets' 1 'presets: no BASELINE -> fails' 'BASELINE'
-Expect ($presets -replace 'entries=3 changed=true', 'entries=3 changed=false') 'presets' 1 'presets: reopen not rewritten -> fails' 'after the stale line'
+Expect ($presets -replace 'entries=4 changed=true', 'entries=4 changed=false') 'presets' 1 'presets: reopen not rewritten -> fails' 'after the stale line'
+# Story 14: the box clicked, DT6-K saved with it and read back after the reopen.
+Expect (Without $presets 'ROWS change kill.meek=1') 'presets' 1 'presets: the box never ticked -> fails' 'kill\\.meek=1'
+Expect ($presets -replace 'name=DT6-K knobs=kill.meek=1', 'name=DT6-K knobs=all Default') 'presets' 1 'presets: DT6-K without the box -> fails' 'DT6-K'
+Expect (Without $presets 'PRESETS select index=2 name=DT6-K') 'presets' 0 'presets: a later DT6-K select (before its delete) still reads it back' 'All checks passed'
+Expect (Without $presets 'PRESETS select index=\d name=DT6-K') 'presets' 1 'presets: DT6-K never read back -> fails' 'DT6-K knobs=kill.meek=1 after the reopen'
 Expect (Without $presets 'select none') 'presets' 1 'presets: no None select -> fails' 'select none'
 Expect ($presets -replace 'select index=1 name=DT6-A knobs=all Default', 'select index=1 name=DT6-A knobs=cold=50') 'presets' 1 'presets: A not Default -> fails' 'DT6-A knobs=all Default'
 Expect ($presets + @(D 'WARN sidecar C:/x: 1 problem(s), every one Default; first: line 3: index ''x'' is not a number; Default')) 'presets' 1 'presets: a sidecar WARN -> fails' 'WARN'
 Expect ($presets + @(D 'ERROR PRESETS save hook failed: boom')) 'presets' 1 'presets: an ERROR -> fails' 'ERROR'
 Expect ($presets + @(DR 'FAIL 4 delete A: DT6 entries - (want 1:DT6-B:Default)')) 'presets' 1 'presets: a driver FAIL -> fails' 'FAIL'
 Expect ($presets + @(D 'MATCH start knobs=all Default')) 'presets' 1 'presets: a match -> fails' 'MATCH start'
-Expect ($presets -replace 'PRESETS delete index=1 name=DT6-B', 'PRESETS delete index=? name=?') 'presets' 1 'presets: an unmatched delete (index=? name=?) doesn''t count -> fails' 'PRESETS delete after BASELINE: found 1'
+Expect ($presets -replace 'PRESETS delete index=1 name=DT6-B', 'PRESETS delete index=? name=?') 'presets' 1 'presets: an unmatched delete (index=? name=?) doesn''t count -> fails' 'PRESETS delete after BASELINE: found 2'
 # Only the clean-up (before BASELINE) selected DT6-A with all Default, and selected None: not enough.
 $preOnly = @($presets | ForEach-Object { if ($_ -match 'select index=1 name=DT6-A knobs=all Default') { $_ -replace 'knobs=all Default', 'knobs=cold=50' } elseif ($_ -match 'select none') { $null } else { $_ } } | Where-Object { $_ })
 $preOnly = @($preOnly[0..4]) + @((D 'PRESETS select index=1 name=DT6-A knobs=all Default'), (D 'PRESETS select none (rows unchanged)')) + @($preOnly[5..($preOnly.Count - 1)])
@@ -341,23 +351,30 @@ $screen = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROW
     (D 'ROWS follow difficulty=1 classified=1 enemyDamage=50 cold=133 revives=4'),
     (DR 'OK SCCLASS a real click on the Classified Minimum picker''s arrow: Minium Classified 1, shown Hard (want 1, Hard)'),
     (DR 'OK SCCLASS the Default Reinforcement Tokens row follows: hint 4, slider at 4, box '''' (want 4)'),
-    (D 'ROWS change cold=default rows=frostbite=2.5'),
-    (D 'ROWS change enemyDamage=17 rows=enemyDamage=17;frostbite=2.5'),
-    (D 'PRESETS save index=1 name=DT7-A knobs=enemyDamage=17 frostbite=2.5'),
-    (D 'ROWS change enemyDamage=40 rows=enemyDamage=40;frostbite=2.5'),
+    (DR 'OK SCBOXES an Insta-kill box in the eight kill rows only (Meek .. Apex Predator; none for Worm, Leech, Bat, Infected Dog, Infected Player, Playable Monster)'),
+    (D 'ROWS change kill.meek=1 rows=cold=150;frostbite=2.5;kill.meek=1'),
+    (D 'ROWS change cold=default rows=frostbite=2.5;kill.meek=1'),
+    (D 'ROWS change enemyDamage=17 rows=enemyDamage=17;frostbite=2.5;kill.meek=1'),
+    (D 'PRESETS save index=1 name=DT7-A knobs=enemyDamage=17 frostbite=2.5 kill.meek=1'),
+    (D 'ROWS change enemyDamage=40 rows=enemyDamage=40;frostbite=2.5;kill.meek=1'),
     (D 'PRESETS select none (rows unchanged)'),
     (D 'ROWS follow difficulty=3 classified=1 enemyDamage=17 cold=50 revives=4'),
     (DR 'OK SCEASY the screen on Easy before the select: Diffculty 3, Cold hint 50 (want 3, 50)'),
-    (D 'PRESETS select index=1 name=DT7-A knobs=enemyDamage=17 frostbite=2.5'),
+    (D 'PRESETS select index=1 name=DT7-A knobs=enemyDamage=17 frostbite=2.5 kill.meek=1'),
     (D 'ROWS follow difficulty=1 classified=1 enemyDamage=50 cold=133 revives=4'),
     (DR 'OK SCPRESET DT7-A shows Enemy Damage 17: box ''17'' bar 17'),
     (DR 'OK SCPRESETDIFF the Default rows follow DT7-A''s Hard: Diffculty 1, Cold box '''' hint 133 slider 133 (want 1, empty, 133)'),
-    (D 'PRESETS select index=1 name=DT7-A knobs=enemyDamage=17 frostbite=2.5'),
+    (D 'PRESETS select index=1 name=DT7-A knobs=enemyDamage=17 frostbite=2.5 kill.meek=1'),
     (D 'PRESETS delete index=1 name=DT7-A'),
     (D 'PRESETS open presets=1 entries=1 changed=false'), (D 'ROWS follow difficulty=2 classified=2 enemyDamage=25 cold=100 revives=6'),
     (DR 'OK SCREOPEN a new open starts Default on Normal: Enemy Damage box '''' hint 25, Cold box '''' hint 100 (want empty 25, empty 100)'),
     (DR 'END result=PASS checks=60 failures=0 notshown=0 dead=false'))
 Expect $screen 'screen' 0 'screen: passes as written (no WHITEOUT, no match)' 'All checks passed'
+# Story 14: the boxes, the real click on Meek's, DT7-A with it.
+Expect (Without $screen 'SCBOXES') 'screen' 1 'screen: the boxes not checked -> fails' 'SCBOXES'
+Expect (Without $screen 'ROWS change kill.meek=1') 'screen' 1 'screen: Meek''s box never clicked -> fails' 'kill\\.meek=1'
+Expect ($screen + @(D 'ROWS change kill.meek=1 rows=kill.meek=1')) 'screen' 1 'screen: two clicks ticking it -> fails' '#1'
+Expect ($screen -replace 'knobs=enemyDamage=17 frostbite=2.5 kill.meek=1', 'knobs=enemyDamage=17 frostbite=2.5') 'screen' 1 'screen: DT7-A saved without the box -> fails' 'kill\\.meek=1'
 Expect ($screen + @(D 'ROWS declared 21')) 'screen' 1 'screen: rows declared twice -> fails' 'ROWS declared'
 Expect ($screen -replace 'ROWS declared 21', 'ROWS declared 19') 'screen' 1 'screen: the old 19 rows -> fails' 'ROWS declared 21'
 Expect (Without $screen 'SCNEWROWS') 'screen' 1 'screen: story 12''s rows not checked -> fails' 'SCNEWROWS'
@@ -484,6 +501,46 @@ Expect ($ctl -replace 'OK boss-default Slug Queen the stock', 'FAIL boss-default
 Expect ($ctl + @(DR 'DEATH the player died (case -)')) 'boss-default' 1 'boss-default: the runner''s DEATH line -> fails' 'DEATH'
 Expect ($ctl -replace 'knobs=all Default', 'knobs=enemyDamage=25') 'boss-default' 1 'boss-default: knobs set -> fails' 'MATCH start'
 Expect ($ctl -replace 'NOTSHOWN Apex: the control player is dead', 'NOTSHOWN Apex: no CommitLethalDamage in 60 s (0 BOSSTRY attempts)') 'boss-default' 1 'boss-default: an Apex not shown without BOSSTRY -> fails' 'BOSSTRY'
+
+# ---------------------------------------------------------------- story 14: insta-kill, insta-kill-boss
+$ik = Story3 'insta-kill' 'kill.meek=1' @(
+    (D 'GRAB enemy=meek hp=100 E=25 game=s decision=e flip=0.01 victim=local spare=yes kill=yes'),
+    (D 'RESTORE enemy=meek hp=0.01 -> 100 via=multicast'),
+    (D 'HIT enemy=meek via=ApplyLockedDamage stock=100 scaled=100 rolled=100 applied=100 hp=100 kind=execution')) @(
+    (DR 'OK insta-kill Stalker #1 hit took 25.00 HP (want 25.00) via ApplyStalkerDamage, hp now 75.00'),
+    (DR 'OK insta-kill Stalker #1 moving again 8 s after the hit (PlayingMontage=false movement=1 montage=none hp=75.00)'),
+    (DR 'GRABSEEN Meek #2 montage=Animatronic_Paired_StabAndDump_Victim_Montage hp=100.00'),
+    (DR 'OK insta-kill Meek #2 grab played the execution montage (Animatronic_Paired_StabAndDump_Victim_Montage; want *StabAndDump*)'),
+    (DR 'OK insta-kill Meek #2 the grab''s hit killed: took 100.00 HP, hp now 0.00 (want Health <= 0) via ApplyLockedDamage'),
+    (DR 'OK insta-kill Meek #2 the player died after the grab (the pawn gone)'),
+    (DR 'INSTAKILL Meek #2 death expected (the pawn gone)'))
+Expect $ik 'insta-kill' 0 'insta-kill: passes as written' 'All checks passed'
+Expect ($ik + @(D 'GRAB enemy=stalker hp=100 E=25 game=s decision=s flip=none victim=local spare=yes')) 'insta-kill' 1 'insta-kill: the unticked Stalker touched -> fails' 'GRAB enemy=stalker'
+Expect ($ik -replace 'decision=e flip=0.01', 'decision=s flip=none') 'insta-kill' 1 'insta-kill: the Meek spared -> fails' 'kill=yes'
+Expect ($ik -replace ' kill=yes', '') 'insta-kill' 1 'insta-kill: no kill=yes -> fails' 'kill=yes'
+Expect ($ik -replace 'applied=100 hp=100 kind=execution', 'applied=25 hp=100 kind=execution') 'insta-kill' 1 'insta-kill: the execution below Health -> fails' 'applied 25 < Health 100'
+Expect ($ik -replace 'kind=execution', 'kind=survivable') 'insta-kill' 1 'insta-kill: not an execution -> fails' 'kind=execution'
+Expect (Without $ik 'INSTAKILL') 'insta-kill' 1 'insta-kill: the death not seen -> fails' 'INSTAKILL'
+Expect (Without $ik 'Stalker #1 moving again') 'insta-kill' 1 'insta-kill: the Stalker''s victim not moving -> fails' 'moving again'
+Expect ($ik + @(DR 'DEATH the player died (case Stalker #1)')) 'insta-kill' 1 'insta-kill: the runner''s DEATH -> fails' 'DEATH'
+
+$ikbA = @((D 'HIT enemy=apex via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=25 hp=100 kind=hit')) + (BossDrv 'Apex' 'ApexPredatorAI_C' 'HeardNoise') + @(
+    (DR 'OK insta-kill-boss Apex alive at 12 s with Health >= 1 (alive=true hp=75.00)'),
+    (DR 'OK insta-kill-boss Apex left 75.00 HP at 12 s (want 75.00: unticked, the scaled hit)'),
+    (DR 'OK insta-kill-boss Apex moving at 12 s (PlayingMontage=false movement=1 montage=none)'))
+$ikbQ = @((DR 'REFILL hp 75.00 -> 100 (before the Slug Queen, test only)'), (D 'HIT enemy=slugQueen via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=100 hp=100 kind=execution')) +
+    (BossDrv 'Slug Queen' 'SlugQueen_AI_C' 'SeePlayerServer' -kill) + @(
+    (DR 'OK insta-kill-boss Slug Queen the ticked grab kills (alive=false at 12 s; at 0/6/12 s alive=false/false/false hp=-0.00)'),
+    (DR 'OK insta-kill-boss Slug Queen the kill presentation played (presentation=yes)'),
+    (DR 'BOSSDEATH Slug Queen expected (insta-kill)'))
+$ikb = Story3 'insta-kill-boss' 'enemyDamage=25 kill.slugQueen=1' @() ($ikbA + $ikbQ)
+Expect $ikb 'insta-kill-boss' 0 'insta-kill-boss: the Apex survives at 75, the Queen kills -> passes' 'All checks passed'
+Expect ($ikb -replace 'applied=100 hp=100 kind=execution', 'applied=25 hp=100 kind=hit') 'insta-kill-boss' 1 'insta-kill-boss: the Queen''s hit not lethal -> fails' 'kind=execution'
+Expect (Without $ikb 'BOSSDEATH') 'insta-kill-boss' 1 'insta-kill-boss: no BOSSDEATH -> fails' 'BOSSDEATH'
+Expect ($ikb -replace 'presentation=yes', 'presentation=no') 'insta-kill-boss' 1 'insta-kill-boss: no presentation -> fails' 'presentation'
+Expect (Without $ikb 'Apex left 75') 'insta-kill-boss' 1 'insta-kill-boss: the Apex''s 75 not checked -> fails' 'left 75'
+Expect ($ikb -replace 'enemy=apex via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=25 hp=100 kind=hit', 'enemy=apex via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=100 hp=100 kind=execution') 'insta-kill-boss' 1 'insta-kill-boss: the unticked Apex killing -> fails' 'enemy=apex'
+Expect ($ikb -replace 'knobs=enemyDamage=25 kill.slugQueen=1', 'knobs=enemyDamage=25') 'insta-kill-boss' 1 'insta-kill-boss: no box in the knobs -> fails' 'MATCH start'
 
 # ---------------------------------------------------------------- story 8: signal (two launches, the screen's values)
 $k8 = 'enemyDamage=25 spread=20 revives=8 classifiedTokens=2 classifiedTokensMax=3 cold=0 frostbite=0 dmg.stalker=200'

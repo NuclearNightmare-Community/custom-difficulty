@@ -11,7 +11,7 @@ local knobs = require("knobs")
 
 -- ---------------------------------------------------------------- the keys
 do
-    eq(table.concat(net.KEYS, ","), "ver,compat,enemyDamage,dmg_meek,dmg_mimic,dmg_psycho,dmg_husk,dmg_watcher,dmg_stalker", "keys: the 9 published names")
+    eq(table.concat(net.KEYS, ","), "ver,compat,enemyDamage,dmg_meek,dmg_mimic,dmg_psycho,dmg_husk,dmg_watcher,dmg_stalker,kills", "keys: the 10 published names (story 14: kills)")
     ok(#net.KEYS <= 16, "keys: within core's 16 per mod")
     for _, k in ipairs(net.KEYS) do ok(k:match("^[A-Za-z0-9_]+$") and #k <= 32, "key " .. k .. ": core's name rule") end
     -- The published knobs are exactly mod.json's scope "all" settings.
@@ -25,6 +25,8 @@ do
     table.sort(all)
     local ours = {}
     for _, k in ipairs(net.KNOBS) do ours[#ours + 1] = k.knob ok(knobs.BY_KEY[k.knob] ~= nil, "knob " .. k.knob .. " is in knobs.BY_KEY") end
+    -- Story 14: the six grab boxes travel together as the kills bitmask.
+    for _, r in ipairs(knobs.GRAB_ROWS) do ours[#ours + 1] = "kill." .. r ok(knobs.BY_KEY["kill." .. r] ~= nil, "kill." .. r .. " is in knobs.BY_KEY") end
     table.sort(ours)
     eq(table.concat(ours, ","), table.concat(all, ","), "keys: exactly mod.json's scope \"all\" knobs")
 end
@@ -87,7 +89,8 @@ do
     eq(v["dmg.meek"], nil, "decode: an absent knob is Default")
     eq(hv, "0.1.0", "decode: the host's version")
     eq(hc, "0.1.0", "decode: the host's netCompat")
-    eq(#calls, 9, "decode: every key read")
+    eq(#calls, 10, "decode: every key read")
+    for _, r in ipairs(knobs.KILL_ROWS) do eq(v["kill." .. r], nil, "decode: no kills key -> kill." .. r .. " Default") end
     -- The bounds are knobs.BY_KEY's.
     for _, c in ipairs(calls) do
         local k
@@ -111,6 +114,42 @@ do
     ok(v5 == nil and why5 == "out-of-bounds" and key5 == "enemyDamage", "decode: a non-integer is out-of-bounds")
     local v6, why6 = net.decode(function(name) if name == "ver" then return "1000" end return nil, "absent" end)
     ok(v6 == nil and why6 == "out-of-bounds", "decode: a string is out-of-bounds")
+end
+
+-- ---------------------------------------------------------------- story 14: the kills bitmask
+do
+    eq(net.KILLS_MAX, 63, "kills: 0..63 (six grab enemies)")
+    eq(net.killMask({}), 0, "killMask: none ticked")
+    eq(net.killMask({ ["kill.meek"] = 1 }), 1, "killMask: meek is bit 0")
+    eq(net.killMask({ ["kill.stalker"] = 1 }), 32, "killMask: stalker is bit 5")
+    eq(net.killMask({ ["kill.slugQueen"] = 1, ["kill.apex"] = 1 }), 0, "killMask: the bosses are never published")
+    local all = {}
+    for _, r in ipairs(knobs.KILL_ROWS) do all["kill." .. r] = 1 end
+    eq(net.killMask(all), 63, "killMask: all six")
+    local list = net.encode({ ["kill.meek"] = 1, ["kill.husk"] = 1, enemyDamage = 25 }, "0.1.0")
+    local t = {}
+    for _, kv in ipairs(list) do t[#t + 1] = kv[1] .. "=" .. tostring(kv[2]) ok(math.type(kv[2]) == "integer", "encode: " .. kv[1] .. " is an integer") end
+    eq(table.concat(t, ","), "enemyDamage=25,kills=9,ver=1000,compat=1000", "encode: kills before ver and compat")
+    list = net.encode({ ["kill.apex"] = 1 }, "0.1.0")
+    eq(#list, 2, "encode: only a boss ticked -> no kills key")
+    for mask = 0, 63, 7 do
+        local v = net.decode(reader({ ver = 1000, compat = 1000, kills = mask }))
+        ok(v ~= nil, "decode: kills=" .. mask .. " accepted")
+        eq(net.killMask(v), mask, "decode: kills=" .. mask .. " round-trips")
+        eq(v["kill.slugQueen"], nil, "decode: never a boss box")
+    end
+    local v = net.decode(reader({ ver = 1000, compat = 1000, kills = 63 }))
+    for _, r in ipairs(knobs.GRAB_ROWS) do eq(v["kill." .. r], 1, "decode: kills=63 ticks " .. r) end
+    for _, bad in ipairs({ 64, -1, 1000 }) do
+        local v2, why, key = net.decode(reader({ ver = 1000, compat = 1000, kills = bad }))
+        ok(v2 == nil and why == "out-of-bounds" and key == "kills", "decode: kills=" .. bad .. " rejects the host's values", tostring(why) .. " " .. tostring(key))
+    end
+    local v3, why3, key3 = net.decode(function(name) if name == "ver" or name == "compat" then return 1000 elseif name == "kills" then return 1.5 end return nil, "absent" end)
+    ok(v3 == nil and why3 == "out-of-bounds" and key3 == "kills", "decode: a non-integer kills is out-of-bounds")
+    local r, c2 = reader({ ver = 1000, compat = 1000, kills = 1 })
+    net.decode(r)
+    eq(c2[#c2][1], "kills", "decode: kills read last")
+    ok(c2[#c2][2] == 0 and c2[#c2][3] == 63, "decode: kills read with 0..63")
 end
 
 -- ---------------------------------------------------------------- missing features

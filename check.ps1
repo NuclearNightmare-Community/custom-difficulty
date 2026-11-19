@@ -51,17 +51,29 @@
                     lines: +2 (count=6 left=2) and +1 (count=5 left=3, "capped at 3"), each via UpdateClassifieds or poll
                     (which one is printed); "TOKENS reopened at used=2 N=4"; "disabled at used=5 N=5"; the driver's two
                     CLASSIFIED done lines (via intel or UpdateClassifieds, printed) and its PASS (text 2, then 3, then 0).
+  Story 14 (difficulty v1, the Insta-kill boxes; the same way):
+    insta-kill      Normal, kill.meek=1: no GRAB or HIT line for the Stalker (unticked: stock) and the driver saw its 25
+                    and the player moving again; exactly one "GRAB enemy=meek hp=100 E=25 game=s decision=e flip=0.01
+                    victim=local spare=yes kill=yes", its RESTORE (0.01 -> 100), a Meek HIT at hp=100 with kind=execution
+                    and applied >= 100; the driver saw the execution montage, Health <= 0 and the expected death
+                    (INSTAKILL ... death expected).
+    insta-kill-boss Nightmare, Enemy Damage 25, kill.slugQueen=1: the boss checks per boss; the Apex's HIT applied=25
+                    kind=hit and the driver's alive, moving and 75 HP at 12 s; the Slug Queen's HIT applied=100
+                    kind=execution, presentation=yes at 0 s and "BOSSDEATH Slug Queen expected (insta-kill)".
   Story 9 (V8.2): every driver scenario needs exactly one WHITEOUT disabled=true, except the opt-in one:
     cold-whiteout   Nightmare, Cold Exposure 50, White Outs on: WHITEOUT disabled=false, the last COLD summary's applied
                     is 0.25 x raw (+-10%), and the driver saw a rise above a quarter of Nightmare's stock range during
                     the storm phase. The storm never reached, or a rise inside that range, is not shown.
   Story 6 (run.ps1 -Scenario presets, the main menu only, no match and no WHITEOUT line):
     presets         everything 'ready' needs and the driver's END result=PASS with no driver FAIL line; after the
-                    driver's BASELINE line (its leftover clean-up comes before it) exactly two "PRESETS save", one
-                    "PRESETS update" and two "PRESETS delete" lines, each with a numeric index and a name (an
+                    driver's BASELINE line (its leftover clean-up comes before it) exactly three "PRESETS save", one
+                    "PRESETS update" and three "PRESETS delete" lines, each with a numeric index and a name (an
                     unmatched "index=? name=?" doesn't count), and "PRESETS select index=<i> name=DT6-A knobs=all
                     Default" and "PRESETS select none (rows unchanged)"; a "PRESETS open ... changed=true" after the
-                    driver's STALE line; no ERROR and no WARN (the stale line is well-formed: no problem WARN).
+                    driver's STALE line; no ERROR and no WARN (the stale line is well-formed: no problem WARN). Story 14:
+                    "ROWS change kill.meek=1" and "=default" (the box clicked), "PRESETS save ... name=DT6-K
+                    knobs=kill.meek=1" and, after the STALE line (the reopen), "PRESETS select ... name=DT6-K
+                    knobs=kill.meek=1".
   Story 7 (run.ps1 -Scenario screen -Target vm, the main menu only, real input):
     screen          everything 'ready' needs, the driver's END result=PASS with no driver FAIL line, its SCTEN line (ten
                     opens, the rows in order) and SCPICKTEN (the Difficulty picker changed by real clicks on every open);
@@ -74,6 +86,8 @@
                     right after the select the next ROWS follow line is DT7-A's Hard (difficulty=1 classified=1
                     enemyDamage=50 cold=133 revives=4) with SCPRESETDIFF; the DT7-A save and select with enemyDamage=17,
                     a None select; SCREOPEN (a new open starts Default on Normal); no MATCH start, no ERROR and no WARN.
+                    Story 14: SCBOXES (a box in the eight kill rows only) and "ROWS change kill.meek=1" (a real click on
+                    Meek's box), and DT7-A saved and selected with kill.meek=1.
   Story 8 (the epic's success checks):
     spread          Normal, Damage Spread 20: at least 200 Meek HIT lines (kind hit, or survivable on the real-attack route:
                     rolled is the roll either way), every one scaled=25; their rolled values have mean 25 +- 1, sample
@@ -108,7 +122,7 @@ param(
     [string] $FirstLog, # signal only: launch 1's log (-Log is launch 2's)
     [ValidateSet('ready', 'old-core', 'no-core', 'host', 'hand', 'unit', 'scaled', 'flip', 'per-enemy', 'default', 'clash',
                  'cold', 'cold-zero', 'frostbite', 'frostbite-zero', 'tokens-more', 'tokens-fewer', 'cold-whiteout', 'presets', 'screen',
-                 'spread', 'spread-grab', 'signal', 'boss', 'boss-default', 'tokens-classified')]
+                 'spread', 'spread-grab', 'signal', 'boss', 'boss-default', 'tokens-classified', 'insta-kill', 'insta-kill-boss')]
     [string] $Scenario = 'ready',
     [ValidateSet('host', 'vm')] [string] $Target = 'host'
 )
@@ -138,7 +152,7 @@ $lines1 = if ($Scenario -eq 'signal') { @(Get-Content $FirstLog) } else { @() }
 Write-Host "--- $name lines ($Scenario) ---"
 @($lines1) + @($lines) | Where-Object {
     ($_ -match "\[$C\]" -and $_ -notmatch "\[$C\] (DEBUG )?hud ") -or
-    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM|DRIVE|BASELINE|STALE|CLEANUP|SIDECAR|NAME|SETHP|SPREAD|SPREADMODE|SPREADRUN|DEVLUA|SIGHOST|SIGSESSION|SIGCREATE|SIGBACK|SIGCLEAN|SIGDRAG|MENU|INFECTCLEAR|BOSS\w*|TEMP|CLASSIFIED) ") -or
+    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM|DRIVE|BASELINE|STALE|CLEANUP|SIDECAR|NAME|SETHP|SPREAD|SPREADMODE|SPREADRUN|DEVLUA|SIGHOST|SIGSESSION|SIGCREATE|SIGBACK|SIGCLEAN|SIGDRAG|MENU|INFECTCLEAR|BOSS\w*|TEMP|CLASSIFIED|INSTAKILL) ") -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -224,6 +238,18 @@ $story3['spread-grab'] = @("\[$C\] MATCH start knobs=enemyDamage=25 spread=50\s*
 $bossHit = @{ 'Slug Queen' = "\[$C\] HIT enemy=slugQueen via=CommitLethalDamage "; 'Apex' = "\[$C\] HIT enemy=apex via=CommitLethalDamage " }
 $story3['boss'] = @("\[$C\] MATCH start knobs=enemyDamage=25\s*$") + @($bossHit.Values)
 $story3['boss-default'] = @("\[$C\] MATCH start knobs=all Default\s*$", "!\[$C\] HIT ")
+# Story 14: the Insta-kill boxes. insta-kill: the Stalker unticked (stock, no line), the Meek's grab flipped to the
+# execution and killed. insta-kill-boss: the Apex's scaled hit, the Queen's finisher at least Health.
+$story3['insta-kill'] = @("\[$C\] MATCH start knobs=kill\.meek=1\s*$",
+    "!\[$C\] GRAB enemy=stalker ", "!\[$C\] HIT enemy=stalker ",
+    "#1|\[$C\] GRAB enemy=meek hp=100 E=25 game=s decision=e flip=0\.01 victim=local spare=yes kill=yes\s*$",
+    "!\[$C\] GRAB enemy=meek .* decision=s ",
+    "\[$C\] RESTORE enemy=meek hp=0\.01 -> 100 via=(multicast|next tick)\s*$",
+    "\[$C\] HIT enemy=meek via=ApplyLockedDamage stock=$n scaled=$n rolled=$n applied=$n hp=100 kind=execution\s*$",
+    "\[$D\] OK insta-kill Stalker #1 hit took 25\.00 HP ", "\[$D\] OK insta-kill Stalker #1 moving again ",
+    "\[$D\] OK insta-kill Meek #2 grab played the execution montage ", "\[$D\] OK insta-kill Meek #2 the grab's hit killed",
+    "#1|\[$D\] INSTAKILL Meek #2 death expected ")
+$story3['insta-kill-boss'] = @("\[$C\] MATCH start knobs=enemyDamage=25 kill\.slugQueen=1\s*$") + @($bossHit.Values)
 # signal: the eight values the screen gets, in Difficulty's knob order (knobs.lua).
 $K8 = @(@('enemyDamage', '25'), @('spread', '20'), @('revives', '8'), @('classifiedTokens', '2'), @('classifiedTokensMax', '3'), @('cold', '0'), @('frostbite', '0'), @('dmg.stalker', '200'))
 $K8Text = ($K8 | ForEach-Object { "$($_[0])=$($_[1])" }) -join ' '
@@ -255,7 +281,7 @@ $driverNotShown = ($Scenario -in $story3.Keys) -and @($lines | Where-Object { $_
 function Test-BossNotShown([string] $boss) { @($lines | Where-Object { $_ -match "\[$D\] NOTSHOWN $([regex]::Escape($boss)): " }).Count -gt 0 }
 foreach ($s3 in $story3.Keys) {
     $own = if ($driverNotShown) { @($story3[$s3] | Where-Object { $_ -match 'MATCH start' }) } else { $story3[$s3] }
-    if ($s3 -eq 'boss' -and $driverNotShown) { $own = @($own) + @($bossHit.Keys | Where-Object { -not (Test-BossNotShown $_) } | ForEach-Object { $bossHit[$_] }) }
+    if ($s3 -in 'boss', 'insta-kill-boss' -and $driverNotShown) { $own = @($own) + @($bossHit.Keys | Where-Object { -not (Test-BossNotShown $_) } | ForEach-Object { $bossHit[$_] }) }
     $expect[$s3] = $running + @($menuWorld, $hostWorld) + $driverOk + $own
 }
 # Story 6: menu only (no match, so no WHITEOUT line and no MATCH start); the counted lines are judged below.
@@ -264,6 +290,10 @@ $presetsNotShown = ($Scenario -eq 'presets') -and @($lines | Where-Object { $_ -
 $expect['presets'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ -notmatch 'WHITEOUT' }) + $(if ($presetsNotShown) { @() } else { @(
     "\[$C\] PRESETS open presets=\d+ entries=\d+ changed=(true|false)\s*$"
     "!\[$C\] MATCH start "
+    # Story 14: Meek's box clicked (ticked, then unticked), DT6-K saved with it.
+    "\[$C\] ROWS change kill\.meek=1 rows=\S*kill\.meek=1\S*\s*$"
+    "\[$C\] ROWS change kill\.meek=default rows=\S*\s*$"
+    "#1|\[$C\] PRESETS save index=\d+ name=DT6-K knobs=kill\.meek=1\s*$"
 ) })
 # Story 7: menu only, VM; the rows declared once, the model lines judged below.
 $screenNotShown = ($Scenario -eq 'screen') -and @($lines | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
@@ -293,6 +323,11 @@ $expect['screen'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ -
     "\[$C\] PRESETS select none \(rows unchanged\)\s*$"
     "\[$C\] PRESETS select index=\d+ name=DT7-A knobs=enemyDamage=17( \S+)*\s*$"
     "\[$D\] OK SCPRESET "
+    # Story 14: the boxes, Meek's clicked for real, DT7-A saved and selected with it.
+    "\[$D\] OK SCBOXES "
+    "#1|\[$C\] ROWS change kill\.meek=1 rows=\S*kill\.meek=1\S*\s*$"
+    "\[$C\] PRESETS save index=\d+ name=DT7-A knobs=enemyDamage=17 (\S+ )*kill\.meek=1\s*$"
+    "\[$C\] PRESETS select index=\d+ name=DT7-A knobs=enemyDamage=17 (\S+ )*kill\.meek=1\s*$"
 ) })
 
 # Each launch's not-shown comes from its own log: a launch 2 NOTSHOWN never excuses launch 1's required lines.
@@ -415,7 +450,7 @@ if ($Scenario -eq 'presets' -and -not $presetsNotShown) {
     if ($ib -lt 0) { Fail 'the driver''s BASELINE line' }
     else {
         $after = @($lines[($ib + 1)..($lines.Count - 1)])
-        foreach ($op in @(@('save', 2), @('update', 1), @('delete', 2))) { # ($c would be $C: PowerShell names ignore case)
+        foreach ($op in @(@('save', 3), @('update', 1), @('delete', 3))) { # ($c would be $C: PowerShell names ignore case)
             $got = @($after | Where-Object { $_ -match "\[$C\] PRESETS $($op[0]) index=\d+ name=[^?\s]\S*" }).Count
             if ($got -eq $op[1]) { Pass "PRESETS $($op[0]) after BASELINE: $got" } else { Fail "PRESETS $($op[0]) after BASELINE: found $got, want $($op[1])" }
         }
@@ -427,6 +462,10 @@ if ($Scenario -eq 'presets' -and -not $presetsNotShown) {
     $is = IndexOf "\[$D\] STALE appended "
     $reopen = @(for ($i = [Math]::Max($is + 1, 0); $i -lt $lines.Count; $i++) { if ($is -ge 0 -and $lines[$i] -match "\[$C\] PRESETS open .* changed=true\s*$") { $i } })
     if ($is -ge 0 -and $reopen.Count -ge 1) { Pass 'PRESETS open changed=true after the stale line' } else { Fail "PRESETS open changed=true after the stale line (STALE at line $is, such opens after it: $($reopen.Count))" }
+    # Story 14: DT6-K read back after the reopen with Meek's box ticked.
+    $kRx = "\[$C\] PRESETS select index=\d+ name=DT6-K knobs=kill\.meek=1\s*$"
+    $kSel = @(for ($i = [Math]::Max($is + 1, 0); $i -lt $lines.Count; $i++) { if ($is -ge 0 -and $lines[$i] -match $kRx) { $i } })
+    if ($kSel.Count -ge 1) { Pass 'PRESETS select DT6-K knobs=kill.meek=1 after the reopen' } else { Fail "PRESETS select DT6-K knobs=kill.meek=1 after the reopen (STALE at line $is)" }
 }
 
 # Story 7: Enemy Damage's model lines in order: the dragged value (the driver's SCDRAG), 57, 200 (999 clamped), Default,
@@ -534,6 +573,13 @@ if ($Scenario -eq 'spread-grab' -and -not $driverNotShown) {
 }
 # Story 12: which detection path awarded each bonus (the UpdateClassifieds callback or the poll) and how the driver
 # completed each objective (a real intel pickup or the game state's UpdateClassifieds): printed, not judged.
+# Story 14: insta-kill's execution hit applied at least the victim's Health.
+if ($Scenario -eq 'insta-kill' -and -not $driverNotShown) {
+    $ex = @(Get-Hits $lines 'meek' | Where-Object { $_.Kind -eq 'execution' })
+    if (-not $ex.Count) { Fail 'insta-kill: a Meek HIT with kind=execution' }
+    elseif ($ex[0].Applied -ge $ex[0].Hp) { Pass "insta-kill: the Meek's execution applied $($ex[0].Applied) >= Health $($ex[0].Hp)" }
+    else { Fail "insta-kill: the Meek's execution applied $($ex[0].Applied) < Health $($ex[0].Hp)" }
+}
 if ($Scenario -eq 'tokens-classified') {
     $bonusVia = @($lines | Where-Object { $_ -match "\[$C\] TOKENS bonus .* via=(\S+)" } | ForEach-Object { if ($_ -match ' via=(\S+)') { $Matches[1] } })
     $doneVia = @($lines | Where-Object { $_ -match "\[$D\] CLASSIFIED #\d done via=(\S+)" } | ForEach-Object { if ($_ -match ' via=(\S+)') { $Matches[1] } })
@@ -544,7 +590,7 @@ if ($Scenario -eq 'tokens-classified') {
 # return and the presentation), 6 and 12 s; a boss it couldn't make grab needs its BOSSTRY attempts. boss-default: the
 # stock kill (BOSSDEATH) unless no boss grabbed; the control's Apex after that death is not a not-shown case.
 $bossControlSkip = "\[$D\] NOTSHOWN Apex: the control player is dead\s*$"
-if ($Scenario -in 'boss', 'boss-default') {
+if ($Scenario -in 'boss', 'boss-default', 'insta-kill-boss') {
     $bossClass = [ordered]@{ 'Slug Queen' = 'SlugQueen_AI_C'; 'Apex' = 'ApexPredatorAI_C' }
     $grabbed = 0
     foreach ($b in $bossClass.Keys) {
@@ -566,6 +612,18 @@ if ($Scenario -in 'boss', 'boss-default') {
         ) $lines
         # boss: the driver's verdicts must have run (an alive=false at 12 s without them never passes).
         if ($Scenario -eq 'boss') { Test-Patterns @("#1|\[$D\] OK boss $bRx alive at 12 s ", "#1|\[$D\] OK boss $bRx moving at 12 s ") $lines }
+        # Story 14: the Apex unticked (the scaled hit, alive with 75, moving); the Queen ticked (at least Health, the
+        # presentation, the expected death).
+        if ($Scenario -eq 'insta-kill-boss') {
+            if ($b -eq 'Apex') {
+                Test-Patterns @("#1|\[$D\] OK insta-kill-boss Apex alive at 12 s ", "#1|\[$D\] OK insta-kill-boss Apex moving at 12 s ", "#1|\[$D\] OK insta-kill-boss Apex left 75\.00 HP ",
+                    "#1|\[$C\] HIT enemy=apex via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=25 hp=100 kind=hit\s*$") $lines
+            } else {
+                Test-Patterns @("\[$D\] BOSSSTATE $bRx t=0 alive=\S+ .* presentation=yes\s*$", "#1|\[$D\] OK insta-kill-boss $bRx the ticked grab kills ",
+                    "#1|\[$D\] OK insta-kill-boss $bRx the kill presentation played ", "#1|\[$D\] BOSSDEATH $bRx expected \(insta-kill\)\s*$",
+                    "#1|\[$C\] HIT enemy=slugQueen via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=100 hp=100 kind=execution\s*$") $lines
+            }
+        }
     }
     if ($Scenario -eq 'boss-default' -and $grabbed) { Test-Patterns @("\[$D\] BOSSDEATH .+ expected \(stock\)\s*$") $lines }
 }

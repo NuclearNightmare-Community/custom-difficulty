@@ -4,7 +4,10 @@
 --
 -- Keys (the name part of "<mod id>.<name>"): ver and compat (Difficulty's own version and effective netCompat, as
 -- major*1000000 + minor*1000 + patch), then the grab-relevant knobs that are set (an absent knob key means Default):
--- enemyDamage and the six grab rows (dmg_<row>; core's names allow no dot). All integers, as mod.json steps them.
+-- enemyDamage and the six grab rows (dmg_<row>; core's names allow no dot), and (story 14) kills, the six grab
+-- enemies' Insta-kill boxes as one bitmask over knobs.GRAB_ROWS (bit 0 = meek ... bit 5 = stalker; published only when
+-- a box is ticked; absent = none). All integers, as mod.json steps them. The bosses' boxes are host-only (their
+-- CommitLethalDamage runs on the host) and never published.
 local knobs = require("knobs")
 local M = {}
 
@@ -22,8 +25,20 @@ M.KNOBS = {
     { net = "dmg_watcher", knob = "dmg.watcher" },
     { net = "dmg_stalker", knob = "dmg.stalker" },
 }
+M.KILLS = "kills"
+M.KILLS_MAX = (1 << #knobs.GRAB_ROWS) - 1 -- 63
 M.KEYS = { "ver", "compat" }
 for _, k in ipairs(M.KNOBS) do M.KEYS[#M.KEYS + 1] = k.net end
+M.KEYS[#M.KEYS + 1] = M.KILLS
+
+-- killMask(values) -> the kills bitmask of the ticked grab boxes (0: none).
+function M.killMask(values)
+    local mask = 0
+    for i, r in ipairs(knobs.GRAB_ROWS) do
+        if values and values["kill." .. r] == 1 then mask = mask | (1 << (i - 1)) end
+    end
+    return mask
+end
 
 -- The features core must have for client grabs and the host's spare decision (core.has names).
 M.FEATURES = { "net.publish", "net.read", "net.presence", "net.compatible", "net.versionsCompatible" }
@@ -93,6 +108,8 @@ function M.encode(values, version, netCompat)
             else pairs_[#pairs_ + 1] = { k.net, i } end
         end
     end
+    local mask = M.killMask(values)
+    if mask ~= 0 then pairs_[#pairs_ + 1] = { M.KILLS, mask } end
     pairs_[#pairs_ + 1] = { "ver", ver }
     pairs_[#pairs_ + 1] = { "compat", compat }
     return pairs_, problems
@@ -102,7 +119,8 @@ end
 -- read(name, min, max) -> value | nil, reason (core.net.read on "<mod id>.<name>"). ver and compat come first: either
 -- one not usable stops there (reason "absent", "no-state", "version" or "out-of-bounds"). Then each grab knob with
 -- knobs.BY_KEY's bounds: absent is Default; anything else not usable ("out-of-bounds", or the state going away
--- between reads) gives nil, reason, key. A raising read is reason "error".
+-- between reads) gives nil, reason, key. Then kills (0..KILLS_MAX, absent = no box ticked), the same way. A raising
+-- read is reason "error".
 function M.decode(read)
     local function get(name, lo, hi)
         local ok, v, why = pcall(read, name, lo, hi)
@@ -122,6 +140,13 @@ function M.decode(read)
         if v ~= nil then values[k.knob] = v
         elseif whyK ~= "absent" then return nil, whyK, k.net end
     end
+    -- Story 14: the grab enemies' Insta-kill boxes (absent: none ticked; anything but an integer 0..63 rejects them all).
+    local mask, whyM = get(M.KILLS, 0, M.KILLS_MAX)
+    if mask ~= nil then
+        for i, r in ipairs(knobs.GRAB_ROWS) do
+            if mask & (1 << (i - 1)) ~= 0 then values["kill." .. r] = 1 end
+        end
+    elseif whyM ~= "absent" then return nil, whyM, M.KILLS end
     return values, M.verString(ver), M.verString(compat)
 end
 

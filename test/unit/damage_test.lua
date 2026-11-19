@@ -149,6 +149,55 @@ do
     eq(alive, 20, "survivable cap: 20 of 20 at 1 HP or more")
 end
 
+-- ---------------------------------------------------------------- story 14: the Insta-kill box
+do
+    eq(D.kill({ ["kill.meek"] = 1 }, "meek"), true, "kill: ticked")
+    eq(D.kill({}, "meek"), false, "kill: absent = unticked")
+    eq(D.kill({ ["kill.meek"] = 0 }, "meek"), false, "kill: 0 = unticked")
+    eq(D.kill({ ["kill.meek"] = 2 }, "meek"), false, "kill: anything but 1 = unticked")
+    eq(D.kill({ ["kill.meek"] = 1 }, "mimic"), false, "kill: another enemy's box")
+    eq(D.kill({ ["kill.worm"] = 1 }, "worm"), false, "kill: no box on the Worm")
+    eq(D.kill({ ["kill.meek"] = 1 }, nil), false, "kill: an unattributed attacker")
+    eq(D.kill(nil, "meek"), false, "kill: no values")
+    -- acts: only a box ticked -> true for that enemy only
+    eq(D.acts({ ["kill.husk"] = 1 }, "husk"), true, "acts: Husk ticked")
+    eq(D.acts({ ["kill.husk"] = 1 }, "meek"), false, "acts: the Meek's knobs all Default")
+    eq(D.acts({ ["kill.husk"] = 1 }, nil), false, "acts: unattributed")
+    -- its non-grab hits plan to applied = stock (no change in HP)
+    local p = D.hit(25, { ["kill.husk"] = 1 }, NORMAL, "husk", "hit", 100, math.random)
+    ok(p.applied == 25 and p.new == 100 and p.planned == 75, "only a box: a plain hit applies the stock")
+    -- Ticked, game executes: Nightmare, ED 25, 100 HP: no flip, decision e
+    local g = D.grab(100, { enemyDamage = 25, ["kill.meek"] = 1 }, NIGHTMARE, "meek", true)
+    ok(g.game == "e" and g.decision == "e" and g.flip == nil and g.kill == true, "ticked, game e: decision e, no flip")
+    -- Ticked, game spares: Normal, ED Default, 100 HP: flip to 0.01
+    g = D.grab(100, { ["kill.meek"] = 1 }, NORMAL, "meek", true)
+    ok(g.game == "s" and g.decision == "e" and g.flip == 0.01 and g.kill == true, "ticked, game s: decision e, flip 0.01")
+    -- Ticked, ED 0 and row 0 %: still the execution
+    g = D.grab(100, { enemyDamage = 0, ["dmg.meek"] = 0, ["kill.meek"] = 1 }, NORMAL, "meek", true)
+    ok(g.decision == "e" and g.flip == 0.01, "ticked, ED 0 / row 0: decision e")
+    p = D.hit(100, { enemyDamage = 0, ["dmg.meek"] = 0, ["kill.meek"] = 1 }, NORMAL, "meek", "execution", 100, math.random)
+    ok(p.applied >= 100 and p.planned <= 0, "ticked, ED 0 / row 0: the execution applies at least Health", p.applied)
+    -- Ticked, unspared victim: the game's decision (survivable, capped by step 4a)
+    g = D.grab(100, { ["kill.meek"] = 1 }, NORMAL, "meek", false)
+    ok(g.game == "s" and g.decision == "s" and g.flip == nil and g.kill == true, "ticked, not spared: the game's survivable")
+    -- Unticked = identical: absent kill keys give the same decisions and plans as today's code
+    local base = { enemyDamage = 25, spread = 0, ["dmg.meek"] = 50 }
+    local with0 = { enemyDamage = 25, spread = 0, ["dmg.meek"] = 50, ["kill.mimic"] = 1, ["kill.apex"] = 1 }
+    for _, hp in ipairs({ 1, 13, 25, 26, 51, 100 }) do
+        for d = 0, 3 do
+            for _, spare in ipairs({ true, false }) do
+                local a, b = D.grab(hp, base, d, "meek", spare), D.grab(hp, with0, d, "meek", spare)
+                ok(a.E == b.E and a.game == b.game and a.decision == b.decision and a.flip == b.flip and b.kill == false,
+                   ("unticked = identical: hp %s d %s spare %s"):format(hp, d, tostring(spare)))
+            end
+            for _, kind in ipairs({ "hit", "survivable", "execution" }) do
+                local a, b = D.hit(50, base, d, "meek", kind, hp, math.random), D.hit(50, with0, d, "meek", kind, hp, math.random)
+                ok(a.applied == b.applied and a.new == b.new and a.planned == b.planned, ("unticked = identical plan: hp %s d %s %s"):format(hp, d, kind))
+            end
+        end
+    end
+end
+
 -- ---------------------------------------------------------------- fmt
 eq(D.fmt(17), "17", "fmt 17")
 eq(D.fmt(16.5), "16.5", "fmt 16.5")

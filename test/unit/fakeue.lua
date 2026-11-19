@@ -269,8 +269,10 @@ end
 -- core, set and setDefault never call onChange, setDefault moves only a Default slider, and values are clamped and
 -- snapped to the step. U.input(id, v) is a real drag or commit: the value clamped and snapped, then onChange(h, v)
 -- once when it changed. U.open(screen) is the watcher's opened. U.fails[name] = true makes that function raise.
+-- Story 14: text.create and checkbox.create / get / set in a row (U.texts, U.boxes by id); set never calls onChange,
+-- U.click(id) is a real click (toggle, then onChange(h, checked) once).
 function F.ui()
-    local U = { rows = {}, sliders = {}, order = {}, calls = {}, watchers = {}, fails = {}, placed = {} }
+    local U = { rows = {}, sliders = {}, texts = {}, boxes = {}, order = {}, calls = {}, watchers = {}, fails = {}, placed = {} }
     local function call(name, ...)
         U.calls[#U.calls + 1] = name
         if U.fails[name] then error("nucleus.ui." .. name .. ": boom", 0) end
@@ -298,7 +300,7 @@ function F.ui()
             assert(type(o.onChange) == "function" and o.place and o.place.row and o.place.row.kind == "row", "slider.create: onChange, place = { row }")
             assert(U.sliders[o.id] == nil, "slider.create: one declare per id")
             local h = { kind = "slider", id = o.id, min = o.min, max = o.max, step = o.step, default = o.defaultValue,
-                        hint = o.hint, onChange = o.onChange, row = o.place.row }
+                        hint = o.hint, onChange = o.onChange, row = o.place.row, fill = o.place.fill }
             h.value = snap(h, o.value)
             U.sliders[o.id] = h
             return h
@@ -307,6 +309,35 @@ function F.ui()
         set = function(h, v) call("slider.set") h.value = snap(h, v) end,
         setDefault = function(h, d, hint) call("slider.setDefault") h.default, h.hint = snap(h, d), hint end,
     }
+    U.text = {
+        create = function(o)
+            call("text.create", o)
+            assert(type(o.id) == "string" and o.place and o.place.row and o.place.row.kind == "row", "text.create: id, place = { row }")
+            assert(U.texts[o.id] == nil, "text.create: one declare per id")
+            local h = { kind = "text", id = o.id, text = o.text, row = o.place.row, fill = o.place.fill }
+            U.texts[o.id] = h
+            return h
+        end,
+    }
+    U.checkbox = {
+        create = function(o)
+            call("checkbox.create", o)
+            assert(type(o.onChange) == "function" and o.place and o.place.row and o.place.row.kind == "row", "checkbox.create: onChange, place = { row }")
+            assert(o.checked == nil or type(o.checked) == "boolean", "checkbox.create: checked is a boolean")
+            assert(U.boxes[o.id] == nil, "checkbox.create: one declare per id")
+            local h = { kind = "checkbox", id = o.id, checked = o.checked == true, tooltip = o.tooltip, onChange = o.onChange,
+                        row = o.place.row, fill = o.place.fill }
+            U.boxes[o.id] = h
+            return h
+        end,
+        get = function(h) call("checkbox.get") return h.checked end,
+        set = function(h, c) call("checkbox.set") assert(type(c) == "boolean", "checkbox.set: a boolean") h.checked = c end,
+    }
+    function U.click(id)
+        local h = U.boxes[id]
+        h.checked = not h.checked
+        h.onChange(h, h.checked)
+    end
     U.place = function(h, intent) call("place") h.place = intent U.placed[#U.placed + 1] = h.id end
     U.game = {
         watch = function(host, fn) call("game.watch") U.watchers[#U.watchers + 1] = { host = host, fn = fn } return #U.watchers end,

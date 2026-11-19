@@ -31,12 +31,19 @@ function M.pct(values, row)
     return v
 end
 
+-- kill(values, row) -> true when the enemy's Insta-kill box is ticked (story 14: "kill.<row>" = 1; absent, 0 or any
+-- other value is unticked, and only the eight KILL_ROWS have a box).
+function M.kill(values, row)
+    if not values or row == nil or not knobs.IS_KILL_ROW[row] then return false end
+    return values["kill." .. row] == 1
+end
+
 -- acts(values, row) -> true when any knob a hit by this enemy depends on is not Default (Enemy Damage, Damage
--- Spread, the enemy's row). When it is false, the mod leaves the hit and the grab alone.
+-- Spread, the enemy's row, its Insta-kill box). When it is false, the mod leaves the hit and the grab alone.
 function M.acts(values, row)
     if not values then return false end
     if values.enemyDamage ~= nil or (values.spread ~= nil and values.spread > 0) then return true end
-    return row ~= nil and values["dmg." .. row] ~= nil
+    return row ~= nil and (values["dmg." .. row] ~= nil or M.kill(values, row))
 end
 
 -- scaled(stock, values, d, row) = stock x base/standard[d] x pct/100 (step 2).
@@ -112,19 +119,21 @@ function M.hit(stock, values, d, row, kind, hp, rng)
     return { stock = stock, scaled = scaled, rolled = rolled, applied = applied, new = new, planned = planned }
 end
 
--- grab(hp, values, d, row, spare) -> { E, game, decision, flip } or nil (unknown difficulty). spare: this machine may
--- change the victim's decision (story 5: the host for its own player and for a client whose machine runs a compatible
--- Difficulty; a modded client for its own player); for any other victim the recorded decision is the game's. flip is
--- the temporary Health, or nil when no change is needed.
+-- grab(hp, values, d, row, spare) -> { E, game, decision, flip, kill } or nil (unknown difficulty). spare: this machine
+-- may change the victim's decision (story 5: the host for its own player and for a client whose machine runs a
+-- compatible Difficulty; a modded client for its own player); for any other victim the recorded decision is the
+-- game's. flip is the temporary Health, or nil when no change is needed. kill (story 14): the enemy's Insta-kill box is
+-- ticked, so the wanted decision is the execution whatever E and hp are (still only where spare allows a change).
 function M.grab(hp, values, d, row, spare)
     local s = M.standard(d)
     local E = M.expected(values, d, row)
     if not s or not E or type(hp) ~= "number" then return nil end
+    local kill = M.kill(values, row)
     local game = M.decide(hp, s)
-    local wanted = M.decide(hp, E)
+    local wanted = kill and "e" or M.decide(hp, E)
     local decision = spare and wanted or game
     local flip = (decision ~= game) and M.flipValue(decision, d) or nil
-    return { E = E, game = game, decision = decision, flip = flip }
+    return { E = E, game = game, decision = decision, flip = flip, kill = kill }
 end
 
 -- fmt(x): a number for the log, at most two decimals, no trailing zeros ("17", "16.5", "0.01").

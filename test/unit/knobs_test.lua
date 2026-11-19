@@ -20,7 +20,10 @@ do
         n = n + 1
         local k = knobs.BY_KEY[key]
         ok(k ~= nil, "knobs.lua knows mod.json's " .. key)
-        if k then ok(k.min == s.min and k.max == s.max and k.step == s.step, key .. ": same range and step as mod.json",
+        if k and s.type == "bool" then
+            -- Story 14: an Insta-kill box is a bool setting (default false) and a 0..1 flag knob here.
+            ok(k.flag == true and k.min == 0 and k.max == 1 and k.step == 1 and s.default == false, key .. ": a bool setting is a 0..1 flag knob")
+        elseif k then ok(k.min == s.min and k.max == s.max and k.step == s.step, key .. ": same range and step as mod.json",
             ("%s..%s/%s vs %s..%s/%s"):format(k.min, k.max, k.step, s.min, s.max, s.step)) end
     end
     eq(#knobs.KNOBS, n, "knobs.lua has exactly mod.json's settings")
@@ -105,8 +108,35 @@ do -- story 12: Tokens per Classified (0..4) and Max Classified Tokens (0..40), 
     ok(v.classifiedTokens == 1 and v.classifiedTokensMax == 0, "rounded to the step; 0 kept")
     local all = {}
     for _, k in ipairs(knobs.KNOBS) do all[k.key] = k.max end
-    ok(#knobs.KNOBS == 21 and #knobs.KNOBS <= knobs.MAX_ENTRIES, "21 knobs fit MAX_ENTRIES")
+    ok(#knobs.KNOBS == 29 and #knobs.KNOBS <= knobs.MAX_ENTRIES, "29 knobs (21 + 8 Insta-kill boxes) fit MAX_ENTRIES")
     ok(#knobs.encode(all) + 128 * 3 + 8 <= knobs.MAX_TEXT, "every knob at its max and a 128-byte encoded name fit a sidecar line", #knobs.encode(all))
+end
+do -- story 14: the Insta-kill boxes, "kill.<row>" = 1 or Default
+    eq(table.concat(knobs.GRAB_ROWS, ","), "meek,mimic,psycho,husk,watcher,stalker", "GRAB_ROWS: the six grabs, bitmask order")
+    eq(table.concat(knobs.KILL_ROWS, ","), "meek,mimic,psycho,husk,watcher,stalker,slugQueen,apex", "KILL_ROWS: the six grabs and the two bosses")
+    for _, r in ipairs({ "worm", "leech", "bat", "infectedDog", "infectedPlayer", "monster" }) do
+        eq(knobs.BY_KEY["kill." .. r], nil, "no box on " .. r)
+        local v, p = knobs.parse("kill." .. r .. "=1")
+        ok(next(v) == nil and #p == 1 and p[1]:find("unknown knob", 1, true), "kill." .. r .. ": unknown knob, one problem")
+    end
+    local v, p = knobs.parse("kill.meek=1;kill.apex=1")
+    ok(v["kill.meek"] == 1 and v["kill.apex"] == 1 and #p == 0, "kill.meek=1 and kill.apex=1 parse")
+    eq(knobs.encode(v), "kill.meek=1;kill.apex=1", "encode: after the dmg rows, KILL_ROWS order")
+    eq(knobs.describe(v), "kill.meek=1 kill.apex=1", "describe names them")
+    v, p = knobs.parse("kill.meek=0")
+    ok(next(v) == nil and #p == 0, "kill.meek=0: unticked is Default, no problem")
+    eq(knobs.encode(v), "", "kill.meek=0: nothing encoded")
+    v, p = knobs.parse("kill.meek=default")
+    ok(next(v) == nil and #p == 0, "kill.meek=default: Default, no problem")
+    for _, bad in ipairs({ "2", "yes", "-1", "0.5", "1.5", "true" }) do
+        v, p = knobs.parse("kill.meek=" .. bad .. ";enemyDamage=17")
+        ok(v["kill.meek"] == nil and v.enemyDamage == 17 and #p == 1, "kill.meek=" .. bad .. ": Default, one problem, the rest kept", p[1])
+    end
+    v, p = knobs.parse("kill.meek=1.0")
+    ok(v["kill.meek"] == 1 and #p == 0, "kill.meek=1.0: ticked")
+    -- A sidecar round trip with a box ticked.
+    v = knobs.parse("enemyDamage=25;dmg.meek=0;kill.meek=1")
+    eq(knobs.encode((knobs.parse(knobs.encode(v)))), "enemyDamage=25;dmg.meek=0;kill.meek=1", "encode then parse round-trips a ticked box")
 end
 
 H.done()

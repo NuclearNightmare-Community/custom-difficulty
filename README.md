@@ -62,6 +62,16 @@ runtime refuse core 0.3.0.
   `HasPerk(0x27)` on its `Target` (story 11). After a Watcher's GRAB line comes one `WATCHER target=<local|client|none>
   attacked=<local|client|none>` line, read from that Watcher at the decision (its own line, so the GRAB line keeps the
   format the pair checks match).
+- **Insta-kill** (story 14; `kill.<enemy>`, a checkbox in the rows of the Meek, Mimic, Psycho, Husk, Watcher, Stalker,
+  Slug Queen and Apex Predator; unticked on every difficulty). Ticked, that enemy's grab is the execution whatever
+  Enemy Damage, its row's % (0 % included) and the victim's Health: the grab decision is `e` (flipped to 0.01 only
+  where the game's own test would pick the survivable animation) and the execution's hit applies at least `Health`.
+  A ticked boss's `CommitLethalDamage` hit applies at least `Health` too (`kind=execution`). The spare rule still
+  gates the decision: a client victim whose machine doesn't run a compatible Difficulty keeps the game's decision
+  (a survivable grab stays survivable and capped). A dodge (Elusive Fighter) stays the game's. Hits outside a grab
+  and other enemies are unchanged; unticked changes nothing at all (no line, no flip, no cap on boss grabs). The
+  GRAB line ends with ` kill=yes` when the box is ticked. No box on the Worm, Leech, Bat, Infected Dog, Infected
+  Player or Playable Monster (no grab decision Difficulty sees).
 - Everything waits for the match to start (`UpdateFriendlyFire` in this world), acts only on the host, and does
   nothing at all for a knob that is Default. Two exceptions (story 5): a modded client's grab on its own player, from
   the host's values, and the soft-lock recovery, on every machine with the mod for its own player, Default knobs too.
@@ -131,7 +141,10 @@ runtime refuse core 0.3.0.
   (`core.net.publish`, keys `<mod.json id>.<name>`; the knobs first, `ver` and `compat` last): `ver` and `compat` (Difficulty's own version and effective
   `netCompat` as `major*1000000 + minor*1000 + patch`; `mod.json` sets no `netCompat`, so core's default
   `0.<minor>.0` applies), then `enemyDamage` and `dmg_meek`, `dmg_mimic`, `dmg_psycho`, `dmg_husk`, `dmg_watcher`,
-  `dmg_stalker`, only those that are set (an absent knob key is Default). One `NET published ...` line. In solo play
+  `dmg_stalker`, only those that are set (an absent knob key is Default), and (story 14) `kills`, the six grab
+  enemies' Insta-kill boxes as one bitmask (bit 0 Meek, 1 Mimic, 2 Psycho, 3 Husk, 4 Watcher, 5 Stalker), only when
+  one is ticked; the bosses' boxes act on the host only and aren't published. A client reads `kills` as an integer
+  0..63 (anything else rejects the host's values, `out-of-bounds`). One `NET published ...` line. In solo play
   core answers `standalone` and nothing is published. The mod has no RPC, chat or replicated class of its own.
 - **The host's decision for a client victim.** Spared only when `core.net.compatible(<the victim pawn's
   PlayerState>, <mod.json id>)` is true (core's `netCompat` rule); otherwise the game's decision stands. The GRAB line
@@ -207,7 +220,13 @@ On the create-world screen (START GAME, then CONFIGURE) the mod adds 21 rows tha
   a row with a value keeps it. Dragging or typing makes a row custom; clearing its box makes it Default again.
 - **The "?"** shows the game's own tooltip: what the knob does, its defaults per difficulty, its range, and
   "Empty = follow Difficulty" (per-enemy rows: "Empty = 100"; Tokens per Classified: "Empty = 0 (the game gives
-  none)"; Max Classified Tokens: "Empty = no cap").
+  none)"; Max Classified Tokens: "Empty = no cap"). The eight rows with an Insta-kill box add "Insta-kill box:
+  unticked on every difficulty."
+- **Insta-kill boxes** (story 14): in the rows of the Meek, Mimic, Psycho, Husk, Watcher, Stalker, Slug Queen and
+  Apex Predator, after the slider, a text `Insta-kill` and a checkbox (core's `core.ui.text` and `core.ui.checkbox`
+  in the row; column weights slider 6, text 2, box 1). The box's tooltip says what ticked and unticked do. A click
+  writes the model (`ROWS change kill.<enemy>=1`, or `=default` when unticked), and an open or a preset select sets
+  every box from it. A preset saved before story 14 has every box unticked.
 - **Values** live in the presets model (story 6): a slider change writes it (`ROWS change <key>=<value|default>
   rows=<what a capture would encode>`), and every change from outside (an open: all Default; a preset select) is
   pushed back into the sliders. Save, update and the session capture read the model as before; a slider change
@@ -244,7 +263,7 @@ writes no `dev.lua`, so a release takes the knobs only from the presets.
 - Story 3, on the host: `MATCH start knobs=<values|all Default>` at each match start;
   `HIT enemy=<row|?> via=<site> stock= scaled= rolled= applied= hp=<before> kind=<hit|execution|survivable>` per
   scaled hit; `GRAB enemy= hp= E= game=<s|e> decision=<s|e> flip=<value|none> victim=<local|client>
-  spare=<yes|no(<reason>)>` per grab;
+  spare=<yes|no(<reason>)>` per grab, ending with ` kill=yes` when that enemy's Insta-kill box is ticked (story 14);
   `RESTORE enemy= hp=<temp> -> <saved> via=<multicast|next tick>` per restore; `WARN clash: ...` when backing off.
 - Story 4, on the host: `HIT enemy=frostbite via=frostbite stock=<1|2> scaled= rolled= applied= hp= kind=hit` per
   frostbite tick; every 10 s while Cold Exposure acts, `COLD raw=<game's rises> applied=<written rises> factor=
@@ -424,6 +443,21 @@ ran them only in the VM (`run.ps1 -Target vm`); Tower Island, Nightmare, solo.
 | `boss` | `enemyDamage=25`. The driver spawns the Slug Queen, then the Apex Predator (Health refilled before each, `REFILL`), clears natural enemies every 2 s and holds `Temperature` at 0 (`TEMP`, test only). To make each boss grab: every 2 s the player is teleported about 100 uu in front of it and it is nudged (the Queen `SeePlayerServer(player)`, the Apex `HeardNoise(playerLocation, 1.0)`); after 20 s without `CommitLethalDamage`, the player teleported in front again and `AttackServer(player)`, every 5 s (each attempt `BOSSTRY <boss> route=near|attack`; none while the boss's grab is under way, `BOSSGRAB`). 60 s without one is `NOTSHOWN <boss>`, extended by up to 20 s while a grab is under way | per boss that grabbed: `BOSSCLD pre`/`post` (Health in and out, `ret=` the return or `?`), `BOSSHOOK StartWatching`/`WatchFinisherPresentation`/`AttackMulti`, `BOSSSTATE <boss> t=0` (with `ret=` and `presentation=yes|no`: an `AttackMulti` within 2 s), `t=6` and `t=12`; Difficulty's `HIT enemy=slugQueen` and `HIT enemy=apex via=CommitLethalDamage` (amounts not fixed: they are findings); the driver's OK "alive at 12 s with Health >= 1" and "moving at 12 s" (PlayingMontage false, movement 1). A boss that never grabbed: exit 2, its `BOSSTRY` lines logged; the other boss is still judged |
 | `boss-default` | no knobs (the control), the same steps | the stock grab kills: the driver's OK "the stock grab kills (alive=false at 12 s)" and `BOSSDEATH <boss> expected (stock)` (never the runner's `DEATH`); the run ends there, and `NOTSHOWN Apex: the control player is dead` is not a not-shown case; no Difficulty `HIT` line. A player who survives the stock grab is a driver FAIL |
 
+### Story 14 scenarios (the Insta-kill boxes)
+
+`run.ps1` runs them like the story 3 scenarios (host limit 900 s; story 14 ran them with `-Target vm`). `screen` and
+`presets` also tick Meek's box (story 7 and 6 scenarios above, extended).
+
+| Scenario | How | Expected |
+|---|---|---|
+| `insta-kill` | Normal, `kill.meek=1`. A Stalker grab at 100 HP, then a Meek grab at 100 HP | the Stalker (unticked) untouched: no GRAB or HIT line for it, the driver's 25 HP and the player moving 8 s after the hit; the Meek: one `GRAB enemy=meek hp=100 E=25 game=s decision=e flip=0.01 victim=local spare=yes kill=yes`, its `RESTORE`, a `HIT ... kind=execution` applying at least Health, the driver's execution montage (`StabAndDump`), Health <= 0 and `INSTAKILL Meek #2 death expected` (the pawn gone, or Health <= 0 for 12 s; never the runner's `DEATH`); the run ends there |
+| `insta-kill-boss` | Nightmare, `enemyDamage=25;kill.slugQueen=1`. As `boss`, the Apex first, then the Slug Queen | the Apex (unticked): `HIT ... applied=25 hp=100 kind=hit`, alive with 75 HP and moving at 12 s; the Queen (ticked): `HIT enemy=slugQueen via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=100 hp=100 kind=execution`, `presentation=yes`, the driver's "the ticked grab kills" and `BOSSDEATH Slug Queen expected (insta-kill)`; the run ends there |
+
+The `screen` scenario also checks that only the eight kill rows have a box (`SCBOXES`), clicks Meek's for real
+(`ROWS change kill.meek=1`, screenshot `screen-kill`), and DT7-A is then saved and selected with `kill.meek=1`. The
+`presets` scenario clicks Meek's box through its button's click function, saves DT6-K (sidecar entry `kill.meek=1`),
+unticks it, and after the reopen selects DT6-K (`PRESETS select ... name=DT6-K knobs=kill.meek=1`).
+
 ## The user's check (the epic's success signal, by hand)
 
 On the dev copy, with Nucleus 0.15.0 or later and Difficulty deployed without `-Test` (so no `dev.lua`), launched
@@ -499,6 +533,12 @@ need players apart). In three runs on 2026-11-17 (Tower Island) the Watcher grab
   decision, B's montage matches it, B is revived after each death and the session keeps two players.
 - `d5-host-vanilla`: the host has neither core nor Difficulty, B is modded. FAILs unless B logs exactly one
   `host has no Difficulty, inactive` line and no `GRAB`, `RESTORE` or `RECOVER`.
+- `d14-kill-modded` (story 14): both machines modded, host knobs `enemyDamage=25;kill.meek=1`. FAILs unless the
+  Meek's grab on B logs `decision=e ... kill=yes` on both machines (host `victim=client spare=yes`, B
+  `victim=local`), the host's Meek HIT is `kind=execution` applying at least Health, B's driver sees the execution
+  montage, B is dead on the host (`CASE Meek on B: B died`) and on B (`MYHP` <= 0), the harness revives B, every later
+  enemy still spares B without `kill=yes`, B logs no inactive line and both drivers end PASS with the session held
+  (misses in `ScenarioReport.D14.Misses`).
 The verdict is in `dumps/<copy>/pair/<label>.json` (`ScenarioReport.Verdict`, misses in `ScenarioReport.D5.Misses`).
 The host copy must have no Nucleus or Difficulty of its own installed (`pair.ps1` refuses mods it didn't put there):
 run their `deploy.ps1 -Remove` first. All three passed on V8.2.3 on 2026-11-17 with story 11's harness (Outcome and
@@ -509,6 +549,10 @@ Verdict PASS, no miss, no driver FAIL; `docs/game-internals.md` in the workspace
 `mod.json` declares the seven knobs (`enemyDamage`, `spread`, `revives`, story 12's `classifiedTokens` and
 `classifiedTokensMax`, `cold`, `frostbite`) and the 14 per-enemy
 rows (`dmg.<enemy>`), each `{ type number, min, max, step, default null, label, scope, changeable menu, source
-presets }`. `null` is Default (follow Difficulty; Tokens per Classified 0, Max Classified Tokens no cap). Their values come from the game's world presets (stories 6 and 7),
+presets }`. `null` is Default (follow Difficulty; Tokens per Classified 0, Max Classified Tokens no cap). Story 14's
+eight Insta-kill boxes (`kill.<enemy>`, each right after its enemy's row) are `{ type bool, default false, label
+"Insta-kill: <Enemy>", scope, changeable menu, source presets }` (core's schema type `bool`); in the knob syntax a
+ticked box is `kill.<enemy>=1`, and 0 or Default is unticked. Their values come from the game's world presets (stories 6 and 7),
 not from core's settings service, so nothing is generated from them. `scope` is `all` for the inputs of the
-survivable-grab decision (`enemyDamage` and the six grabbing enemies) and `host` for the rest.
+survivable-grab decision (`enemyDamage`, the six grabbing enemies and their boxes) and `host` for the rest (the two
+bosses' boxes included).

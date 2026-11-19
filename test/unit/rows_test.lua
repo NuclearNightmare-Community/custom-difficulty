@@ -26,7 +26,21 @@ do
     local f = assert(io.open(ROOT .. "/mod.json", "r"))
     local m = J.decode(f:read("a"))
     f:close()
-    eq(table.concat(m.settings.__keys, ","), table.concat(rows.ORDER, ","), "the rows' order is mod.json's settings order")
+    local slidersOnly, kills = {}, {}
+    for _, k in ipairs(m.settings.__keys) do
+        if k:match("^kill%.") then kills[#kills + 1] = k else slidersOnly[#slidersOnly + 1] = k end
+    end
+    eq(table.concat(slidersOnly, ","), table.concat(rows.ORDER, ","), "the rows' order is mod.json's settings order (boxes aside)")
+    eq(table.concat(kills, ","), table.concat(rows.KILL_KEYS, ","), "the boxes are mod.json's kill.* settings, in order")
+    for _, key in ipairs(rows.KILL_KEYS) do
+        eq(rows.LABELS[key], m.settings[key].label, key .. ": label = mod.json's")
+        local tip = rows.KILL_TIP[key]
+        ok(type(tip) == "string" and #tip <= 512 and not tip:find("[\0-\9\11-\31]"), key .. ": tooltip 1..512 bytes of plain text")
+        local e = rows.ENEMY[key:match("^kill%.(.+)$")]
+        ok(tip:find("Ticked: every " .. e .. " ", 1, true), key .. ": tooltip names the enemy", tip)
+    end
+    eq(rows.KILL_TIP["kill.meek"], "Ticked: every Meek grab kills (the game's execution), whatever Enemy Damage, this row's % and Health.\nUnticked: Difficulty's rules; a grab still kills when its hit would.", "the grab tooltip text")
+    eq(rows.KILL_TIP["kill.slugQueen"], "Ticked: every Slug Queen finisher grab kills, whatever Enemy Damage, this row's % and Health.\nUnticked: the grab takes the scaled hit and kills only when that hit does.", "the boss tooltip text")
     for _, key in ipairs(rows.ORDER) do
         local s, k = m.settings[key], knobs.BY_KEY[key]
         eq(rows.LABELS[key], s.label, key .. ": label = mod.json's")
@@ -57,6 +71,10 @@ do
     ok(rows.HELP.revives:find("Nightmare 2, Hard 4, Normal 6, Easy 8", 1, true), "revives: defaults per Classified Minimum")
     ok(rows.HELP["dmg.meek"]:find("execution 100", 1, true) and rows.HELP["dmg.stalker"]:find("execution 100", 1, true), "Meek and Stalker: execution 100")
     ok(rows.HELP["dmg.leech"]:find("25 on every", 1, true) and rows.HELP["dmg.monster"]:find("45 on every", 1, true), "Leech 25, Playable Monster 45")
+    for _, r in ipairs(knobs.ROWS) do
+        local has = rows.HELP["dmg." .. r]:find("Insta-kill box: unticked on every difficulty.", 1, true) ~= nil
+        eq(has, knobs.IS_KILL_ROW[r] == true, "dmg." .. r .. ": the Insta-kill help line only in a row with a box")
+    end
     for _, key in ipairs(rows.ORDER) do ok(not key:lower():find("infection"), "no Infection Chance row: " .. key) end
 end
 do -- the defaults per difficulty (EDiffculty 0..3 = Nightmare, Hard, Normal, Easy)
@@ -145,6 +163,91 @@ do -- declare: 21 rows with sliders, once
     local n = #U.calls
     ok(R:declare(), "declare again: true")
     eq(#U.calls, n, "declare again: no core call")
+end
+
+do -- story 14: the Insta-kill text and box in the eight kill rows only, fills, refresh, onChange
+    setup()
+    ok(R:declare(), "declare with boxes: true")
+    for _, key in ipairs(rows.ORDER) do
+        local enemy = key:match("^dmg%.(.+)$")
+        local box = enemy and knobs.IS_KILL_ROW[enemy] and ("kill." .. enemy)
+        local rh = U.rows["r-" .. key]
+        if box then
+            local t, c = U.texts["t-" .. box], U.boxes["c-" .. box]
+            ok(t and t.row == rh and t.text == "Insta-kill", box .. ": the Insta-kill text in its row")
+            ok(c and c.row == rh, box .. ": the box in its row")
+            eq(c.checked, false, box .. ": unticked at declare")
+            eq(c.tooltip, rows.KILL_TIP[box], box .. ": the tooltip")
+            eq(sl(key).fill, rows.FILL.slider, key .. ": slider fill")
+            eq(t.fill, rows.FILL.text, box .. ": text fill")
+            eq(c.fill, rows.FILL.box, box .. ": box fill")
+        else
+            eq(sl(key).fill, nil, key .. ": slider without a fill (core's default)")
+            for id in pairs(U.boxes) do ok(id ~= "c-kill." .. (enemy or key), key .. ": no box") end
+            ok(U.texts["t-kill." .. (enemy or key)] == nil, key .. ": no Insta-kill text")
+        end
+    end
+    local n = 0
+    for _ in pairs(U.boxes) do n = n + 1 end
+    eq(n, 8, "eight boxes")
+    for _, r in ipairs({ "worm", "leech", "bat", "infectedDog", "infectedPlayer", "monster" }) do
+        eq(U.boxes["c-kill." .. r], nil, "no box on " .. r)
+    end
+    local S = F.screen(W, {})
+    S:open()
+    U.open(F.tree({ "Overlay_28", "Overlay_738" }))
+    U.click("c-kill.meek")
+    eq(U.boxes["c-kill.meek"].checked, true, "click: shows ticked")
+    eq(P.rows["kill.meek"], 1, "click: the model has kill.meek = 1")
+    eq(last("^ROWS change"), "ROWS change kill.meek=1 rows=kill.meek=1", "click: the ROWS change line")
+    S:capture()
+    eq(P:sessionText(), "kill.meek=1", "a capture encodes kill.meek=1")
+    U.click("c-kill.meek")
+    eq(P.rows["kill.meek"], nil, "click again: unticked is Default")
+    eq(last("^ROWS change"), "ROWS change kill.meek=default rows=", "click again: logged as default")
+    U.click("c-kill.apex")
+    eq(P.rows["kill.apex"], 1, "a boss box writes kill.apex = 1")
+    -- refresh: the model pushed into the boxes (set never calls back)
+    local changes = count("^ROWS change")
+    P.rows = { ["kill.husk"] = 1, ["kill.meek"] = 7 }
+    R:refresh()
+    eq(U.boxes["c-kill.husk"].checked, true, "refresh: husk ticked")
+    eq(U.boxes["c-kill.apex"].checked, false, "refresh: apex unticked (absent in the model)")
+    eq(U.boxes["c-kill.meek"].checked, false, "refresh: a model value other than 1 shows unticked")
+    eq(count("^ROWS change"), changes, "refresh: no onChange")
+    -- follow never touches the boxes
+    S:pick(0)
+    eq(U.boxes["c-kill.husk"].checked, true, "Difficulty change: the box keeps its state")
+    eq(count("^WARN"), 0, "boxes: no WARN")
+    eq(count("^ERROR"), 0, "boxes: no ERROR")
+    -- core failures: logged, never thrown
+    setup()
+    U.fails["checkbox.create"] = true
+    eq(R:declare(), false, "checkbox.create fails: declare false")
+    eq(count("^ERROR ROWS dmg.meek could not be declared"), 1, "checkbox.create fails: one ERROR naming the row")
+    setup()
+    R:declare()
+    U.fails["checkbox.set"] = true
+    P.rows = { ["kill.meek"] = 1 }
+    R:refresh()
+    R:refresh()
+    eq(count("^WARN ROWS kill.meek could not be set"), 1, "checkbox.set fails: one WARN per box")
+end
+
+do -- story 14: preset A with Meek ticked, B without, and one saved before the boxes existed
+    setup()
+    R:declare()
+    D.files[FILE] = HDR .. "0\tA\tkill.meek=1\n1\tB\tenemyDamage=17\n2\tOld\tdmg.meek=50\n"
+    local S = F.screen(W, { "A", "B", "Old" })
+    S:open()
+    U.open(F.tree({ "Overlay_28", "Overlay_738" }))
+    S:select(1)
+    eq(U.boxes["c-kill.meek"].checked, true, "select A: Meek ticked")
+    S:select(2)
+    eq(U.boxes["c-kill.meek"].checked, false, "select B: Meek unticked")
+    S:select(3)
+    for _, key in ipairs(rows.KILL_KEYS) do eq(U.boxes["c-" .. key].checked, false, "an older preset: " .. key .. " unticked") end
+    eq(count("^WARN"), 0, "presets with boxes: no WARN")
 end
 
 do -- the matrix: open, drag or type, clear, Difficulty, Classified, preset select, None, reopen

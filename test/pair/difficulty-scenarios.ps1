@@ -22,6 +22,13 @@
                      matches it, B revived after each death, two players throughout (the session outcome).
     d5-host-vanilla  the host has no core and no Difficulty, B is modded: one inactive line on B, no GRAB, RESTORE
                      or RECOVER there.
+  Story 14 (the Insta-kill box on a modded client; Nightmare lobby, the host's dev.lua enemyDamage=25;kill.meek=1,
+  DifficultyPair host-spawn + client-watch, B modded as in d5-grab-modded):
+    d14-kill-modded  the Meek's grab on B: "decision=e ... kill=yes" in both logs (host victim=client spare=yes, B
+                     victim=local), a Meek HIT kind=execution applying at least Health, B's execution montage, B dead on
+                     the host (CASE Meek on B: B died) and on B (MYHP <= 0), B revived by the harness (REVIVE ... B back),
+                     every later enemy (no box) still decision=s for B without kill=yes, no inactive line on B, both
+                     drivers' END PASS and the session held (no lock-up).
   Story 8 (CAP-5, Reinforcement Tokens across machines; Normal lobby, PairDriver's Classified Minimum 2: stock limit 6):
     d8-tokens        the host runs core and Difficulty with Reinforcement Tokens 2 (dev.lua revives=2), B (VM) runs no
                      Difficulty. The host dies, B's own terminal revives it, twice; then the host dies once more. PASS
@@ -372,6 +379,68 @@ function New-DpD5Scenario([string] $Summary, [ValidateSet('modded', 'unmodded', 
 $DpPairScenarios['d5-grab-modded'] = New-DpD5Scenario "Difficulty story 5: host and B both run $DpCoreName and Difficulty (host Enemy Damage 25, Nightmare); Meek, Mimic, Psycho, Watcher and Stalker grab B at full Health: decision=s on both machines, B's survivable montage, B >= 1 HP and moving at 6 s" 'modded'
 $DpPairScenarios['d5-grab-unmodded'] = New-DpD5Scenario "Difficulty story 5: the host runs $DpCoreName and Difficulty, B only UE4SS and its watcher: the host keeps the game's decision (spare=no(absent)), B's montage matches it, B revived after each execution, two players throughout" 'unmodded'
 $DpPairScenarios['d5-host-vanilla'] = New-DpD5Scenario "Difficulty story 5: the host runs no Difficulty, B runs $DpCoreName and Difficulty: one inactive line on B and no GRAB, RESTORE or RECOVER" 'host-vanilla'
+
+# ------------------------------------------------------------------------------------------------ story 14
+# d14-kill-modded: the Meek's Insta-kill box ticked on the host; B (modded) dies to the Meek on both machines and the
+# harness (host-spawn's revive) keeps the session going through the other enemies.
+$script:DpKillKnobs = 'enemyDamage=25;kill.meek=1'
+function Get-DpD14Report {
+    $r = Get-DpReport
+    $hostLog = Join-Path $outDir "$Label.host.UE4SS.log"
+    $hd = Get-DpTagged $hostLog $DpName
+    $vd = Get-DpTagged $vmLogPath $DpName
+    $hp = Get-DpTagged $hostLog 'DifficultyPair'
+    $vp = Get-DpTagged $vmLogPath 'DifficultyPair'
+    $miss = [Collections.Generic.List[string]]::new()
+    if (-not ($hd | Where-Object { $_ -match '^MATCH start knobs=enemyDamage=25 kill\.meek=1\s*$' })) { $miss.Add('host: no MATCH start knobs=enemyDamage=25 kill.meek=1') }
+    if (-not ($hd | Where-Object { $_ -match '^GRAB enemy=meek hp=100 E=25 game=e decision=e flip=none victim=client spare=yes kill=yes\s*$' })) { $miss.Add('host: no GRAB enemy=meek ... decision=e ... victim=client spare=yes kill=yes') }
+    if (-not ($vd | Where-Object { $_ -match '^GRAB enemy=meek hp=100 E=25 game=e decision=e flip=none victim=local spare=yes kill=yes\s*$' })) { $miss.Add('B: no GRAB enemy=meek ... decision=e ... victim=local spare=yes kill=yes') }
+    $ex = @($hd | Where-Object { $_ -match '^HIT enemy=meek via=ApplyLockedDamage .* applied=([\d.]+) hp=([\d.]+) kind=execution\s*$' })
+    if (-not $ex.Count) { $miss.Add('host: no Meek HIT kind=execution') }
+    elseif ($ex[0] -match 'applied=([\d.]+) hp=([\d.]+)' -and [double]$Matches[1] -lt [double]$Matches[2]) { $miss.Add("host: the execution applied less than Health: $($ex[0])") }
+    $clientGrabs = @(Get-DpClientGrabs $vp)
+    $mg = $clientGrabs | Where-Object { $_.Enemy -eq 'Meek' } | Select-Object -First 1
+    if (-not $mg) { $miss.Add("B's driver: no Meek grab on B seen") }
+    elseif ($mg.Kind -ne 'e') { $miss.Add("B's driver: the Meek's grab played $($mg.Montage), not the execution montage") }
+    if (-not ($hp | Where-Object { $_ -match '^CASE Meek on B: B died ' })) { $miss.Add('host: B not dead after the Meek (no "CASE Meek on B: B died")') }
+    $myHp = @($vp | Where-Object { $_ -match '^MYHP (-?[\d.]+)' } | ForEach-Object { [double]([regex]::Match($_, '^MYHP (-?[\d.]+)').Groups[1].Value) })
+    if (@($myHp | Where-Object { $_ -le 0 }).Count -eq 0) { $miss.Add("B: its own Health never read <= 0 (B's screen didn't see the death)") }
+    $died = @($hp | Where-Object { $_ -match '^REVIVE .* radio:Reinformant\(\)' }).Count
+    $back = @($hp | Where-Object { $_ -match '^REVIVE .* B back after ' }).Count
+    if ($died -lt 1 -or $died -ne $back) { $miss.Add("host: B revived $back of $died times (want at least the Meek's death, each revived)") }
+    foreach ($e in @($DpRows.Keys | Where-Object { $_ -ne 'Meek' })) {
+        $row = $DpRows[$e]
+        $g = @($hd | Where-Object { $_ -match "^GRAB enemy=$row .* victim=client " })
+        if (-not $g.Count) { $miss.Add("host: no GRAB enemy=$row on B after the Meek (the session went on?)") }
+        elseif ($g | Where-Object { $_ -match 'kill=yes' -or $_ -notmatch 'decision=s ' }) { $miss.Add("host: an unticked $e not spared or marked kill=yes: $($g[0])") }
+    }
+    if ($vd | Where-Object { $_ -match 'host has no Difficulty, inactive' }) { $miss.Add('B: logged the inactive line') }
+    if ($r.HostEnd -notmatch 'result=PASS') { $miss.Add("host driver: $($r.HostEnd)") }
+    if ($r.VMEnd -notmatch 'result=PASS') { $miss.Add("B's driver: $($r.VMEnd)") }
+    $r.D14 = [ordered]@{
+        Misses = @($miss)
+        HostGrabs = @($hd | Where-Object { $_ -match '^(GRAB|HIT enemy=meek) ' })
+        VMGrabs = @($vd | Where-Object { $_ -match '^GRAB ' })
+        Recover = @($vd | Where-Object { $_ -match '^RECOVER ' })
+        ClientMontages = @($clientGrabs | ForEach-Object { "#$($_.Seq) $($_.Enemy) hp=$($_.Hp) $($_.Montage) [$($_.Kind)] 6s: $($_.After6)" })
+        Revives = @($hp | Where-Object { $_ -match '^REVIVE ' })
+        Session = $result.Outcome
+    }
+    foreach ($m in $miss) { Write-Host "FAIL $m" }
+    $r.Verdict = if ($r.Verdict -eq 'FAIL' -or $miss.Count -or $result.Outcome -ne 'PASS') { 'FAIL' } else { 'PASS' }
+    $r
+}
+$DpPairScenarios['d14-kill-modded'] = @{
+    Summary = "Difficulty story 14: host and B both run $DpCoreName and Difficulty (host Enemy Damage 25 and the Meek's Insta-kill box, Nightmare); the Meek's grab on B is the execution on both machines and B dies on both screens; the harness revives B and the other enemies still spare it; no lock-up"
+    Prereq = $DpD5Prereq
+    HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '0' }   # Nightmare: the game's own test executes at 100 HP too
+    HostModPaths = { @($DpCorePackage, (Get-DpModStage -Side host -Knobs $DpKillKnobs), (Get-DpStage -Role 'host-spawn')) }
+    VMSetup = { Set-DpVMModded -Modded }
+    VMRestore = { Invoke-VMDeploy -Remove -Path (Get-DpRemovePaths); Restore-VMBaseline }
+    AfterJoin = { Invoke-DpRelay }
+    PlaySec = 20
+    Check = { Get-DpD14Report }
+}
 
 # ------------------------------------------------------------------------------------------------ story 8
 # d8-tokens: Difficulty, not the driver, closes the computers after N reinforcements (CAP-5).

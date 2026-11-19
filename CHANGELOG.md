@@ -38,6 +38,14 @@ Not released yet. Earlier work is described in `README.md`.
   the cap per match; with Reinforcement Tokens set the bonus raises N and reopens a `Disable Reinforcement` Difficulty
   wrote. Clients' computers may show a stale count (nothing is published). New `tokens-classified` scenario;
   `tokens-more`, `tokens-fewer` and `screen` check that nothing changed with the knobs Default (`ROWS declared 21`).
+- Story 14: an **Insta-kill** checkbox (`kill.<enemy>`, a `bool` setting, unticked on every difficulty) with a text
+  `Insta-kill` in the rows of the Meek, Mimic, Psycho, Husk, Watcher, Stalker, Slug Queen and Apex Predator, saved
+  with the presets (`kill.<enemy>=1`; sidecar format 2 unchanged). Ticked, that enemy's grab is the execution
+  whatever Enemy Damage, its row's % and Health (flipped to 0.01 where the game's own test would spare), and the
+  execution, or a boss's `CommitLethalDamage`, applies at least Health; unticked changes nothing. The spare rule and
+  the dodge are unchanged. GRAB lines end with ` kill=yes` when ticked. Modded clients get the six grab boxes as one
+  published key, `kills` (a bitmask 0..63, published only when a box is ticked). New `run.ps1` scenarios
+  `insta-kill` and `insta-kill-boss`; `screen` and `presets` tick Meek's box; pair scenario `d14-kill-modded`.
 
 ### Changed
 

@@ -308,6 +308,11 @@ try {
         @{ What = 'no BOSSCLD pre on B'; H = { $d.H -replace 'pre boss=SlugQueen_AI_C victim=other', 'pre boss=SlugQueen_AI_C victim=local' }; Want = 'no BOSSCLD pre boss=SlugQueen_AI_C victim=other' }
         @{ What = 'no Difficulty HIT'; H = { $d.H | Where-Object { $_ -notmatch 'HIT enemy=apex' } }; Want = 'no HIT enemy=apex via=CommitLethalDamage' }
         @{ What = 'a HIT not kind=hit'; H = { $d.H -replace 'hp=100 kind=hit', 'hp=100 kind=execution' }; Want = 'no HIT enemy=slugQueen' }
+        @{ What = 'a HIT not applied=25'; H = { $d.H -replace 'applied=25 hp=100 kind=hit', 'applied=100 hp=100 kind=hit' }; Want = 'no HIT enemy=apex via=CommitLethalDamage ... applied=25 hp=100 kind=hit' }
+        @{ What = 'BOSSCLD pre not at 100'; H = { $d.H -replace 'pre boss=ApexPredatorAI_C victim=other hp=100.00', 'pre boss=ApexPredatorAI_C victim=other hp=75.00' }; Want = 'no BOSSCLD pre boss=ApexPredatorAI_C victim=other hp=100.00' }
+        @{ What = 'no BOSSCLD post'; H = { $d.H | Where-Object { $_ -notmatch 'BOSSCLD post boss=SlugQueen_AI_C' } }; Want = 'host: no BOSSCLD post boss=SlugQueen_AI_C' }
+        @{ What = 'B skipped its verdicts'; V = { $d.V | Where-Object { $_ -notmatch 'OK boss Apex ' } }; Want = 'B: no OK boss Apex B moving at 12 s (view=B)' }
+        @{ What = 'the host skipped one verdict'; H = { $d.H | Where-Object { $_ -notmatch 'OK boss SlugQueen no presentation' } }; Want = 'host: no OK boss SlugQueen no presentation (view=host)' }
         @{ What = 'no host BOSSSTATE t=6'; H = { $d.H | Where-Object { $_ -notmatch 'BOSSSTATE Apex view=host t=6 ' } }; Want = 'host: no BOSSSTATE Apex view=host t=6' }
         @{ What = 'no B BOSSSTATE t=12'; V = { $d.V | Where-Object { $_ -notmatch 'BOSSSTATE SlugQueen view=B t=12 ' } }; Want = 'B: no BOSSSTATE SlugQueen view=B t=12' }
         @{ What = 'no B BOSSSTATE t=0'; V = { $d.V | Where-Object { $_ -notmatch 'BOSSSTATE Apex view=B t=0 ' } }; Want = 'B: no BOSSSTATE Apex view=B t=0' }

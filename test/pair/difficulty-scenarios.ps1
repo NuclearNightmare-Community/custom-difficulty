@@ -41,10 +41,11 @@
   host-spawn + client-watch with boss.txt):
     d15-boss-pair    the host spawns the Slug Queen, then the Apex Predator, in front of B and makes each grab B
                      (story 13's ladder, the boss moved to B). Misses: no host MATCH start knobs=enemyDamage=25; per boss
-                     no host "BOSSCLD pre ... victim=other", no Difficulty "HIT enemy=<row> via=CommitLethalDamage ...
-                     kind=hit", a missing BOSSSTATE t=0/6/12 on either machine, a NOTSHOWN or a BOSSDEATH; any driver
-                     FAIL (each machine's verdicts at 12 s: B alive with 70 <= Health <= 80, moving, no presentation),
-                     an END not PASS, an inactive line on B (ScenarioReport.D15).
+                     no host "BOSSCLD pre ... victim=other hp=100.00" or "BOSSCLD post", no Difficulty "HIT enemy=<row>
+                     via=CommitLethalDamage ... applied=25 hp=100 kind=hit", a missing BOSSSTATE t=0/6/12 on either
+                     machine, a missing OK verdict at 12 s on either machine (B alive with 70 <= Health <= 80, moving,
+                     no presentation), a NOTSHOWN or a BOSSDEATH; any driver FAIL, an END not PASS, an inactive line
+                     on B (ScenarioReport.D15).
   Story 8 (CAP-5, Reinforcement Tokens across machines; Normal lobby, PairDriver's Classified Minimum 2: stock limit 6):
     d8-tokens        the host runs core and Difficulty with Reinforcement Tokens 2 (dev.lua revives=2), B (VM) runs no
                      Difficulty. The host dies, B's own terminal revives it, twice; then the host dies once more. PASS
@@ -615,12 +616,20 @@ function Get-DpD15Report {
     $rows = @()
     foreach ($b in $DpBosses.Keys) {
         $cls = $DpBosses[$b].Class; $row = $DpBosses[$b].Row
-        $pre = @($hp | Where-Object { $_ -match "^BOSSCLD pre boss=$cls victim=other " })
-        $hit = @($hd | Where-Object { $_ -match "^HIT enemy=$row via=CommitLethalDamage .* kind=hit\s*$" })
+        $pre = @($hp | Where-Object { $_ -match "^BOSSCLD pre boss=$cls victim=other hp=100\.00" })
+        $post = @($hp | Where-Object { $_ -match "^BOSSCLD post boss=$cls " })
+        $hit = @($hd | Where-Object { $_ -match "^HIT enemy=$row via=CommitLethalDamage .* applied=25 hp=100 kind=hit" })
         $hs = @($hp | Where-Object { $_ -match "^BOSSSTATE $b view=host t=\d+ " })
         $vs = @($vp | Where-Object { $_ -match "^BOSSSTATE $b view=B t=\d+ " })
-        if (-not $pre.Count) { $miss.Add("host: no BOSSCLD pre boss=$cls victim=other") }
-        if (-not $hit.Count) { $miss.Add("host: no HIT enemy=$row via=CommitLethalDamage ... kind=hit") }
+        if (-not $pre.Count) { $miss.Add("host: no BOSSCLD pre boss=$cls victim=other hp=100.00") }
+        if (-not $post.Count) { $miss.Add("host: no BOSSCLD post boss=$cls") }
+        if (-not $hit.Count) { $miss.Add("host: no HIT enemy=$row via=CommitLethalDamage ... applied=25 hp=100 kind=hit") }
+        # Each machine's three verdicts at 12 s (a side that skipped them would otherwise pass).
+        foreach ($side in @(@{ V = 'host'; L = $hp }, @{ V = 'B'; L = $vp })) {
+            foreach ($v in @('B alive at 12 s', 'B moving at 12 s', 'no presentation')) {
+                if (-not ($side.L | Where-Object { $_ -match "^OK boss $b $([regex]::Escape($v)) .*\(view=$($side.V) " })) { $miss.Add("$($side.V): no OK boss $b $v (view=$($side.V))") }
+            }
+        }
         foreach ($t in 0, 6, 12) {
             if (-not ($hs | Where-Object { $_ -match "^BOSSSTATE $b view=host t=$t " })) { $miss.Add("host: no BOSSSTATE $b view=host t=$t") }
             if (-not ($vs | Where-Object { $_ -match "^BOSSSTATE $b view=B t=$t " })) { $miss.Add("B: no BOSSSTATE $b view=B t=$t") }

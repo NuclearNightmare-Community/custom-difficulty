@@ -602,9 +602,10 @@ grabbed the host while B was its `Target` (decided for the host, B untouched), a
   70 <= Health <= 80, moving (`PlayingMontage` false, movement 1), no presentation. A B death is `BOSSDEATH <boss> on
   B` and a FAIL; B is revived and the next case runs. FAILs (misses in `ScenarioReport.D15.Misses`, per-boss rows in
   `ScenarioReport.D15.Rows`) without the host's `MATCH start knobs=enemyDamage=25`, per boss the host's
-  `BOSSCLD pre ... victim=other` and Difficulty's `HIT enemy=<row> via=CommitLethalDamage ... kind=hit`, every
-  `BOSSSTATE` t=0/6/12 on both machines; on a `NOTSHOWN`, a `BOSSDEATH`, any driver FAIL, an END not PASS or an
-  inactive line on B.
+  `BOSSCLD pre ... victim=other hp=100.00` and `BOSSCLD post`, Difficulty's `HIT enemy=<row> via=CommitLethalDamage
+  ... applied=25 hp=100 kind=hit`, every `BOSSSTATE` t=0/6/12 and all three `OK boss <b> ...` verdicts on both
+  machines; on a `NOTSHOWN`, a `BOSSDEATH`, any driver FAIL, an END not PASS or an inactive line on B. Passed on
+  V8.2.3 on 2026-11-19 (`d15-boss-pair-20261119-061727`; misses, none there, in `ScenarioReport.D15.Misses`).
 The verdict is in `dumps/<copy>/pair/<label>.json` (`ScenarioReport.Verdict`, misses in `ScenarioReport.D5.Misses`).
 The host copy must have no Nucleus or Difficulty of its own installed (`pair.ps1` refuses mods it didn't put there):
 run their `deploy.ps1 -Remove` first. All three passed on V8.2.3 on 2026-11-17 with story 11's harness (Outcome and

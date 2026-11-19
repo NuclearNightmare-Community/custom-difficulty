@@ -183,8 +183,15 @@ runtime refuse core 0.3.0.
   value out of range: no change for that grab, one `WARN the host's <key> is outside this mod's bounds ...` per key
   per match.
 - **Recovery** (every machine with the mod, own player only, also after a back-off): 6 s after an execution began on
-  this machine, if the player is alive and no other grab on it began since, `StopAnimMontage`, `PlayingMontage =
-  false`, `SetMovementMode(1)` and one `RECOVER hp= montage= stop= playing= movement=` line. Expected never to fire.
+  this machine, if the player is alive and no other grab on it began since, `StopAnimMontage(<current montage>)`
+  (none playing: no call), `PlayingMontage = false`, `SetMovementMode(1)` and one `RECOVER hp= montage=<yes|none>
+  stop=<true|false|skip> playing= movement=` line; a failed call adds ` err=<call>: <error text>`. 0.5 s later one
+  `RECOVER readback playing= movement=<mode> montage=<name|none> hp=` line: what the pawn reads then. Story 10 measured
+  it in game (`d10-measure`, below): an execution that doesn't kill a client frees it by itself, on both machines
+  (the Meek's at 5 s, the Watcher's EyeGouge at 8-9 s, when the Watcher's attack ends on the host); the client's
+  `SetMovementMode(1)` at 6 s doesn't stick while the host still holds it (readback `movement=0`), and the
+  `StopAnimMontage` only ends the local montage early. So nothing stays stuck, and the recovery stays a harmless
+  backstop.
 - **Core without Net** (`core.has` lacks `net.publish`, `net.read`, `net.presence`, `net.compatible` or
   `net.versionsCompatible`, or `mod.json` has no usable id): one `WARN Nucleus <v> has no <feature>: ...` line; the
   host spares only its own player and a client stays inactive.
@@ -298,7 +305,7 @@ writes no `dev.lua`, so a release takes the knobs only from the presets.
   read, a long name, or a failed write.
 - Story 5: `NET published ver= compat= ...` on the host at the match start; on a modded client `GRAB ... victim=local
   spare=yes` and its `RESTORE`, or once per world `host has no Difficulty, inactive (<reason>)`; `RECOVER ...` on any
-  machine when the recovery acted.
+  machine when the recovery acted, and its `RECOVER readback ...` 0.5 s later (story 10).
 
 ## Scenarios (`check.ps1`)
 
@@ -565,6 +572,18 @@ grabbed the host while B was its `Target` (decided for the host, B untouched), a
   montage, B is dead on the host (`CASE Meek on B: B died`) and on B (`MYHP` <= 0), the harness revives B, every later
   enemy still spares B without `kill=yes`, B logs no inactive line and both drivers end PASS with the session held
   (misses in `ScenarioReport.D14.Misses`).
+- `d10-measure` (story 10, a measurement): the host runs only the driver (`host-spawn` with `measure.txt`: no core,
+  no Difficulty, each enemy hit costs 25 HP, only the Meek and the Watcher), B runs core, Difficulty (inactive, so its
+  recovery runs after the game's own execution) and `client-watch` with `measure.txt`. Both machines play the
+  execution at full Health and B survives it; no enemy is despawned while it holds B and B isn't refilled within 17 s
+  of a grab. B's state once a second for 16 s on both machines (`MYPOS` on B, `OTHERPOS` on the host, which logs
+  `OTHERPOS` after every grab on B in every scenario), B walking backwards from +1 s (`WALK`, with a 3 s baseline walk
+  before the match). Verdict `NOT-STUCK` when every judged execution shows B free (no montage playing, walking) on
+  both machines and moving at least 10 cm on the host's screen within its 16 s, a Watcher EyeGouge and another
+  enemy's included; `STUCK` when a full window never does; `INCONCLUSIVE` otherwise (`ScenarioReport.D10`). Run
+  2026-11-19 (`d10-measure-20261119-045102`): `NOT-STUCK`. B was free on both machines 5 s after each Meek
+  execution and 8-9 s after each Watcher EyeGouge, and walked on the host's screen (the driver's input walks about
+  18 cm/s, the baseline too).
 The verdict is in `dumps/<copy>/pair/<label>.json` (`ScenarioReport.Verdict`, misses in `ScenarioReport.D5.Misses`).
 The host copy must have no Nucleus or Difficulty of its own installed (`pair.ps1` refuses mods it didn't put there):
 run their `deploy.ps1 -Remove` first. All three passed on V8.2.3 on 2026-11-17 with story 11's harness (Outcome and

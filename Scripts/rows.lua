@@ -4,10 +4,12 @@
 --     the ranges and steps knobs.lua's), ORDER (the screen's order) and defaults(diff, cm), the value each knob has
 --     on a difficulty (EDiffculty 0..3 = Nightmare, Hard, Normal, Easy; tokens follow Classified Minimum instead);
 --   * the adapter (new): 21 game-style rows, each holding a slider with a number box, declared once per Lua state
---     through core's public UI (core.ui.row, core.ui.slider, core.ui.place; core 0.15.0). It is the only file that
---     calls core.ui. Core rebuilds the rows on every open of the screen.
--- The presets model (presets.lua, model.rows) is the only truth: a slider's onChange writes it, refresh() pushes it
--- back into the sliders (after an open or a preset select), follow(diff, cm) moves every Default slider (and its hint)
+--     through core's public UI (core.ui.row, core.ui.slider, core.ui.place; core 0.15.0); story 14 adds an
+--     "Insta-kill" text and checkbox (core.ui.text, core.ui.checkbox) in the eight grabbing enemies' rows
+--     (knobs.KILL_ROWS). It is the only file that calls core.ui. Core rebuilds the rows on every open of the screen.
+-- The presets model (presets.lua, model.rows) is the only truth: a slider's or box's onChange writes it (a ticked box
+-- is "kill.<row>" = 1, an unticked one Default), refresh() pushes it back into the sliders and boxes (after an open or
+-- a preset select), follow(diff, cm) moves every Default slider (and its hint)
 -- to the screen's own Difficulty and Classified Minimum. Holds no UObject: opened(screen) reads the screen only
 -- during the call. Every callback runs under pcall with one log line per failure.
 local knobs = require("knobs")
@@ -30,6 +32,13 @@ for _, k in ipairs(M.KNOB_KEYS) do M.ORDER[#M.ORDER + 1] = k end
 for _, r in ipairs(knobs.ROWS) do M.ORDER[#M.ORDER + 1] = "dmg." .. r end
 M.IS_KNOB = {}
 for _, k in ipairs(M.KNOB_KEYS) do M.IS_KNOB[k] = true end
+-- Story 14: the Insta-kill boxes, one per kill row ("kill.<row>", knobs.KILL_ROWS order), each in its "dmg.<row>" row.
+M.KILL_KEYS = {}
+for _, r in ipairs(knobs.KILL_ROWS) do M.KILL_KEYS[#M.KILL_KEYS + 1] = "kill." .. r end
+M.KILL_TEXT = "Insta-kill"
+-- The column weights in a row with a box (core's like-rows give every child Fill 1.0 otherwise).
+M.FILL = { slider = 6, text = 2, box = 1 }
+M.BOSS = { slugQueen = true, apex = true }
 
 -- The labels (mod.json's settings labels; modjson_test checks they agree).
 M.ENEMY = { meek = "Meek", mimic = "Mimic", psycho = "Psycho", husk = "Husk", watcher = "Watcher", stalker = "Stalker",
@@ -39,6 +48,7 @@ M.LABELS = { enemyDamage = "Enemy Damage", spread = "Damage Spread", revives = "
              classifiedTokens = "Tokens per Classified", classifiedTokensMax = "Max Classified Tokens",
              cold = "Cold Exposure", frostbite = "Frostbite Damage" }
 for _, r in ipairs(knobs.ROWS) do M.LABELS["dmg." .. r] = "Damage: " .. M.ENEMY[r] end
+for _, r in ipairs(knobs.KILL_ROWS) do M.LABELS["kill." .. r] = "Insta-kill: " .. M.ENEMY[r] end
 
 -- A number as text: at most two decimals, no trailing zeros ("17", "0.5").
 local function num(v) return (string.format("%.2f", v):gsub("%.?0+$", "")) end
@@ -82,9 +92,24 @@ M.HELP = {
     frostbite = table.concat({ "HP lost per second at a full freeze meter.",
         "Default: 1 on every difficulty.", range("frostbite"), FOLLOW }, "\n"),
 }
+M.KILL_HELP = "Insta-kill box: unticked on every difficulty."
 for _, r in ipairs(knobs.ROWS) do
-    M.HELP["dmg." .. r] = table.concat({ "Damage of the " .. M.ENEMY[r] .. "'s hits, in % after Enemy Damage.",
-        STOCK[ENEMY_STOCK[r]], range("dmg." .. r), "Empty = 100." }, "\n")
+    local lines = { "Damage of the " .. M.ENEMY[r] .. "'s hits, in % after Enemy Damage.",
+        STOCK[ENEMY_STOCK[r]], range("dmg." .. r), "Empty = 100." }
+    if knobs.IS_KILL_ROW[r] then lines[#lines + 1] = M.KILL_HELP end
+    M.HELP["dmg." .. r] = table.concat(lines, "\n")
+end
+-- Story 14: the Insta-kill box's tooltip (grab enemies, and the two bosses' finisher grabs).
+M.KILL_TIP = {}
+for _, r in ipairs(knobs.KILL_ROWS) do
+    local e = M.ENEMY[r]
+    if M.BOSS[r] then
+        M.KILL_TIP["kill." .. r] = "Ticked: every " .. e .. " finisher grab kills, whatever Enemy Damage, this row's % and Health.\n"
+            .. "Unticked: the grab takes the scaled hit and kills only when that hit does."
+    else
+        M.KILL_TIP["kill." .. r] = "Ticked: every " .. e .. " grab kills (the game's execution), whatever Enemy Damage, this row's % and Health.\n"
+            .. "Unticked: Difficulty's rules; a grab still kills when its hit would."
+    end
 end
 
 -- An index 0..3, or nil.
@@ -137,7 +162,7 @@ A.__index = A
 -- warnOnce(key, fmt, ...), levels (screen -> diff, cm; presets.levels), hasAnchor (screen, name -> true | false | nil;
 -- the bounded walk below by default).
 function M.new(opts)
-    return setmetatable({ o = opts, ui = opts.ui, model = opts.model, rowH = {}, sliderH = {}, declared = false,
+    return setmetatable({ o = opts, ui = opts.ui, model = opts.model, rowH = {}, sliderH = {}, boxH = {}, declared = false,
                           enemyAt = M.ENEMY_AFTER, diff = nil, cm = nil }, A)
 end
 
@@ -156,8 +181,12 @@ function A:onChange(key, v)
     self:say("info", "ROWS change %s=%s rows=%s", key, v == nil and "default" or num(v), knobs.encode(self.model.rows))
 end
 
--- Declares the 21 rows and sliders once per Lua state (core rebuilds them on every open). Returns true when all were
--- declared; a failure is one ERROR line and the rows declared so far stay.
+-- A box's model value: ticked = 1, unticked = nil (Default).
+local function ticked(v) return v == 1 end
+
+-- Declares the 21 rows and sliders once per Lua state (core rebuilds them on every open), and in the eight kill rows
+-- the Insta-kill text and box (story 14). Returns true when all were declared; a failure is one ERROR line and the
+-- rows declared so far stay.
 function A:declare()
     if self.declared then return true end
     self.declared = true
@@ -169,9 +198,17 @@ function A:declare()
             local rh = U.row.create{ id = "r-" .. key, like = M.LIKE, label = M.LABELS[key], help = M.HELP[key],
                                      place = intent(M.IS_KNOB[key] and M.KNOB_AFTER or M.ENEMY_AFTER) }
             self.rowH[key] = rh
+            local enemy = key:match("^dmg%.(.+)$")
+            local box = enemy and knobs.IS_KILL_ROW[enemy] and ("kill." .. enemy) or nil
             self.sliderH[key] = U.slider.create{ id = "s-" .. key, min = k.min, max = k.max, step = k.step,
                 value = self.model.rows[key], defaultValue = defs[key], hint = M.hint(key, defs[key]),
-                onChange = function(_, v) self:onChange(key, v) end, place = { row = rh } }
+                onChange = function(_, v) self:onChange(key, v) end, place = { row = rh, fill = box and M.FILL.slider or nil } }
+            if box then
+                U.text.create{ id = "t-" .. box, text = M.KILL_TEXT, place = { row = rh, fill = M.FILL.text } }
+                self.boxH[box] = U.checkbox.create{ id = "c-" .. box, checked = ticked(self.model.rows[box]),
+                    tooltip = M.KILL_TIP[box], onChange = function(_, c) self:onChange(box, c == true and 1 or nil) end,
+                    place = { row = rh, fill = M.FILL.box } }
+            end
         end)
         if not ok then self:say("error", "ROWS %s could not be declared: %s", key, tostring(err)) return false end
     end
@@ -179,8 +216,15 @@ function A:declare()
     return true
 end
 
--- Every slider shows the model's value (nil: Default).
+-- Every slider shows the model's value (nil: Default), every box whether it is ticked.
 function A:refresh()
+    for _, key in ipairs(M.KILL_KEYS) do
+        local h = self.boxH[key]
+        if h then
+            local ok, err = pcall(self.ui.checkbox.set, h, ticked(self.model.rows[key]))
+            if not ok then self.o.warnOnce("rows-set-" .. key, "ROWS %s could not be set: %s", key, tostring(err)) end
+        end
+    end
     for _, key in ipairs(M.ORDER) do
         local h = self.sliderH[key]
         if h then

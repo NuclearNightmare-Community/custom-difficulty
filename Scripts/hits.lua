@@ -405,8 +405,9 @@ function A:grabKind(vpath, apath, row)
 end
 
 -- ---------------------------------------------------------------- one hit
--- plan(v, stock, row, via, apath, inGrab) -> a plan (Health compensated) or false (left alone).
-function A:plan(v, stock, row, via, apath, inGrab)
+-- plan(v, stock, row, via, apath, inGrab, kind) -> a plan (Health compensated) or false (left alone). kind (story 14):
+-- the hit's kind when the caller knows it (a ticked boss's finisher: "execution"); nil: the grab's, or "hit".
+function A:plan(v, stock, row, via, apath, inGrab, kind)
     local values = self.st.values
     if not damage.acts(values, row) then return false end
     if not self:alive(v) then return false end
@@ -419,7 +420,7 @@ function A:plan(v, stock, row, via, apath, inGrab)
     if not hp then return false end
     local d = self:difficulty(v)
     if not d then return false end
-    local kind = inGrab and self:grabKind(vpath, apath, row) or "hit"
+    kind = kind or (inGrab and self:grabKind(vpath, apath, row)) or "hit"
     local p = damage.hit(n, values, d, row, kind, hp, self.rng)
     if not p then return false end
     if not setHp(v, p.new) then error("could not write Health on " .. vpath) end
@@ -509,15 +510,17 @@ function A:onCde(selfp, amount)
     local n = num(get(amount))
     if not n or n <= 0 or not self:alive(v) then return end
     local vpath = pathOf(v)
-    local row, via, apath
+    local row, via, apath, kind
     local b = st.boss[#st.boss]
     if b then
         row, via, apath = b.row, "CommitLethalDamage", b.path
+        -- Story 14: a ticked boss's finisher kills (step 4: at least Health); unticked it stays an ordinary hit.
+        if damage.kill(st.values, row) then kind = "execution" end
     else
         row, via = self:nativeAttacker(v, vpath)
         if not row then return end -- environmental, unknown or a Blueprint-wrapper enemy: never touched
     end
-    local p = self:plan(v, n, row, via, apath, false)
+    local p = self:plan(v, n, row, via, apath, false, kind)
     if p then p.delivered = true end
     st.cde[slot] = p
 end
@@ -635,9 +638,9 @@ function A:hostGrab(v, vpath, isLocal)
     local enemy, unknown = self:enemyText(row, short, v)
     local flip = self:flipFor(v, vpath, hp, g, enemy)
     self.st.grabs[vpath] = { kind = g.decision == "s" and "survivable" or "execution", attacker = apath, row = row, at = self.clock() }
-    self.o.say("info", "GRAB enemy=%s hp=%s E=%s game=%s decision=%s flip=%s victim=%s spare=%s%s", enemy, F(hp), F(g.E),
+    self.o.say("info", "GRAB enemy=%s hp=%s E=%s game=%s decision=%s flip=%s victim=%s spare=%s%s%s", enemy, F(hp), F(g.E),
         g.game, g.decision, flip, isLocal and "local" or "client", spare and "yes" or ("no(" .. tostring(why) .. ")"),
-        unknown and (" why=" .. unknown) or "")
+        unknown and (" why=" .. unknown) or "", g.kill and " kill=yes" or "")
     self:watcherLine(aobj, short, isLocal and vpath or self:myPath(v))
     if isLocal then self:noteGrab(v, vpath, g.decision) end
 end
@@ -692,8 +695,8 @@ function A:clientGrab(v, vpath, attacker)
     if not g then self:noteGrab(v, vpath, nil) return end
     local enemy, unknown = self:enemyText(row, short, v)
     local flip = self:flipFor(v, vpath, hp, g, enemy)
-    self.o.say("info", "GRAB enemy=%s hp=%s E=%s game=%s decision=%s flip=%s victim=local spare=yes%s", enemy, F(hp), F(g.E),
-        g.game, g.decision, flip, unknown and (" why=" .. unknown) or "")
+    self.o.say("info", "GRAB enemy=%s hp=%s E=%s game=%s decision=%s flip=%s victim=local spare=yes%s%s", enemy, F(hp), F(g.E),
+        g.game, g.decision, flip, unknown and (" why=" .. unknown) or "", g.kill and " kill=yes" or "")
     self:watcherLine(aobj, short, vpath)
     self:noteGrab(v, vpath, g.decision)
 end

@@ -24,6 +24,23 @@ do
     ok(e[2] and e[2].values.classifiedTokens == 2 and e[2].values.classifiedTokensMax == 3, "a new entry: both keys read")
 end
 
+-- ---------------------------------------------------------------- story 14: the Insta-kill boxes in the sidecar
+do
+    local entries = { { index = 0, name = "A", values = { ["kill.meek"] = 1, enemyDamage = 25 } }, { index = 1, name = "B", values = {} } }
+    local text = sc.serialize(entries, "Difficulty")
+    ok(text:find("0\tA\tenemyDamage=25;kill.meek=1\n", 1, true), "serialize: kill.meek=1 written", text)
+    local e, p = sc.parse(text)
+    ok(#p == 0 and e[1].values["kill.meek"] == 1 and e[1].values.enemyDamage == 25 and next(e[2].values) == nil, "round trip: A ticked, B unticked")
+    e, p = sc.parse(HDR .. "0\tOld\tdmg.meek=50\n")
+    eq(e[1].values["kill.meek"], nil, "a preset saved before the boxes: unticked")
+    eq(#p, 0, "a preset saved before the boxes: no problem")
+    e, p = sc.parse(HDR .. "0\tX\tkill.meek=2;cold=50\n1\tY\tkill.meek=yes\n2\tZ\tkill.meek=0\n")
+    ok(e[1].values["kill.meek"] == nil and e[1].values.cold == 50, "kill.meek=2: Default, the rest kept")
+    ok(e[2] and e[2].values["kill.meek"] == nil, "kill.meek=yes: Default")
+    ok(e[3] and e[3].values["kill.meek"] == nil, "kill.meek=0: unticked (Default)")
+    eq(#p, 2, "kill.meek=2 and =yes: one problem each; 0 none")
+end
+
 -- ---------------------------------------------------------------- name encoding
 do
     local name = "a%b\tc\nd\re\1f%41 ok"

@@ -15,6 +15,14 @@ M.MAX_ENTRIES = 32
 -- The per-enemy rows, in the screen's order (presets-and-ui.md). Keys are "dmg.<row>".
 M.ROWS = { "meek", "mimic", "psycho", "husk", "watcher", "stalker", "slugQueen", "apex", "worm", "leech", "bat",
            "infectedDog", "infectedPlayer", "monster" }
+-- Story 14: the six enemies whose grab picks an execution or a survivable animation (knob-mechanics.md "Survivable
+-- grabs"), in the order of the published bitmask (net.lua "kills": bit 0 = meek ... bit 5 = stalker).
+M.GRAB_ROWS = { "meek", "mimic", "psycho", "husk", "watcher", "stalker" }
+-- Story 14: the enemies with an Insta-kill box ("kill.<row>"): the six grabs and the two bosses' finisher grabs
+-- (CommitLethalDamage). No box on the Worm, Leech, Bat, Infected Dog, Infected Player or Playable Monster.
+M.KILL_ROWS = { "meek", "mimic", "psycho", "husk", "watcher", "stalker", "slugQueen", "apex" }
+M.IS_KILL_ROW = {}
+for _, r in ipairs(M.KILL_ROWS) do M.IS_KILL_ROW[r] = true end
 
 -- Every knob mod.json declares under settings, with the same range and step (test/unit/knobs_test.lua checks they
 -- agree).
@@ -28,6 +36,8 @@ M.KNOBS = {
     { key = "frostbite", min = 0, max = 20, step = 0.5 },
 }
 for _, r in ipairs(M.ROWS) do M.KNOBS[#M.KNOBS + 1] = { key = "dmg." .. r, min = 0, max = 500, step = 5 } end
+-- Story 14: the Insta-kill boxes, flags: 1 = ticked; 0 and Default both mean unticked (parse keeps neither).
+for _, r in ipairs(M.KILL_ROWS) do M.KNOBS[#M.KNOBS + 1] = { key = "kill." .. r, min = 0, max = 1, step = 1, flag = true } end
 M.BY_KEY = {}
 for _, k in ipairs(M.KNOBS) do M.BY_KEY[k.key] = k end
 
@@ -75,7 +85,13 @@ function M.parse(text)
                 values[key] = nil
             else
                 local v = tonumber(val)
-                if v == nil or v ~= v or v < k.min or v > k.max then
+                if k.flag and v ~= nil and v >= k.min and v <= k.max and v ~= math.floor(v) then
+                    -- A flag is 0 or 1 only (story 14): 0.5 is no box state.
+                    problems[#problems + 1] = ("%s=%s is not 0 or 1; %s Default"):format(key, clip(val), key)
+                    values[key] = nil
+                elseif k.flag and v == 0 then
+                    values[key] = nil -- unticked is Default: nothing kept, nothing encoded
+                elseif v == nil or v ~= v or v < k.min or v > k.max then
                     problems[#problems + 1] = ("%s=%s is outside %s..%s; %s Default"):format(key, clip(val), tostring(k.min), tostring(k.max), key)
                     values[key] = nil
                 else

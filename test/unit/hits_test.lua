@@ -1576,6 +1576,149 @@ do -- no attacker found on the host: enemy=unknown(<class>) with the reason, nev
     ok(line("^RESTORE enemy=unknown%(none%) "), "unknown: the RESTORE label names it too", dump())
 end
 
+-- ---------------------------------------------------------------- story 14: the Insta-kill box
+do -- ticked, game executes: Nightmare, ED 25, kill.meek, 100 HP: no flip, kill=yes, the execution kills
+    setup{ knobs = "enemyDamage=25;kill.meek=1", diff = 0 }
+    eq(meekGrab(T.me), "e", "ticked, game e: the game's execution")
+    eq(T.me.writes, 0, "ticked, game e: no temporary Health")
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=e flip=none victim=local spare=yes kill=yes$"), 1, "ticked, game e: GRAB line", dump())
+    lockedHit(T.meek, 100)
+    ok(T.me._hp <= 0, "ticked, game e: dead", T.me._hp)
+    eq(count("^HIT enemy=meek via=ApplyLockedDamage stock=100 scaled=25 rolled=25 applied=100 hp=100 kind=execution$"), 1, "ticked, game e: HIT kind=execution applied>=100", dump())
+    eq(count("WARN"), 0, "ticked, game e: no WARN")
+end
+do -- ticked, game spares: Normal, ED Default, kill.meek, 100 HP: flip 0.01, the execution kills
+    setup{ knobs = "kill.meek=1", diff = 2 }
+    eq(meekGrab(T.me), "e", "ticked, game s: the flipped test picks the execution")
+    eq(T.me._hp, 100, "ticked, game s: restored in the multicast hook")
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=s decision=e flip=0.01 victim=local spare=yes kill=yes$"), 1, "ticked, game s: GRAB line", dump())
+    eq(count("^RESTORE enemy=meek hp=0.01 %-> 100 via=multicast$"), 1, "ticked, game s: RESTORE line", dump())
+    lockedHit(T.meek, 100)
+    ok(T.me._hp <= 0, "ticked, game s: dead", T.me._hp)
+    eq(count("^HIT enemy=meek via=ApplyLockedDamage stock=100 scaled=100 rolled=100 applied=100 hp=100 kind=execution$"), 1, "ticked, game s: HIT", dump())
+end
+do -- ticked, ED 0 and the row at 0 %: still the execution, at least Health
+    setup{ knobs = "enemyDamage=0;dmg.meek=0;kill.meek=1", diff = 2 }
+    eq(meekGrab(T.me), "e", "ED 0 / row 0, ticked: execution")
+    eq(count("game=s decision=e flip=0.01 victim=local spare=yes kill=yes$"), 1, "ED 0 / row 0: GRAB line", dump())
+    lockedHit(T.meek, 100)
+    ok(T.me._hp <= 0, "ED 0 / row 0: dead", T.me._hp)
+    eq(count("applied=100 hp=100 kind=execution$"), 1, "ED 0 / row 0: applied 100", dump())
+    -- Outside a grab the same Meek's hit follows ED 0: nothing.
+    T.me._hp = 100
+    T.now = T.now + 30
+    lockedHit(T.meek, 25)
+    eq(T.me._hp, 100, "ED 0 / row 0: a hit outside a grab applies 0")
+end
+do -- ticked, an unspared client: the game's survivable, capped (4a)
+    local net = F.net()
+    setup{ knobs = "kill.meek=1", diff = 2, net = net }
+    eq(meekGrab(T.other), "s", "unspared client: the game's survivable")
+    eq(T.other.writes, 0, "unspared client: no temporary Health")
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=s decision=s flip=none victim=client spare=no%(absent%) kill=yes$"), 1, "unspared client: GRAB line", dump())
+    lockedHit(T.meek, 25)
+    eq(T.other._hp, 75, "unspared client: alive")
+    eq(count("kind=survivable$"), 1, "unspared client: kind=survivable")
+end
+do -- ticked, a compatible modded client: the host decides the execution for it too
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25;kill.meek=1", diff = 0, net = net }
+    net.compat[T.ps[2]] = true
+    eq(meekGrab(T.other), "e", "modded client, ticked: execution")
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=e flip=none victim=client spare=yes kill=yes$"), 1, "modded client, ticked: GRAB line", dump())
+    lockedHit(T.meek, 100)
+    ok(T.other._hp <= 0, "modded client, ticked: dead", T.other._hp)
+end
+do -- the host publishes the kills bitmask (grab boxes only)
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25;kill.meek=1;kill.stalker=1;kill.apex=1", net = net }
+    local t = {}
+    for _, kv in ipairs(net.published) do t[#t + 1] = kv[1]:sub(#NETID + 1) .. "=" .. tostring(kv[2]) end
+    eq(table.concat(t, ","), "enemyDamage=25,kills=33,ver=1000,compat=1000", "publish: kills=33 (meek + stalker), no boss bit")
+    net = F.net()
+    setup{ knobs = "kill.apex=1", net = net }
+    eq(#net.published, 2, "publish: only a boss ticked -> ver and compat only")
+end
+do -- the modded client: its own player from the host's kills bit
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25, kills = 1 })
+    eq(meekGrab(T.me), "e", "client, kills bit 0: execution")
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=e flip=none victim=local spare=yes kill=yes$"), 1, "client, kills bit 0: GRAB line", dump())
+    clientSetup(hv{ ver = 1000, compat = 1000, kills = 1 }, { diff = 2 })
+    eq(meekGrab(T.me), "e", "client on Normal, kills bit 0: flipped to the execution")
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=s decision=e flip=0.01 victim=local spare=yes kill=yes$"), 1, "client on Normal: GRAB line", dump())
+    eq(T.me._hp, 100, "client on Normal: restored")
+    clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25, kills = 2 })
+    eq(meekGrab(T.me), "s", "client, only the Mimic's bit: the Meek is spared")
+    eq(count("kill=yes"), 0, "client, only the Mimic's bit: no kill=yes")
+    for _, bad in ipairs({ 64, -1 }) do
+        clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25, kills = bad })
+        eq(meekGrab(T.me), "e", "client, kills=" .. bad .. ": the game's decision")
+        eq(T.me.writes, 0, "client, kills=" .. bad .. ": no write")
+        eq(count("^WARN the host's kills is outside this mod's bounds"), 1, "client, kills=" .. bad .. ": one WARN", dump())
+        eq(count("^GRAB "), 0, "client, kills=" .. bad .. ": no GRAB")
+    end
+end
+do -- a boss ticked: the finisher applies at least Health (kind=execution); unticked unchanged (story 13)
+    setup{ knobs = "enemyDamage=25;kill.apex=1", diff = 0 }
+    bossHit(T.apex, T.me, 100)
+    ok(T.me._hp <= 0, "boss ticked: dead", T.me._hp)
+    eq(count("^HIT enemy=apex via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=100 hp=100 kind=execution$"), 1, "boss ticked: HIT line", dump())
+    eq(count("WARN"), 0, "boss ticked: the guard is satisfied")
+    local queen = actor("SlugQueen_AI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.SlugQueen_AI_C_1")
+    T.me._hp = 100
+    bossHit(queen, T.me, 100)
+    eq(T.me._hp, 75, "boss unticked (the Queen, kill.apex only): 75 HP")
+    eq(count("^HIT enemy=slugQueen via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=25 hp=100 kind=hit$"), 1, "boss unticked: HIT line unchanged", dump())
+    setup{ knobs = "kill.slugQueen=1", diff = 2 }
+    queen = actor("SlugQueen_AI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.SlugQueen_AI_C_1")
+    T.me._hp = 150
+    bossHit(queen, T.me, 100)
+    ok(T.me._hp <= 0, "boss ticked, Health above the stock hit: still dead", T.me._hp)
+    eq(count("applied=150 hp=150 kind=execution$"), 1, "boss ticked: applied = Health", dump())
+    -- A boss ticked but the hit outside CommitLethalDamage (no context): untouched.
+    T.me._hp = 100
+    cde(T.me, 30)
+    eq(T.me._hp, 70, "boss ticked: a hit with no context stays stock")
+end
+do -- only a box ticked: acts for that enemy only; its non-grab hits plan to the stock
+    setup{ knobs = "kill.husk=1", diff = 2 }
+    local husk = actor("FastLearner_AI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.FastLearner_AI_C_1")
+    T.locked[husk._path] = T.me
+    lockedHit(husk, 25)
+    eq(T.me._hp, 75, "only a box: the Husk's hit unchanged")
+    eq(count("^HIT enemy=husk via=ApplyLockedDamage stock=25 scaled=25 rolled=25 applied=25 hp=100 kind=hit$"), 1, "only a box: HIT plans the stock", dump())
+    T.me._hp, T.me.writes = 100, 0
+    T.locked[T.meek._path] = T.me
+    meekGrab(T.me)
+    lockedHit(T.meek, 25)
+    eq(T.me._hp, 75, "only a box: the Meek's hit stock")
+    eq(T.me.writes, 0, "only a box: no write for the Meek")
+    eq(count("enemy=meek"), 0, "only a box: no line for the Meek")
+end
+do -- unticked = identical: the same grabs and hits with and without other enemies' boxes give the same lines
+    local function run(knobs)
+        setup{ knobs = knobs, diff = 0, net = F.net() }
+        T.H.rng = function() return 0.25 end
+        meekGrab(T.me)
+        lockedHit(T.meek, 100)
+        T.now = T.now + 30
+        T.me._hp = 100
+        bossHit(T.apex, T.me, 100)
+        T.me._hp = 30
+        T.now = T.now + 30
+        meekGrab(T.me)
+        lockedHit(T.meek, 100)
+        local out = {}
+        for _, l in ipairs(T.lines) do if not l:find("^MATCH ") and not l:find("^NET ") then out[#out + 1] = l end end
+        return table.concat(out, " | "), T.me._hp
+    end
+    local a, hpA = run("enemyDamage=25;spread=20")
+    local b, hpB = run("enemyDamage=25;spread=20;kill.mimic=1;kill.slugQueen=1")
+    eq(b, a, "unticked = identical lines")
+    eq(hpB, hpA, "unticked = identical Health")
+    ok(not a:find("kill=", 1, true), "unticked: no kill= anywhere")
+end
+
 -- ---------------------------------------------------------------- the source: rules from AGENTS.md
 do
     local f = assert(io.open(ROOT .. "/Scripts/hits.lua", "r"))

@@ -2,9 +2,9 @@
 -- Story 3: enemy damage on the host and survivable grabs for the host's own player (attribution, Health
 -- compensation, the grab flip and its restore, the guards against other mods; the math is damage.lua's). Story 4:
 -- frostbite in the CallFrostbiteDamageEvent pre-hook (V8.2's native), cold in the host poll (env.lua), reinforcement
--- tokens at the match start, in the radio's server-event callbacks and in the poll (tokens.lua). Story 5: survivable
--- grabs on modded clients (story 12: the classified bonus, tokens.classified, in the game state's UpdateClassifieds
--- callback and the poll). The host publishes the grab inputs through core.net at the match start (net.lua) and spares
+-- tokens at the match start, in the radio's server-event callbacks and in the poll (tokens.lua); story 12 adds the
+-- classified bonus (tokens.classified) in the game state's UpdateClassifieds callback and the poll. Story 5: survivable
+-- grabs on modded clients. The host publishes the grab inputs through core.net at the match start (net.lua) and spares
 -- a client victim only when core's presence says its machine runs a compatible Difficulty; a modded client flips only
 -- its own player's grab from the host's values (HasPerk(0x27) for the five AI grabs, the BeginStalkerPresentation
 -- pre-hook for the Stalker); every machine runs the 6 s recovery for its own player after an execution began.

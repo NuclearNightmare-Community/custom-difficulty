@@ -486,7 +486,7 @@ Expect ($ctl -replace 'knobs=all Default', 'knobs=enemyDamage=25') 'boss-default
 Expect ($ctl -replace 'NOTSHOWN Apex: the control player is dead', 'NOTSHOWN Apex: no CommitLethalDamage in 60 s (0 BOSSTRY attempts)') 'boss-default' 1 'boss-default: an Apex not shown without BOSSTRY -> fails' 'BOSSTRY'
 
 # ---------------------------------------------------------------- story 8: signal (two launches, the screen's values)
-$k8 = 'enemyDamage=25 spread=20 revives=8 cold=0 frostbite=0 dmg.stalker=200'
+$k8 = 'enemyDamage=25 spread=20 revives=8 classifiedTokens=2 classifiedTokensMax=3 cold=0 frostbite=0 dmg.stalker=200'
 $sigA = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 21'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
     (DR 'SCENARIO signal-a'), (DR 'DEVLUA absent C:\nn\x\Difficulty\Scripts\dev.lua'),
     (DR 'OK SIGDEV no dev.lua in Difficulty''s Scripts (the values come only from the screen, the preset and the capture)'),
@@ -496,9 +496,11 @@ $sigA = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS 
     (D 'ROWS change enemyDamage=25 rows=enemyDamage=25'), (DR 'OK SIGTYPE enemyDamage typed 25: box ''25'' bar 25'),
     (D 'ROWS change spread=20 rows=enemyDamage=25;spread=20'), (DR 'OK SIGTYPE spread typed 20: box ''20'' bar 20'),
     (D 'ROWS change dmg.stalker=200 rows=enemyDamage=25;spread=20;dmg.stalker=200'), (DR 'OK SIGTYPE dmg.stalker typed 200: box ''200'' bar 200'),
-    (D 'ROWS change cold=0 rows=enemyDamage=25;spread=20;cold=0;dmg.stalker=200'), (DR 'OK SIGDRAG cold dragged to the start: box ''0'' bar 0 (want 0)'),
-    (D 'ROWS change frostbite=0 rows=enemyDamage=25;spread=20;cold=0;frostbite=0;dmg.stalker=200'), (DR 'OK SIGDRAG frostbite dragged to the start: box ''0'' bar 0 (want 0)'),
-    (D 'ROWS change revives=8 rows=enemyDamage=25;spread=20;revives=8;cold=0;frostbite=0;dmg.stalker=200'), (DR 'SIGDRAG revives dragged to 8: box ''8'' bar 8'),
+    (D 'ROWS change classifiedTokens=2 rows=enemyDamage=25;spread=20;classifiedTokens=2;dmg.stalker=200'), (DR 'OK SIGTYPE classifiedTokens typed 2: box ''2'' bar 2'),
+    (D 'ROWS change classifiedTokensMax=3 rows=enemyDamage=25;spread=20;classifiedTokens=2;classifiedTokensMax=3;dmg.stalker=200'), (DR 'OK SIGTYPE classifiedTokensMax typed 3: box ''3'' bar 3'),
+    (D 'ROWS change cold=0 rows=enemyDamage=25;spread=20;classifiedTokens=2;classifiedTokensMax=3;cold=0;dmg.stalker=200'), (DR 'OK SIGDRAG cold dragged to the start: box ''0'' bar 0 (want 0)'),
+    (D 'ROWS change frostbite=0 rows=enemyDamage=25;spread=20;classifiedTokens=2;classifiedTokensMax=3;cold=0;frostbite=0;dmg.stalker=200'), (DR 'OK SIGDRAG frostbite dragged to the start: box ''0'' bar 0 (want 0)'),
+    (D 'ROWS change revives=8 rows=enemyDamage=25;spread=20;revives=8;classifiedTokens=2;classifiedTokensMax=3;cold=0;frostbite=0;dmg.stalker=200'), (DR 'SIGDRAG revives dragged to 8: box ''8'' bar 8'),
     (DR 'OK SIGROWS before the save: every row shows its value and the screen is on Nightmare (Diffculty 0, shown Nightmare)'),
     (D "PRESETS save index=1 name=DT8-SIGNAL knobs=$k8"), (DR 'OK SIGSAVED DT8-SIGNAL is in the game''s presets'),
     (DR 'END result=PASS checks=12 failures=0 notshown=0 dead=false'))
@@ -509,7 +511,7 @@ $sigB = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS 
     (DR 'OK SIGROWS after the select: every row shows its value and the screen is on Nightmare (Diffculty 0, shown Nightmare)'),
     (DR 'SIGSESSION advertise=false lan=false friendsOnly=true'), (DR 'OK SIGSESSION CreateSteamSession friends-only (advertise=false friendsOnly=true)'),
     (D "PRESETS capture knobs=$k8"), (U 'LoadMap /Game/Maps/SmallLoweIsland/SmallMap'), (D 'WORLD host=true standalone=false map=SmallMap'),
-    (D "MATCH start knobs=$k8"), (DR 'WHITEOUT disabled=true director=1 phase=0'), (D 'TOKENS start limit=6 N=8 count=-2'),
+    (D "MATCH start knobs=$k8"), (DR 'WHITEOUT disabled=true director=1 phase=0'), (D 'TOKENS start limit=6 N=8 count=-2'), (D 'TOKENS classified k=2 cap=3 baseline=0'),
     (D 'GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes'), (D 'RESTORE enemy=meek hp=101 -> 100 via=multicast'),
     (D 'HIT enemy=meek via=ApplyLockedDamage stock=100 scaled=25 rolled=22.4 applied=22.4 hp=100 kind=survivable'),
     (DR 'OK signal-b Meek #1 hit took 22.40 HP (want 15.00..35.00) via ApplyLockedDamage, hp now 77.60'),
@@ -547,6 +549,8 @@ ExpectSignal $sigAFail @() 1 'signal: launch 1 failed, launch 2 not run -> fails
 ExpectSignal (Without $sigA 'OK SIGDRAG frostbite') $sigB 1 'signal: only one value dragged -> fails' 'at least two values dragged'
 ExpectSignal (Without $sigA 'PRESETS save') $sigB 1 'signal: no DT8-SIGNAL save line -> fails' 'PRESETS save'
 ExpectSignal (Without $sigA 'ROWS change spread=20') $sigB 1 'signal: no spread row change in launch 1 -> fails' 'ROWS change spread=20'
+ExpectSignal (Without $sigA 'ROWS change classifiedTokensMax=3') $sigB 1 'signal: Max Classified Tokens not typed in launch 1 -> fails' 'ROWS change classifiedTokensMax=3'
+ExpectSignal $sigA ($sigB -replace "MATCH start knobs=$([regex]::Escape($k8))", 'MATCH start knobs=enemyDamage=25 spread=20 revives=8 cold=0 frostbite=0 dmg.stalker=200') 1 'signal: the story 12 knobs lost across the restart -> fails naming them' 'classifiedTokens: got Default, want 2'
 ExpectSignal $sigA (Without $sigB 'PRESETS capture') 1 'signal: no capture -> fails' 'PRESETS capture'
 ExpectSignal $sigA ($sigB -replace 'rolled=22\.4 applied=22\.4', 'rolled=40 applied=40') 1 'signal: a Meek grab taking 40 -> fails' 'Meek''s grab at full Health took 40'
 ExpectSignal $sigA ($sigB -replace 'scaled=50 rolled=57\.1 applied=57\.1', 'scaled=100 rolled=100 applied=99') 1 'signal: a stock Stalker hit -> fails' 'Stalker''s grab took 99'

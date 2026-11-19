@@ -255,6 +255,85 @@ try {
     Ok ((Get-DpD14Report).Verdict -eq 'FAIL') 'd14-kill-modded: a failed session fails'
     $result.Outcome = 'PASS'
 
+    # ---------------------------------------------------------------- story 15: d15-boss-pair
+    $sc15 = $PairScenarios['d15-boss-pair']
+    Ok ($null -ne $sc15) 'd15-boss-pair is registered with pair.ps1'
+    foreach ($key in 'Summary', 'Prereq', 'HostModPaths', 'VMSetup', 'VMRestore', 'AfterJoin', 'Check', 'HostFiles') { Ok ($null -ne $sc15[$key]) "d15-boss-pair has $key" }
+    Ok ($sc15.HostFiles['PairDriver\Scripts\difficulty.txt'] -eq '0') 'd15-boss-pair runs a Nightmare lobby'
+    $p15 = @(& $sc15.HostModPaths)
+    Ok ($p15.Count -eq 3 -and $p15[0] -like '*Nucleus\build\package' -and (Split-Path $p15[1] -Leaf) -eq 'Difficulty' -and (Split-Path $p15[2] -Leaf) -eq 'DifficultyPair') 'd15-boss-pair: host mods core, Difficulty, DifficultyPair' ($p15 -join ' | ')
+    Ok ((Get-Content (Join-Path $p15[1] 'Scripts\dev.lua') -Raw) -match 'return \{ debug = true, knobs = "enemyDamage=25" \}') 'd15-boss-pair: the host''s Difficulty has enemyDamage=25 (dev.lua)'
+    Ok ((Get-Content (Join-Path $p15[2] 'Scripts\role.txt') -Raw) -eq 'host-spawn' -and (Test-Path (Join-Path $p15[2] 'Scripts\boss.txt'))) 'd15-boss-pair: host-spawn with boss.txt'
+    Ok (-not (Test-Path (Join-Path $p15[2] 'Scripts\watcher-near.txt')) -and -not (Test-Path (Join-Path $p15[2] 'Scripts\measure.txt'))) 'd15-boss-pair: no watcher-near.txt or measure.txt'
+    Ok ($sc15.VMSetup.ToString() -match 'Set-DpVMModded -Modded -Boss') 'd15-boss-pair: B modded, client-watch with boss.txt'
+    $cw15 = Get-DpStage -Role 'client-watch' -Boss
+    Ok ((Get-Content (Join-Path $cw15 'Scripts\role.txt') -Raw) -eq 'client-watch' -and (Test-Path (Join-Path $cw15 'Scripts\boss.txt'))) 'client-watch -Boss: boss.txt staged'
+    Ok (-not (Test-Path (Join-Path (Get-DpStage -Role 'client-watch') 'Scripts\boss.txt'))) 'client-watch: no boss.txt otherwise'
+    Ok (-not (Test-Path (Join-Path (@(& $PairScenarios['d14-kill-modded'].HostModPaths)[2]) 'Scripts\boss.txt'))) 'd14-kill-modded: no boss.txt (older scenarios unchanged)'
+    $h15End = '[DifficultyPair] END result=PASS checks=7 failures=0 role=host-spawn'
+    $v15End = '[DifficultyPair] END result=PASS checks=7 failures=0 role=client-watch'
+    function D15Logs {
+        $h = @('[Difficulty] MATCH start knobs=enemyDamage=25')
+        $v = @('[Difficulty] READY version=0.1.0 Nucleus=0.15.0 need=0.15.0')
+        foreach ($b in @(@{ N = 'SlugQueen'; C = 'SlugQueen_AI_C'; R = 'slugQueen'; How = 'SeePlayerServer' }, @{ N = 'Apex'; C = 'ApexPredatorAI_C'; R = 'apex'; How = 'HeardNoise' })) {
+            $h += "[DifficultyPair] BOSSTRY $($b.N) route=near t=0 teleport=true $($b.How)=true"
+            $h += "[DifficultyPair] BOSSHOOK StartWatching boss=$($b.C)"
+            $h += "[DifficultyPair] BOSSCLD pre boss=$($b.C) victim=other hp=100.00"
+            $h += "[Difficulty] HIT enemy=$($b.R) via=CommitLethalDamage stock=100 scaled=25 rolled=25 applied=25 hp=100 kind=hit"
+            $h += "[DifficultyPair] BOSSCLD post boss=$($b.C) hp=75.00 ret=?"
+            $h += "[DifficultyPair] BOSSSTATE $($b.N) view=host t=0 alive=true hp=75.00 playing=false movement=1 montage=none presentation=no"
+            $v += "[DifficultyPair] BOSSSTATE $($b.N) view=B t=0 alive=true hp=75.00 playing=false movement=1 montage=none presentation=no"
+            foreach ($t in 6, 12) {
+                $h += "[DifficultyPair] BOSSSTATE $($b.N) view=host t=$t alive=true hp=75.00 playing=false movement=1 montage=none"
+                $v += "[DifficultyPair] BOSSSTATE $($b.N) view=B t=$t alive=true hp=75.00 playing=false movement=1 montage=none"
+            }
+            foreach ($side in 'host', 'B') {
+                $l = @("OK boss $($b.N) B alive at 12 s with 70 <= Health <= 80 (view=$side alive=true hp=75.00)",
+                       "OK boss $($b.N) B moving at 12 s (PlayingMontage false, movement 1) (view=$side playing=false movement=1 montage=none)",
+                       "OK boss $($b.N) no presentation (view=$side presentation=no)") | ForEach-Object { "[DifficultyPair] $_" }
+                if ($side -eq 'host') { $h += $l } else { $v += $l }
+            }
+        }
+        @{ H = $h; V = $v }
+    }
+    $d = D15Logs
+    Logs ($d.H + $h15End) ($d.V + $v15End)
+    $r = Get-DpD15Report
+    Ok ($r.Verdict -eq 'PASS' -and $r.D15.Misses.Count -eq 0 -and $r.D15.Rows.Count -eq 2) 'd15-boss-pair: a clean run passes' (($r.D15.Misses) -join '; ')
+    Ok ($r.D15.Rows[0].Boss -eq 'SlugQueen' -and $r.D15.Rows[0].HostStates.Count -eq 3 -and $r.D15.Rows[0].BStates.Count -eq 3 -and $r.D15.Rows[1].Tries -eq 1 -and $r.D15.Rows[1].Verdicts.Count -eq 6) 'd15-boss-pair: per-boss rows (states, tries, verdicts on both machines)' ($r.D15.Rows | Out-String)
+    Ok (@($r.Host | Where-Object { $_ -match '^BOSSSTATE ' }).Count -eq 6) 'd15-boss-pair: Get-DpReport keeps the BOSS lines' (($r.Host) -join '; ')
+    # One mutation per miss.
+    $cases = @(
+        @{ What = 'no MATCH start knobs'; H = { $d.H | Where-Object { $_ -notmatch 'MATCH start' } }; Want = 'no MATCH start knobs=enemyDamage=25' }
+        @{ What = 'no BOSSCLD pre on B'; H = { $d.H -replace 'pre boss=SlugQueen_AI_C victim=other', 'pre boss=SlugQueen_AI_C victim=local' }; Want = 'no BOSSCLD pre boss=SlugQueen_AI_C victim=other' }
+        @{ What = 'no Difficulty HIT'; H = { $d.H | Where-Object { $_ -notmatch 'HIT enemy=apex' } }; Want = 'no HIT enemy=apex via=CommitLethalDamage' }
+        @{ What = 'a HIT not kind=hit'; H = { $d.H -replace 'hp=100 kind=hit', 'hp=100 kind=execution' }; Want = 'no HIT enemy=slugQueen' }
+        @{ What = 'no host BOSSSTATE t=6'; H = { $d.H | Where-Object { $_ -notmatch 'BOSSSTATE Apex view=host t=6 ' } }; Want = 'host: no BOSSSTATE Apex view=host t=6' }
+        @{ What = 'no B BOSSSTATE t=12'; V = { $d.V | Where-Object { $_ -notmatch 'BOSSSTATE SlugQueen view=B t=12 ' } }; Want = 'B: no BOSSSTATE SlugQueen view=B t=12' }
+        @{ What = 'no B BOSSSTATE t=0'; V = { $d.V | Where-Object { $_ -notmatch 'BOSSSTATE Apex view=B t=0 ' } }; Want = 'B: no BOSSSTATE Apex view=B t=0' }
+        @{ What = 'a NOTSHOWN'; H = { $d.H + '[DifficultyPair] NOTSHOWN Apex: no CommitLethalDamage on B in 60 s (18 BOSSTRY attempts)' }; Want = 'NOTSHOWN Apex' }
+        @{ What = 'a BOSSDEATH'; H = { $d.H + '[DifficultyPair] BOSSDEATH SlugQueen on B (after the commit: true, hp=none)' }; Want = 'BOSSDEATH SlugQueen on B' }
+        @{ What = 'a host driver FAIL'; H = { $d.H -replace 'OK boss SlugQueen no presentation \(view=host presentation=no\)', 'FAIL boss SlugQueen no presentation (view=host presentation=yes)' }; Want = 'host driver: FAIL boss SlugQueen no presentation' }
+        @{ What = 'a B driver FAIL'; V = { $d.V -replace 'OK boss Apex B moving', 'FAIL boss Apex B moving' }; Want = "B's driver: FAIL boss Apex B moving" }
+        @{ What = 'a host END FAIL'; HEnd = '[DifficultyPair] END result=FAIL checks=7 failures=0 role=host-spawn'; Want = 'host driver END: END result=FAIL' }
+        @{ What = 'no B END'; VEnd = $null; Want = "B's driver END: " }
+        @{ What = 'an inactive line on B'; V = { $d.V + '[Difficulty] host has no Difficulty, inactive (no-state)' }; Want = 'B: logged the inactive line' }
+    )
+    foreach ($c in $cases) {
+        $hh = if ($c.H) { @(& $c.H) } else { $d.H }
+        $vv = if ($c.V) { @(& $c.V) } else { $d.V }
+        $he = if ($c.ContainsKey('HEnd')) { @($c.HEnd | Where-Object { $_ }) } else { @($h15End) }
+        $ve = if ($c.ContainsKey('VEnd')) { @($c.VEnd | Where-Object { $_ }) } else { @($v15End) }
+        Logs ($hh + $he) ($vv + $ve)
+        $r = Get-DpD15Report
+        $joined = $r.D15.Misses -join ';'
+        Ok ($r.Verdict -eq 'FAIL' -and $joined.Contains($c.Want)) "d15-boss-pair: $($c.What) -> FAIL" $joined
+    }
+    $result.Outcome = 'FAIL: players dropped'
+    Logs ($d.H + $h15End) ($d.V + $v15End)
+    Ok ((Get-DpD15Report).Verdict -eq 'FAIL') 'd15-boss-pair: a failed session fails'
+    $result.Outcome = 'PASS'
+
     # Story 10: d10-measure (host: the driver only, with measure.txt; B: core, Difficulty, client-watch with measure.txt).
     $sc = $PairScenarios['d10-measure']
     Ok ($null -ne $sc) 'd10-measure is registered with pair.ps1'

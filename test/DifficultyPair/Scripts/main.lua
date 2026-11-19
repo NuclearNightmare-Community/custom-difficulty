@@ -28,11 +28,29 @@
 --                      the host) only the Meek and the Watcher, each enemy hit on either player costs 25 HP (an
 --                      execution doesn't kill), a case ends at least 17 s after its first grab on B and only while the
 --                      host sees B free, and B is refilled only 17 s after the last grab.
+--                      Story 15, with Scripts\boss.txt (d15-boss-pair): two boss cases instead, the Slug Queen then the
+--                      Apex Predator, each spawned in front of B with the host >= 2500 cm away and both refilled first
+--                      (alive only). Every 2 s the host teleports the server-owned boss about 100 uu in front of B (never
+--                      B's pawn) and nudges it (Queen SeePlayerServer(B), Apex HeardNoise(B's location, 1.0)); after
+--                      20 s without a CommitLethalDamage on B, AttackServer(B) every 5 s; 60 s without one (plus up to
+--                      20 s while a grab is under way) is NOTSHOWN <boss>. Each attempt: BOSSTRY <boss> route=<near|attack>
+--                      t=<s>. Logs BOSSCLD pre/post (boss and victim from the pre-hook), BOSSHOOK StartWatching|
+--                      WatchFinisherPresentation|AttackMulti, and BOSSSTATE <boss> view=host t=0|6|12 (t=0 the
+--                      post-hook; presentation=yes|no on t=0: an AttackMulti or WatchFinisherPresentation for that boss
+--                      within 2 s of it). Verdicts at 12 s: B alive with 70 <= Health <= 80, moving (PlayingMontage
+--                      false, movement 1), no presentation. A B death is BOSSDEATH <boss> on B and a FAIL; B is revived
+--                      and the next case runs. Natural enemies but the case's boss cleared every 2 s until the t=12 line.
 --   client-watch       (B, VM; story 5) logs only: each grab on B with its montage, and B's montage, PlayingMontage,
 --                      movement mode, Health and position 6, 12 and 16 s later (AFTERGRAB). The real Difficulty (or
 --                      none) decides. Clears infection timers like the host. Story 10, with Scripts\measure.txt: also
 --                      5 s after the grab, B's own view once a second for 16 s (MYPOS), and B walks backwards from
 --                      +1 s to +16 s (WALK: how far it got).
+--                      Story 15, with Scripts\boss.txt: hooks both bosses' AttackMulti (BOSSHOOK AttackMulti boss=<class>)
+--                      and logs BOSSSTATE <boss> view=B t=0|6|12 for its own player: t=0 the first drop of its Health
+--                      below its value at the case start (the highest it read while that boss was alive, so a refill
+--                      that lands after the spawn still counts) while a boss is alive; <boss> the live boss nearest B.
+--                      Verdicts at 12 s as the host's, its "no presentation": no AttackMulti for that boss and no
+--                      Kill_Animation montage at 0/6/12.
 -- Every role's GRAB #n line on a Watcher ends with target=<me|other|none> attacked=<me|other|none>, read from that
 -- Watcher in the multicast hook (story 11).
 --   host-revive        (A, host) reinforcement steps (item 4): dies three times; sets TimesUsedReinforcements and
@@ -75,6 +93,13 @@ local MEASURE = false
 do
     local f = io.open(scriptDir .. "\\measure.txt", "r")
     if f then f:close() MEASURE = ROLE == "host-spawn" or ROLE == "client-watch" end
+end
+-- Story 15: Scripts\boss.txt (staged by d15-boss-pair) switches host-spawn to the two boss cases and client-watch to
+-- boss watching. Without it both roles behave as before.
+local BOSS = false
+do
+    local f = io.open(scriptDir .. "\\boss.txt", "r")
+    if f then f:close() BOSS = ROLE == "host-spawn" or ROLE == "client-watch" end
 end
 -- Stale signal files from an earlier run.
 for _, n in ipairs({ "bready", "temp-start", "temp-end", "done", "s1", "s2", "s3", "s3done", "kill-b", "s4done",
@@ -530,6 +555,7 @@ local function installDamageHooks()
 end
 
 local clearNatural
+local bossWatchTick -- story 15 (client-watch with boss.txt), defined with the boss cases below
 -- Every 250 ms: Health fallbacks, and what each machine sees of both players.
 local function monitor()
     infectionTick()
@@ -601,6 +627,8 @@ local function monitor()
         if not w.started and dt >= 1 then w.started = true walkStart(w.seq) end
         if dt >= 16 then walkStop("done") S.walkFor = nil end
     end
+    -- Story 15: B's own view of each boss grab.
+    if BOSS and not IS_HOST and bossWatchTick then bossWatchTick() end
     -- Temperature as this machine sees it during the hold phase.
     if not IS_HOST and has("temp-start") and not has("temp-end") and m then
         if os.clock() - (S.tempAt or 0) >= 1 then S.tempAt = os.clock() say("TEMP me=%s", fmt3(tempOf(m))) end
@@ -877,6 +905,298 @@ local function revive(tag, whom)
 end
 -- B first (the case's player), then the host if it has no character.
 local function reviveB(tag) revive(tag, "B") revive(tag, "host") end
+
+-- ---------------------------------------------------------------- story 15: boss finisher grabs on B (boss.txt)
+-- Both bosses end a grab with the native static NNBossAttackRecovery:CommitLethalDamage(Boss, Victim) on the host and
+-- play the kill presentation (AttackMulti, a multicast) only when it returns true. Story 13's ladder, aimed at B: the
+-- host moves the server-owned boss next to B (never B's pawn). Each machine judges its own view. Never keeps a UObject
+-- between steps: the boss and B's character by path, re-found each poll.
+local REC = "/Script/NuclearNightmare.NNBossAttackRecovery:"
+local BOSS_CASES = {
+    { name = "SlugQueen", path = "/Game/AI/SlugQueen_AI.SlugQueen_AI_C", short = "SlugQueen_AI_C" },
+    { name = "Apex", path = "/Game/AI/ApexPredator/ApexPredatorAI.ApexPredatorAI_C", short = "ApexPredatorAI_C" },
+}
+local BOSS_OF = {}
+for _, b in ipairs(BOSS_CASES) do BOSS_OF[b.short] = b end
+local BOSS_NEAR, BOSS_NUDGE_EVERY, BOSS_LADDER_AT, BOSS_ATTACK_EVERY, BOSS_GIVE_UP = 100, 2, 20, 5, 60
+local BOSS_HP_MIN, BOSS_HP_MAX = 70, 80 -- Enemy Damage 25 on Nightmare: a stock 100 applies 25, B keeps 75
+local function tf(v) if v == nil then return "?" end return tostring(v) end
+-- A player's state for a BOSSSTATE line (ch nil: no character, alive=false).
+local function bossSnap(ch)
+    local s = { alive = false, playing = "?", movement = "?", montage = "none" }
+    if not ch then return s end
+    s.hp = hpOf(ch)
+    s.alive = alive(ch) and s.hp ~= nil and s.hp > 0
+    pcall(function() s.playing = ch.PlayingMontage end)
+    pcall(function() s.movement = num(ch.CharacterMovement.MovementMode) end)
+    s.montage = montageOf(ch)
+    return s
+end
+local function bossStateLine(name, view, t, s, extra)
+    say("BOSSSTATE %s view=%s t=%d alive=%s hp=%s playing=%s movement=%s montage=%s%s", name, view, t, tostring(s.alive),
+        fmt1(s.hp), tf(s.playing), tf(s.movement), s.montage, extra or "")
+end
+-- The three verdicts at 12 s, on this machine's own view.
+local function bossVerdicts(name, view, s, presentation)
+    check(s.alive and s.hp ~= nil and s.hp >= BOSS_HP_MIN and s.hp <= BOSS_HP_MAX, "boss %s B alive at 12 s with %d <= Health <= %d (view=%s alive=%s hp=%s)",
+        name, BOSS_HP_MIN, BOSS_HP_MAX, view, tostring(s.alive), fmt1(s.hp))
+    check(s.playing == false and s.movement == 1, "boss %s B moving at 12 s (PlayingMontage false, movement 1) (view=%s playing=%s movement=%s montage=%s)",
+        name, view, tf(s.playing), tf(s.movement), s.montage)
+    check(presentation == "no", "boss %s no presentation (view=%s presentation=%s)", name, view, tostring(presentation))
+end
+
+-- Host: B's state by the case's path. B's controller no longer holding that character means dead or replaced:
+-- alive=false (with the body's fields while it is still there).
+local function hostSnapB(vpath)
+    local o = other()
+    if o and (not vpath or pathOf(o) == vpath) then return bossSnap(o) end
+    local body = vpath and StaticFindObject(vpath)
+    local s = bossSnap(alive(body) and body or nil)
+    s.alive = false
+    return s
+end
+local HB = { cur = nil }
+local function hostBossHooks()
+    local okC = hook(REC .. "CommitLethalDamage", function(_, boss, victim)
+        local b, v = get(boss), get(victim)
+        local cls = classOf(b)
+        say("BOSSCLD pre boss=%s victim=%s hp=%s", cls, isMe(v) and "local" or "other", fmt1(hpOf(v)))
+        HB.lastPre = { cls = cls, vpath = valid(v) and pathOf(v) or nil }
+        local c = HB.cur
+        if c and cls == c.short and isOther(v) and not c.cldPre then c.cldPre, c.vpath = os.clock(), pathOf(v) end
+    end, function(_, _, _, ...)
+        -- Story 13: the post-hook's parameters aren't readable, so the boss and the victim are the pre-hook's.
+        local ret = "?"
+        if select("#", ...) >= 1 then
+            local r = get((select(1, ...)))
+            if r == nil then r = (select(1, ...)) end
+            if type(r) == "boolean" then ret = tostring(r) end
+        end
+        local lp = HB.lastPre or {}
+        HB.lastPre = nil
+        local v = lp.vpath and StaticFindObject(lp.vpath)
+        say("BOSSCLD post boss=%s hp=%s ret=%s", lp.cls or "?", fmt1(valid(v) and hpOf(v) or nil), ret)
+        local c = HB.cur
+        if c and c.cldPre and not c.cldAt then c.cldAt, c.ret, c.s0 = os.clock(), ret, hostSnapB(c.vpath) end
+    end)
+    for _, fn in ipairs({ "StartWatching", "WatchFinisherPresentation" }) do
+        hook(REC .. fn, function(_, boss)
+            local cls = classOf(get(boss))
+            say("BOSSHOOK %s boss=%s", fn, cls)
+            local c = HB.cur
+            if c and cls == c.short then
+                if fn == "StartWatching" and not c.watchAt then c.watchAt = os.clock() end
+                if fn == "WatchFinisherPresentation" then c.wfpAt = os.clock() end
+            end
+        end)
+    end
+    return okC
+end
+-- The server-owned boss about BOSS_NEAR in front of B, facing B; Z from B's feet (capsule half-heights compared).
+local function bossToB(x, b)
+    return pcall(function()
+        local l, f = b:K2_GetActorLocation(), b:GetActorForwardVector()
+        local dz = 0
+        pcall(function() dz = num(x.CapsuleComponent:GetScaledCapsuleHalfHeight()) - num(b.CapsuleComponent:GetScaledCapsuleHalfHeight()) end)
+        x:K2_SetActorLocation({ X = l.X + f.X * BOSS_NEAR, Y = l.Y + f.Y * BOSS_NEAR, Z = l.Z + (dz or 0) }, false, {}, true)
+        pcall(function() x:K2_SetActorRotation({ Pitch = 0, Yaw = math.deg(math.atan(-f.Y, -f.X)), Roll = 0 }, false) end)
+    end)
+end
+local function presentedNear(t, from, to) return t ~= nil and t >= from and t <= to end
+
+local function buildHostBossCases()
+    step("boss: hooks", function()
+        check(hostBossHooks(), "BOSSHOOKS CommitLethalDamage hooked (the boss cases need it)")
+    end)
+    for _, c in ipairs(BOSS_CASES) do
+        reviveB("before " .. c.name)
+        step("boss: spawn " .. c.name, function()
+            local target = other()
+            if not target or dead(target) then check(false, "CASE %s: no live B", c.name) whereAre("no target") return end
+            S.bPath = pathOf(target)
+            local m = me()
+            if m then S.hostPath = pathOf(m) end
+            -- Story 11's rules: the host refilled (alive only) and out of reach, B refilled (alive only).
+            local hh = m and hpOf(m)
+            if hh and hh > 0 and hh < 100 then pcall(function() m.Health = 100 end) say("REFILL me hp %.2f -> 100 (before the boss)", hh) end
+            moveHost(target)
+            local h = hpOf(target)
+            if h and h > 0 and h < 100 then pcall(function() target.Health = 100 end) say("REFILL other hp %.2f -> 100 (before the boss)", h) end
+            local cls = loadClass(c.path)
+            if not check(cls ~= nil, "CLASS %s %s", c.name, c.path) then return end
+            -- AttackMulti is a Blueprint multicast: the callback runs after the body.
+            hook(c.path .. ":AttackMulti", function(selfp)
+                local cls2 = classOf(get(selfp))
+                say("BOSSHOOK AttackMulti boss=%s", cls2)
+                local cc = HB.cur
+                if cc and cls2 == cc.short then cc.multiAt = os.clock() end
+            end)
+            c.target, c.tries = "other", 0
+            S.case = c -- the monitor's guard keeps the case's boss
+            local okS, x, ctl = pcall(spawnInFront, cls, target)
+            if not check(okS and valid(x), "SPAWN %s %s controller=%s", c.name, okS and pathOf(x) or tostring(x), tostring(ctl)) then S.case = nil return end
+            c.actor = pathOf(x)
+            HB.cur = c
+            say("CASE start %s on B", c.name)
+            local t0 = os.clock()
+            return function()
+                local now = os.clock()
+                local tg = other()
+                if not tg or dead(tg) or (c.vpath and pathOf(tg) ~= c.vpath) then
+                    c.died = true
+                    say("BOSSDEATH %s on B (after the commit: %s, hp=%s)", c.name, tostring(c.cldAt ~= nil), tg and fmt1(hpOf(tg)) or "none")
+                    check(false, "boss %s B died in the case", c.name)
+                    whereAre("boss death")
+                    return true
+                end
+                -- Until the t=12 line: natural enemies but this boss cleared every 2 s (the guard does it too).
+                if now - (c.clearAt or 0) >= 2 then c.clearAt = now clearNatural(c.actor) end
+                if not c.cldAt then
+                    local el = now - t0
+                    -- A grab under way (AttackingPlayer, or StartWatching seen): no teleport or nudge while it lasts.
+                    local x1 = StaticFindObject(c.actor)
+                    local okG, grabbing = pcall(function() return x1.AttackingPlayer end)
+                    local busyNow = (okG and grabbing == true) or (c.watchAt ~= nil and now - c.watchAt < 15)
+                    if busyNow and not c.grabSeen then
+                        c.grabSeen = now
+                        say("BOSSGRAB %s t=%.0f AttackingPlayer=%s StartWatching=%s", c.name, el, tostring(okG and grabbing), tostring(c.watchAt ~= nil))
+                    end
+                    if el >= BOSS_GIVE_UP and not (busyNow and el < BOSS_GIVE_UP + 20) then
+                        say("NOTSHOWN %s: no CommitLethalDamage on B in %d s (%d BOSSTRY attempts)", c.name, BOSS_GIVE_UP, c.tries)
+                        return true
+                    end
+                    local route = el >= BOSS_LADDER_AT and "attack" or "near"
+                    local every = route == "attack" and BOSS_ATTACK_EVERY or BOSS_NUDGE_EVERY
+                    if not busyNow and now - (c.tryAt or -1e9) >= every then
+                        c.tryAt, c.tries = now, c.tries + 1
+                        local x2 = StaticFindObject(c.actor)
+                        if not alive(x2) then say("BOSSTRY %s route=%s t=%.0f boss gone", c.name, route, el) return false end
+                        local okT = bossToB(x2, tg)
+                        local okN, how
+                        if route == "near" then
+                            if c.short == "SlugQueen_AI_C" then
+                                how = "SeePlayerServer"
+                                okN = pcall(function() x2:SeePlayerServer(tg) end)
+                            else
+                                how = "HeardNoise"
+                                okN = pcall(function()
+                                    local l = tg:K2_GetActorLocation()
+                                    x2:HeardNoise({ X = l.X, Y = l.Y, Z = l.Z }, 1.0)
+                                end)
+                            end
+                        else
+                            how = "AttackServer"
+                            okN = pcall(function() x2:AttackServer(tg) end)
+                        end
+                        say("BOSSTRY %s route=%s t=%.0f teleport=%s %s=%s", c.name, route, el, tostring(okT), how, tostring(okN))
+                    end
+                    return false
+                end
+                -- After the commit on B: t=0 (the post-hook's snapshot, logged once the presentation is known), 6, 12.
+                local since = now - c.cldAt
+                if not c.line0 and since >= 2 then
+                    c.line0 = true
+                    local hi = c.cldAt + 2
+                    c.presentation = (presentedNear(c.multiAt, c.cldPre, hi) or presentedNear(c.wfpAt, c.cldPre, hi)) and "yes" or "no"
+                    bossStateLine(c.name, "host", 0, c.s0, " presentation=" .. c.presentation)
+                end
+                if c.line0 and not c.s6 and since >= 6 then c.s6 = hostSnapB(c.vpath) bossStateLine(c.name, "host", 6, c.s6) end
+                if c.s6 and since >= 12 then
+                    local s = hostSnapB(c.vpath)
+                    bossStateLine(c.name, "host", 12, s)
+                    bossVerdicts(c.name, "host", s, c.presentation)
+                    return true
+                end
+                return false
+            end, BOSS_GIVE_UP + 45, "boss case " .. c.name
+        end)
+        step("boss: despawn " .. c.name, function()
+            say("CASE end %s on B commit=%s died=%s tries=%d", c.name, tostring(c.cldAt ~= nil), tostring(c.died == true), c.tries or 0)
+            HB.cur = nil
+            S.case = nil
+            local x = c.actor and StaticFindObject(c.actor)
+            if valid(x) then pcall(function() x:K2_DestroyActor() end) end
+            return after(4), 8
+        end)
+    end
+end
+
+-- B (client-watch with boss.txt): the bosses' AttackMulti multicast (post-body) and its own state around each grab.
+local BW = { done = {}, w = nil, multi = {} }
+local function clientBossHooks()
+    for _, b in ipairs(BOSS_CASES) do
+        local cls = loadClass(b.path)
+        if not cls then say("HOOK %s:AttackMulti FAIL class not loaded", b.path) end
+        hook(b.path .. ":AttackMulti", function(selfp)
+            local cls2 = classOf(get(selfp))
+            say("BOSSHOOK AttackMulti boss=%s", cls2)
+            local bb = BOSS_OF[cls2]
+            if bb then BW.multi[bb.name] = os.clock() end
+        end)
+    end
+end
+-- The live boss nearest this machine's player (bosses replicate to B).
+local function nearestBoss(m)
+    local best, bd
+    for _, b in ipairs(BOSS_CASES) do
+        for _, x in ipairs(FindAllOf(b.short) or {}) do
+            if notDefault(x) and alive(x) then
+                local d = (m and distance(m, x)) or 1e12
+                if not bd or d < bd then best, bd = b, d end
+            end
+        end
+    end
+    return best
+end
+local function killMontage(s) return s ~= nil and tostring(s.montage):find("Kill_Animation", 1, true) ~= nil end
+-- Every 250 ms (monitor): a watch starts when a boss is alive; t=0 is the first drop of B's Health below the highest
+-- value it read since (or B's character gone); then the 0 (2 s later, with the presentation so far), 6 and 12 s lines.
+function bossWatchTick()
+    local now = os.clock()
+    local m = me()
+    local hp = m and hpOf(m)
+    local w = BW.w
+    if not w then
+        local b = nearestBoss(m)
+        if b and not BW.done[b.name] and hp and hp > 0 then
+            BW.w = { name = b.name, base = hp, t0 = now }
+            say("BOSSWATCH %s start hp=%s", b.name, fmt1(hp))
+        end
+        return
+    end
+    if not w.dropAt then
+        local b = nearestBoss(m)
+        if not b then
+            w.gone = w.gone or now
+            if now - w.gone >= 5 then say("BOSSWATCH %s ended: no live boss, no drop of my Health", w.name) BW.w = nil end
+            return
+        end
+        w.gone = nil
+        if hp and hp > w.base then w.base = hp end
+        if not m or (hp and hp < w.base - 0.5) then
+            w.dropAt, w.name, w.s0 = now, b.name, bossSnap(m)
+            say("BOSSWATCH %s drop hp %s -> %s", w.name, fmt1(w.base), fmt1(hp))
+        end
+        return
+    end
+    local since = now - w.dropAt
+    if not w.line0 and since >= 2 then
+        w.line0 = true
+        local multi = BW.multi[w.name]
+        w.multi = multi ~= nil and multi >= w.t0
+        bossStateLine(w.name, "B", 0, w.s0, " presentation=" .. ((w.multi or killMontage(w.s0)) and "yes" or "no"))
+    end
+    if w.line0 and not w.s6 and since >= 6 then w.s6 = bossSnap(me()) bossStateLine(w.name, "B", 6, w.s6) end
+    if w.s6 and since >= 12 then
+        local s = bossSnap(me())
+        bossStateLine(w.name, "B", 12, s)
+        local multi = BW.multi[w.name]
+        local pres = (multi ~= nil and multi >= w.t0) or killMontage(w.s0) or killMontage(w.s6) or killMontage(s)
+        bossVerdicts(w.name, "B", s, pres and "yes" or "no")
+        BW.done[w.name] = true
+        BW.w = nil
+    end
+end
 local function buildHostSpawn()
     waitMatch()
     step("other present", function() return function() return other() ~= nil end, 600, "the other player's character" end)
@@ -898,7 +1218,8 @@ local function buildHostSpawn()
     -- Story 11: story 2's infection hook too (it clears the BecomeInfected timer), so infection doesn't end a case.
     -- Story 10 (measure.txt): the damage hooks too, so each enemy hit costs MEASURE_HIT and an execution doesn't kill.
     step("hooks", function() installGrabHooks(false) if MEASURE then installDamageHooks() end S.guard = true end)
-    for _, c in ipairs(SPAWN_CASES) do
+    -- Story 15 (boss.txt): the two boss cases instead of the grab enemies.
+    for _, c in ipairs(BOSS and {} or SPAWN_CASES) do
         local label = c.name .. " on B"
         reviveB("before " .. c.name)
         step("spawn " .. label, function()
@@ -987,6 +1308,7 @@ local function buildHostSpawn()
             if o and h and h > 0 and h < 100 then pcall(function() o.Health = 100 end) say("REFILL other hp %.2f -> 100 (after the case)", h) end
         end)
     end
+    if BOSS then buildHostBossCases() end
     reviveB("final")
     step("done", function()
         local o = other()
@@ -998,7 +1320,11 @@ end
 
 local function buildClientGrab()
     waitMatch()
-    step("ready", function() installGrabHooks(false) signal("bready") end)
+    step("ready", function()
+        installGrabHooks(false)
+        if BOSS then clientBossHooks() end
+        signal("bready")
+    end)
     -- Story 10 (measure.txt): B's walk with no grab first, 3 s, the baseline for the WALK distances after grabs.
     if MEASURE then
         step("baseline walk", function() walkStart(0) return after(3), 8 end)

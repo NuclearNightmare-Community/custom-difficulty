@@ -37,6 +37,14 @@
                      the host (CASE Meek on B: B died) and on B (MYHP <= 0), B revived by the harness (REVIVE ... B back),
                      every later enemy (no box) still decision=s for B without kill=yes, no inactive line on B, both
                      drivers' END PASS and the session held (no lock-up).
+  Story 15 (boss finisher grabs on a client; Nightmare lobby, the host's dev.lua enemyDamage=25, B modded; DifficultyPair
+  host-spawn + client-watch with boss.txt):
+    d15-boss-pair    the host spawns the Slug Queen, then the Apex Predator, in front of B and makes each grab B
+                     (story 13's ladder, the boss moved to B). Misses: no host MATCH start knobs=enemyDamage=25; per boss
+                     no host "BOSSCLD pre ... victim=other", no Difficulty "HIT enemy=<row> via=CommitLethalDamage ...
+                     kind=hit", a missing BOSSSTATE t=0/6/12 on either machine, a NOTSHOWN or a BOSSDEATH; any driver
+                     FAIL (each machine's verdicts at 12 s: B alive with 70 <= Health <= 80, moving, no presentation),
+                     an END not PASS, an inactive line on B (ScenarioReport.D15).
   Story 8 (CAP-5, Reinforcement Tokens across machines; Normal lobby, PairDriver's Classified Minimum 2: stock limit 6):
     d8-tokens        the host runs core and Difficulty with Reinforcement Tokens 2 (dev.lua revives=2), B (VM) runs no
                      Difficulty. The host dies, B's own terminal revives it, twice; then the host dies once more. PASS
@@ -65,16 +73,18 @@ $script:DpSignals = @('bready', 'temp-start', 'temp-end', 'done', 's1', 's2', 's
 # -WatcherNear (host-spawn, story 11): also Scripts\watcher-near.txt, so the Watcher case keeps the host within 2 m of B
 # instead of 2500 cm away (two players in the Watcher's reach; it guards the Watcher's victim rule).
 # -Measure (host-spawn, client-watch; story 10): also Scripts\measure.txt, the grab-recovery measurement (d10-measure).
-function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive', 'host-spawn', 'client-watch', 'host-tokens', 'client-tokens')] [string] $Role, [switch] $WatcherNear, [switch] $Measure) {
-    $stage = Join-Path ([IO.Path]::GetTempPath()) "nn-dp-stage-$Role$(if ($WatcherNear) { '-near' })$(if ($Measure) { '-measure' })"
+# -Boss (host-spawn, client-watch; story 15): also Scripts\boss.txt, the two boss cases and B's boss watching (d15-boss-pair).
+function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive', 'host-spawn', 'client-watch', 'host-tokens', 'client-tokens')] [string] $Role, [switch] $WatcherNear, [switch] $Measure, [switch] $Boss) {
+    $stage = Join-Path ([IO.Path]::GetTempPath()) "nn-dp-stage-$Role$(if ($WatcherNear) { '-near' })$(if ($Measure) { '-measure' })$(if ($Boss) { '-boss' })"
     Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     $dst = Join-Path $stage 'DifficultyPair'
     New-Item -ItemType Directory -Force $stage | Out-Null
     Copy-Item $DpDriver $dst -Recurse
-    Remove-Item (Join-Path $dst 'Scripts\watcher-near.txt'), (Join-Path $dst 'Scripts\measure.txt') -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $dst 'Scripts\watcher-near.txt'), (Join-Path $dst 'Scripts\measure.txt'), (Join-Path $dst 'Scripts\boss.txt') -Force -ErrorAction SilentlyContinue
     Set-Content (Join-Path $dst 'Scripts\role.txt') $Role -NoNewline
     if ($WatcherNear) { Set-Content (Join-Path $dst 'Scripts\watcher-near.txt') '1' -NoNewline }
     if ($Measure) { Set-Content (Join-Path $dst 'Scripts\measure.txt') '1' -NoNewline }
+    if ($Boss) { Set-Content (Join-Path $dst 'Scripts\boss.txt') '1' -NoNewline }
     $dst
 }
 
@@ -88,6 +98,7 @@ function Invoke-DpRelay([int] $TimeoutMin = 40) {
     $session = New-NNBSession
     $sent = @{}
     $grabShots = 0
+    $bossShots = 0
     $deadline = (Get-Date).AddMinutes($TimeoutMin)
     try {
         while ((Get-Date) -lt $deadline) {
@@ -133,6 +144,13 @@ function Invoke-DpRelay([int] $TimeoutMin = 40) {
                 $script:LastAction = @{ Name = "grab $grabShots"; Time = Get-Date }
                 Save-ShotAt -Seconds 1 -Name "grab$grabShots" -Expect "B's view of: $g"
             }
+            # Story 15: B's view just after each boss commit on B.
+            $cld = @($hostLines | Where-Object { $_ -match '\[DifficultyPair\] BOSSCLD pre .* victim=other ' })
+            if ($cld.Count -gt $bossShots -and $bossShots -lt 4) {
+                $bossShots = $cld.Count
+                $script:LastAction = @{ Name = "boss $bossShots"; Time = Get-Date }
+                Save-ShotAt -Seconds 1 -Name "boss$bossShots" -Expect "B's view just after a boss grab on B ($($cld[-1] -replace '^.*\[DifficultyPair\] ', '')): no kill animation, B free"
+            }
             if ($hostLines | Where-Object { $_ -match '\[DifficultyPair\] END ' }) {
                 Write-Host 'Host driver ended.'
                 # The client's last step comes right after the host's last signal.
@@ -157,7 +175,7 @@ function Invoke-DpRelay([int] $TimeoutMin = 40) {
 
 # Both drivers' verdicts and observation lines, for the result JSON; read them to judge.
 function Get-DpReport {
-    $pick = '\[DifficultyPair\] (OK|FAIL|END|GRAB|MARK|RESTORE|AFTERGRAB|TEMP|COMP|REFILL|CASE|PANEL|REINF|RADIO|REQUEST|REVIVE|COUNT|COMPUTER|KILL|SUMMARY|FINAL|OTHERHP|MYHP|SPAWN|TIMEOUT|MATCH) '
+    $pick = '\[DifficultyPair\] (OK|FAIL|END|GRAB|MARK|RESTORE|AFTERGRAB|TEMP|COMP|REFILL|CASE|PANEL|REINF|RADIO|REQUEST|REVIVE|COUNT|COMPUTER|KILL|SUMMARY|FINAL|OTHERHP|MYHP|SPAWN|TIMEOUT|MATCH|BOSS[A-Z]*|NOTSHOWN) '
     $hostLog = Join-Path $outDir "$Label.host.UE4SS.log"
     $h = if (Test-Path $hostLog) { @(Select-String -Path $hostLog -Pattern $pick | ForEach-Object { $_.Line -replace '^.*\[DifficultyPair\] ', '' }) } else { @() }
     $v = if ($vmLogPath -and (Test-Path $vmLogPath)) { @(Select-String -Path $vmLogPath -Pattern $pick | ForEach-Object { $_.Line -replace '^.*\[DifficultyPair\] ', '' }) } else { @() }
@@ -244,7 +262,8 @@ function Get-DpRemovePaths {
 
 # The VM copy for a story 5 scenario: UE4SS on, client-watch, and with -Modded core (first in mods.txt) and Difficulty.
 # -Measure (story 10): client-watch with measure.txt (B walks after each grab on it).
-function Set-DpVMModded([switch] $Modded, [switch] $Measure) {
+# -Boss (story 15): client-watch with boss.txt (B watches the boss grabs on it).
+function Set-DpVMModded([switch] $Modded, [switch] $Measure, [switch] $Boss) {
     Restore-VMBaseline
     Invoke-VMDeploy -Remove -Path (Get-DpRemovePaths)
     Invoke-VMDeploy -UE4SS On
@@ -252,7 +271,7 @@ function Set-DpVMModded([switch] $Modded, [switch] $Measure) {
         & (Join-Path $Workspace 'tools/vm/vm-deploy.ps1') -Path $DpCorePackage -First
         Invoke-VMDeploy -Path (Get-DpModStage -Side client)
     }
-    Invoke-VMDeploy -Path (Get-DpStage -Role 'client-watch' -Measure:$Measure)
+    Invoke-VMDeploy -Path (Get-DpStage -Role 'client-watch' -Measure:$Measure -Boss:$Boss)
 }
 
 # Lines of one log with a tag, the prefix up to the tag cut off.
@@ -575,6 +594,73 @@ $DpPairScenarios['d14-kill-modded'] = @{
     AfterJoin = { Invoke-DpRelay }
     PlaySec = 20
     Check = { Get-DpD14Report }
+}
+
+# ------------------------------------------------------------------------------------------------ story 15
+# d15-boss-pair: the bosses' finisher grab (CommitLethalDamage) with a remote client as the victim, at Enemy Damage 25.
+# The host scales B's CallDamageEvent; each machine logs and judges its own view of B (BOSSSTATE t=0/6/12).
+$script:DpBosses = [ordered]@{
+    SlugQueen = @{ Class = 'SlugQueen_AI_C'; Row = 'slugQueen' }
+    Apex = @{ Class = 'ApexPredatorAI_C'; Row = 'apex' }
+}
+function Get-DpD15Report {
+    $r = Get-DpReport
+    $hostLog = Join-Path $outDir "$Label.host.UE4SS.log"
+    $hd = Get-DpTagged $hostLog $DpName
+    $vd = Get-DpTagged $vmLogPath $DpName
+    $hp = Get-DpTagged $hostLog 'DifficultyPair'
+    $vp = Get-DpTagged $vmLogPath 'DifficultyPair'
+    $miss = [Collections.Generic.List[string]]::new()
+    if (-not ($hd | Where-Object { $_ -match '^MATCH start knobs=enemyDamage=25\s*$' })) { $miss.Add('host: no MATCH start knobs=enemyDamage=25') }
+    $rows = @()
+    foreach ($b in $DpBosses.Keys) {
+        $cls = $DpBosses[$b].Class; $row = $DpBosses[$b].Row
+        $pre = @($hp | Where-Object { $_ -match "^BOSSCLD pre boss=$cls victim=other " })
+        $hit = @($hd | Where-Object { $_ -match "^HIT enemy=$row via=CommitLethalDamage .* kind=hit\s*$" })
+        $hs = @($hp | Where-Object { $_ -match "^BOSSSTATE $b view=host t=\d+ " })
+        $vs = @($vp | Where-Object { $_ -match "^BOSSSTATE $b view=B t=\d+ " })
+        if (-not $pre.Count) { $miss.Add("host: no BOSSCLD pre boss=$cls victim=other") }
+        if (-not $hit.Count) { $miss.Add("host: no HIT enemy=$row via=CommitLethalDamage ... kind=hit") }
+        foreach ($t in 0, 6, 12) {
+            if (-not ($hs | Where-Object { $_ -match "^BOSSSTATE $b view=host t=$t " })) { $miss.Add("host: no BOSSSTATE $b view=host t=$t") }
+            if (-not ($vs | Where-Object { $_ -match "^BOSSSTATE $b view=B t=$t " })) { $miss.Add("B: no BOSSSTATE $b view=B t=$t") }
+        }
+        $ns = @($hp | Where-Object { $_ -match "^NOTSHOWN $b[: ]" })
+        if ($ns.Count) { $miss.Add("host: $($ns[0])") }
+        $bd = @($hp | Where-Object { $_ -match "^BOSSDEATH $b " })
+        if ($bd.Count) { $miss.Add("host: $($bd[0])") }
+        $both = @($hp | ForEach-Object { "host: $_" }) + @($vp | ForEach-Object { "B: $_" })
+        $rows += [pscustomobject]@{
+            Boss = $b; Class = $cls; Row = $row
+            Commit = @($hp | Where-Object { $_ -match "^BOSSCLD (pre|post) boss=$cls " })
+            Hit = $hit; HostStates = $hs; BStates = $vs
+            Tries = @($hp | Where-Object { $_ -match "^BOSSTRY $b " }).Count
+            Hooks = @($both | Where-Object { $_ -match "BOSSHOOK \S+ boss=$cls" })
+            NotShown = $ns; Death = $bd
+            Verdicts = @($both | Where-Object { $_ -match "^\S+ (OK|FAIL) boss $b " })
+        }
+    }
+    foreach ($f in $r.HostFailures) { $miss.Add("host driver: $f") }
+    foreach ($f in $r.VMFailures) { $miss.Add("B's driver: $f") }
+    # "$(...)": a missing END is an empty pipeline result, which -notmatch would filter to nothing (no miss).
+    if ("$($r.HostEnd)" -notmatch 'result=PASS') { $miss.Add("host driver END: $($r.HostEnd)") }
+    if ("$($r.VMEnd)" -notmatch 'result=PASS') { $miss.Add("B's driver END: $($r.VMEnd)") }
+    if ($vd | Where-Object { $_ -match 'host has no Difficulty, inactive' }) { $miss.Add('B: logged the inactive line') }
+    $r.D15 = [ordered]@{ Misses = @($miss); Rows = @($rows); Session = $result.Outcome }
+    foreach ($m in $miss) { Write-Host "FAIL $m" }
+    $r.Verdict = if ($miss.Count -or $result.Outcome -ne 'PASS') { 'FAIL' } else { 'PASS' }
+    $r
+}
+$DpPairScenarios['d15-boss-pair'] = @{
+    Summary = "Difficulty story 15: host and B both run $DpCoreName and Difficulty (host Enemy Damage 25, Nightmare); the Slug Queen, then the Apex Predator, grab B: the host's CommitLethalDamage on B is a 25 HP hit, and on both machines B is alive at about 75 HP, moving and shown no kill presentation at 0, 6 and 12 s"
+    Prereq = $DpD5Prereq
+    HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '0' }   # Nightmare: a stock boss commit is 100
+    HostModPaths = { @($DpCorePackage, (Get-DpModStage -Side host -Knobs $DpKnobs), (Get-DpStage -Role 'host-spawn' -Boss)) }
+    VMSetup = { Set-DpVMModded -Modded -Boss }
+    VMRestore = { Invoke-VMDeploy -Remove -Path (Get-DpRemovePaths); Restore-VMBaseline }
+    AfterJoin = { Invoke-DpRelay }
+    PlaySec = 20
+    Check = { Get-DpD15Report }
 }
 
 # ------------------------------------------------------------------------------------------------ story 8

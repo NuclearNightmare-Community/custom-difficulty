@@ -115,7 +115,11 @@ runtime refuse core 0.3.0.
   (`capped at <cap>` appended when the cap cut it). Default or 0: nothing is written or logged (Max Classified
   Tokens alone does nothing). Host only, nothing published: clients' computers may show a stale count (as with
   Reinforcement Tokens). Imposter mode and a lobby that disabled reinforcements are left alone; a back-off stops the
-  awards and puts the count back to stock. Which detection path fired in game: see the `tokens-classified` scenario.
+  awards and puts the count back to stock. Seen in game (V8.2.3, VM solo host, Tower Island, 2026-11-19,
+  `tokens-classified`): the pinned UE4SS runs the `UpdateClassifieds` callback, both for a real intel pickup's
+  `PrimaryInteraction` on the host and for a direct call, so both awards came `via=UpdateClassifieds` (the poll found
+  nothing left to award). Tower Island has one `BP_ClassifiedMaterial_C` pickup (`BP_CM_V4_C_1`), so the driver's
+  second objective uses the direct call.
 - **Guards against other mods:** after each scaled hit or frostbite tick, `Health` must read what the mod planned;
   after a grab it must still hold the temporary value. Otherwise one `WARN clash: ...; every knob off until the next
   match`. A failing hook body or poll logs one `ERROR ...; every knob off until the next match` the same way. Any

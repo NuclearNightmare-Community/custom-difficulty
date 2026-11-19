@@ -1550,13 +1550,6 @@ if SC.special == "presets" then
         end
         return nil
     end
-    local function clickBox(what)
-        return drive(what, function(cs)
-            local w = tagged(cs, BOX_TAG)
-            if not w then error("no widget tagged " .. BOX_TAG .. " on the screen") end
-            w:Nucleus_OnClicked()
-        end)
-    end
     -- Calls one of the screen's handlers; a handler that can't be driven is NOTSHOWN (and ends the scenario).
     local function drive(what, fn)
         local cs = screen()
@@ -1565,6 +1558,13 @@ if SC.special == "presets" then
         if not ok then P.abort = true S.notShown = S.notShown + 1 say("NOTSHOWN %s: %s", what, tostring(err)) return false end
         say("DRIVE %s", what)
         return true
+    end
+    local function clickBox(what)
+        return drive(what, function(cs)
+            local w = tagged(cs, BOX_TAG)
+            if not w then error("no widget tagged " .. BOX_TAG .. " on the screen") end
+            w:Nucleus_OnClicked()
+        end)
     end
     local function open(what)
         local p = pc()

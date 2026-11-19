@@ -833,7 +833,7 @@ function A:noteGrab(v, vpath, decision)
     state.readback = self:delay(M.RECOVER_DELAY + M.READBACK_DELAY, function()
         if state.acted == nil then state.readback = false return end -- ran before the check: the check frees
         if state.acted then
-            local okR, err = pcall(self.readback, self, vpath, world, h)
+            local okR, err = pcall(self.readback, self, vpath, world, h, seq)
             if not okR then o.warnOnce("readback:" .. tostring(err), "recovery readback failed: %s", tostring(err)) end
         end
         free()
@@ -896,9 +896,11 @@ function A:recoverCheck(vpath, seq, world, h)
     return true
 end
 
--- readback(vpath, world, h): READBACK_DELAY after the recovery's writes, what the player's pawn reads now (story 10):
--- PlayingMontage, the movement mode (1: walking) and the current montage. A log line only.
-function A:readback(vpath, world, h)
+-- readback(vpath, world, h, seq): READBACK_DELAY after the recovery's writes, what the player's pawn reads now (story
+-- 10): PlayingMontage, the movement mode (1: walking) and the current montage. A log line only; a newer grab since the
+-- recovery logs "superseded" instead (the state would be that grab's).
+function A:readback(vpath, world, h, seq)
+    if seq ~= nil and self.recover.seq ~= seq then self.o.say("info", "RECOVER readback superseded") return end
     local v = self:recoverPawn(vpath, world, h)
     if not v then self.o.say("info", "RECOVER readback gone") return end
     local playing, mode, m
@@ -941,14 +943,17 @@ end
 -- delay(ms, fn, what) -> true when scheduled: fn once on the game thread ms later (called from the game thread: a
 -- hook body or a delayed callback).
 function A:delay(ms, fn, what)
-    if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, ms, fn) then return true end
-    local handle, done = nil, false
-    local ok, h = pcall(LoopInGameThreadWithDelay, ms, function()
-        if not done then done = true fn() end
-        if handle ~= nil then pcall(CancelDelayedAction, handle) end
-        return true
-    end)
-    if ok then handle = h return true end
+    local ok, h = false, "ms is not a number (" .. tostring(ms) .. ")"
+    if type(ms) == "number" then
+        if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, ms, fn) then return true end
+        local handle, done = nil, false
+        ok, h = pcall(LoopInGameThreadWithDelay, ms, function()
+            if not done then done = true fn() end
+            if handle ~= nil then pcall(CancelDelayedAction, handle) end
+            return true
+        end)
+        if ok then handle = h return true end
+    end
     if what == "restore" then self.o.warnOnce("later", "no game-thread delay available (%s); the grab hook restores alone", tostring(h))
     else self.o.warnOnce("later:" .. tostring(what), "no game-thread delay available (%s); no %s", tostring(h), tostring(what)) end
     return false

@@ -502,6 +502,8 @@ local function compensate(victim, amount, why)
     local hp = hpOf(victim)
     if not hp then return end
     local new = hp + amount - (MEASURE and MEASURE_HIT or PROBE_HIT)
+    -- measure.txt: never below 1 HP after the hit (a 4th hit in one case would kill B, and a dead B reads as stuck).
+    if MEASURE and new - amount < 1 then new = amount + 1 end
     pcall(function() victim.Health = new end)
     say("COMP %s victim=%s hp %.2f -> %.2f (the native %.2f should leave %.2f)", why, who(victim), hp, new, amount, new - amount)
 end

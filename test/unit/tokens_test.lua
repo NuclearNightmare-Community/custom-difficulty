@@ -388,6 +388,23 @@ do -- floats from knobs.parse (2.0) log as integers; a k that isn't a whole numb
     local t3 = tokens.start(g2, 2, op2, cls(-1))
     ok(t3 ~= nil and t3.k == nil, "k -1 with revives: revives still acts, no bonus")
 end
+do -- The count unreadable at award time: no write, one WARN, the value kept; the next readable reading awards once
+    local op = o()
+    local g, f, w = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 0 }
+    local t = tokens.start(g, 2, op, cls(2))
+    f.TimesUsedReinforcements = "?"
+    f.ClassifiedDynamicValue = 1
+    tokens.classified(t, g, "poll", op)
+    tokens.classified(t, g, "poll", op)
+    eq(w.TimesUsedReinforcements, 1, "unreadable count: no award write (only the start's)")
+    eq(count("^WARN TOKENS the count is unreadable at a classified bonus"), 1, "unreadable count: one WARN", dump())
+    eq(count("^TOKENS bonus"), 0, "unreadable count: no bonus line")
+    f.TimesUsedReinforcements = 6
+    tokens.classified(t, g, "poll", op)
+    tokens.classified(t, g, "poll", op)
+    eq(f.TimesUsedReinforcements, 4, "readable again: awarded once (6 -> 4)")
+    eq(count("^TOKENS bonus classified=1 %+2 count=4 "), 1, "readable again: one bonus line", dump())
+end
 do -- A failed count write at an award raises (the guard backs off)
     local op = o()
     local g, f = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 0 }

@@ -85,9 +85,9 @@
     signal          (run.ps1 -Scenario signal -Target vm: two launches; -Log is launch 2's, -FirstLog launch 1's) launch 1:
                     the running checks, the driver's PASS, no dev.lua (DEVLUA absent), Nightmare by real clicks (SIGDIFF),
                     a ROWS change line per value, at least two OK SIGDRAG and two OK SIGTYPE lines, SIGROWS, and "PRESETS
-                    save ... name=DT8-SIGNAL knobs=<the six values>". Launch 2: everything a match scenario needs, no
-                    dev.lua, DT8-SIGNAL found (SIGFOUND), selected with the six values, SIGROWS, a friends-only session
-                    (OK SIGSESSION), "PRESETS capture" and exactly one "MATCH start" with exactly the six values (a
+                    save ... name=DT8-SIGNAL knobs=<the eight values>". Launch 2: everything a match scenario needs, no
+                    dev.lua, DT8-SIGNAL found (SIGFOUND), selected with the eight values, SIGROWS, a friends-only session
+                    (OK SIGSESSION), "PRESETS capture" and exactly one "MATCH start" with exactly the eight values (a
                     difference names the knob), a Meek HIT at hp=100 taking 15..35 and a Stalker HIT scaled=50 taking
                     30..70, the last COLD line applied=0 (raw 0: not shown), the driver's Temperature check, "TOKENS start
                     ... N=8" and SIGTOKENS. No launch 2 log after a passing launch 1 fails.
@@ -224,8 +224,8 @@ $story3['spread-grab'] = @("\[$C\] MATCH start knobs=enemyDamage=25 spread=50\s*
 $bossHit = @{ 'Slug Queen' = "\[$C\] HIT enemy=slugQueen via=CommitLethalDamage "; 'Apex' = "\[$C\] HIT enemy=apex via=CommitLethalDamage " }
 $story3['boss'] = @("\[$C\] MATCH start knobs=enemyDamage=25\s*$") + @($bossHit.Values)
 $story3['boss-default'] = @("\[$C\] MATCH start knobs=all Default\s*$", "!\[$C\] HIT ")
-# signal: the six values the screen gets, in Difficulty's knob order (knobs.lua).
-$K8 = @(@('enemyDamage', '25'), @('spread', '20'), @('revives', '8'), @('cold', '0'), @('frostbite', '0'), @('dmg.stalker', '200'))
+# signal: the eight values the screen gets, in Difficulty's knob order (knobs.lua).
+$K8 = @(@('enemyDamage', '25'), @('spread', '20'), @('revives', '8'), @('classifiedTokens', '2'), @('classifiedTokensMax', '3'), @('cold', '0'), @('frostbite', '0'), @('dmg.stalker', '200'))
 $K8Text = ($K8 | ForEach-Object { "$($_[0])=$($_[1])" }) -join ' '
 $K8Rx = [regex]::Escape($K8Text)
 $expect = @{
@@ -571,7 +571,7 @@ if ($Scenario -in 'boss', 'boss-default') {
 }
 
 if ($Scenario -eq 'signal' -and -not $launch2Missing -and -not $signalNotShown) {
-    # MATCH start: exactly the six values from the screen (a difference names the knob; a knob not set there too).
+    # MATCH start: exactly the eight values from the screen (a difference names the knob; a knob not set there too).
     $m = @($lines | Where-Object { $_ -match "\[$C\] MATCH start knobs=(.*?)\s*$" } | ForEach-Object { $null = $_ -match "\[$C\] MATCH start knobs=(.*?)\s*$"; $Matches[1] })
     if ($m.Count) {
         $got = @{}

@@ -75,6 +75,7 @@ M.HELP = {
     classifiedTokens = table.concat({ "Reinforcement tokens given back per completed classified objective.",
         "Default: 0 on every difficulty.", range("classifiedTokens"), "Empty = 0 (the game gives none)." }, "\n"),
     classifiedTokensMax = table.concat({ "The most tokens Tokens per Classified gives back in a match.",
+        "Does nothing unless Tokens per Classified is above 0.",
         "Default: no cap.", range("classifiedTokensMax"), "Empty = no cap." }, "\n"),
     cold = table.concat({ "How fast players freeze, in % of Normal's rate. 0 = never freezes.",
         "Default: Nightmare 200, Hard 133, Normal 100, Easy 50.", range("cold"), FOLLOW }, "\n"),

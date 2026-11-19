@@ -71,7 +71,7 @@
 --   spread-grab     Nightmare, Enemy Damage 25, Spread 50: 20 Meek grabs, Health set to 26 before each (test only):
 --                   each survivable, each leaving Health >= 1 (at most 25 taken).
 --   signal-a        (VM, real input; launch 1 of signal) the create-world screen: Nightmare by real clicks on the
---                   Difficulty picker, Enemy Damage 25, Damage Spread 20 and Stalker 200 typed, Cold Exposure 0 and
+--                   Difficulty picker, Enemy Damage 25, Damage Spread 20, Stalker 200, Tokens per Classified 2 and Max Classified Tokens 3 typed, Cold Exposure 0 and
 --                   Frostbite Damage 0 dragged to the slider's start, Reinforcement Tokens 8 dragged (typed if the drag
 --                   lands elsewhere); saved as preset DT8-SIGNAL (leftover DT8-* deleted first). No dev.lua.
 --   signal-b        (VM; launch 2, saves kept) DT8-SIGNAL selected, every row checked, a friends-only solo match
@@ -2070,8 +2070,8 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
     local H_CREATE = "BndEvt__CreateServer_Create_K2Node_ComponentBoundEvent_3_OnButtonClickedEvent__DelegateSignature"
     local MAPSAVE = "/Game/Graphics/MainMenu/MapSelect_Save.MapSelect_Save_C"
     -- The values the screen gets, in the rows' own text (the box shows what the model holds).
-    local WANT = { { "enemyDamage", "25" }, { "spread", "20" }, { "revives", "8" }, { "cold", "0" }, { "frostbite", "0" },
-                   { "dmg.stalker", "200" } }
+    local WANT = { { "enemyDamage", "25" }, { "spread", "20" }, { "revives", "8" }, { "classifiedTokens", "2" },
+                   { "classifiedTokensMax", "3" }, { "cold", "0" }, { "frostbite", "0" }, { "dmg.stalker", "200" } }
     local KMIN = { enemyDamage = 0, spread = 0, revives = 0, cold = 0, frostbite = 0, ["dmg.stalker"] = 0 }
     local KMAX = { enemyDamage = 200, spread = 50, revives = 20, cold = 400, frostbite = 20, ["dmg.stalker"] = 500 }
     local G = { fixRevives = false, sessionAt = nil }
@@ -2182,6 +2182,9 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
         typeRow("enemyDamage", "25")
         typeRow("spread", "20")
         typeRow("dmg.stalker", "200")
+        -- Story 12: Tokens per Classified and Max Classified Tokens, restored after the restart (SIGROWS in launch 2).
+        typeRow("classifiedTokens", "2")
+        typeRow("classifiedTokensMax", "3")
         -- Two drags to the slider's start (Cold Exposure 0, Frostbite Damage 0) and one to a value (Tokens 8).
         for _, key in ipairs({ "cold", "frostbite" }) do
             dragRow(key, "min")

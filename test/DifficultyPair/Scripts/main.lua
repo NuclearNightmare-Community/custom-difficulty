@@ -17,7 +17,7 @@
 --                      30 s), ReinforceSpecficPlayer(<B's dead character>), then Reinformant() every 5 s (up to 6
 --                      tries) until B has a new character; a playable-monster B is a FAIL at once. The host is revived
 --                      the same way when it has no character. Clears infection timers (story 2's hook) and
---                      either player's StartedInfection? on the host (it decides a playable monster at death), at once in the infection hook and every 2 s.
+--                      either player's StartedInfection? on the host (it decides a playable monster at death), at once in the UpdateInfectionStatus hook and every 2 s.
 --                      With Scripts\watcher-near.txt (story 11, d5-grab-modded) the Watcher case instead keeps the host
 --                      within 2 m of B, first just in front of it (MOVE host ... (near ...)), facing where B faces (FACE), re-placed outside grab
 --                      windows, and logs the Watcher's state every 5 s (WATCH), so the Watcher has two players in reach:
@@ -328,17 +328,20 @@ local function installInfectionHook()
         local v = get(self)
         if not valid(v) then return end
         S.infQueue[#S.infQueue + 1] = { path = pathOf(v), at = os.clock() }
-        -- Story 11 (host-spawn): the host decides a playable monster from StartedInfection? at the death itself, which can
-        -- come within a second of an execution's infection (d5-host-vanilla 2026-11-19: the Meek's StabAndDump infected B
-        -- at 03:15:32.0, B died at 32.9, the 2 s guard cleared at 33.7, too late). So clear it here, in the same frame.
-        if ROLE == "host-spawn" then
-            local okI, inf = pcall(function() return v["StartedInfection?"] end)
-            if okI and inf == true then
-                local okW = pcall(function() v["StartedInfection?"] = false end)
-                say("INFECTCLEAR host at once victim=%s StartedInfection? -> false ok=%s hp=%s", who(v), tostring(okW), fmt1(hpOf(v)))
-            end
-        end
     end)
+    -- Story 11 (host-spawn): the host decides a playable monster from StartedInfection? at the death itself, which can
+    -- come within a second of an execution's infection (d5-host-vanilla 2026-11-19: the Meek's StabAndDump infected B
+    -- at 03:15:32.0, B died at 32.9, the 2 s guard cleared at 33.7, too late). The flag is set by the multicast
+    -- UpdateInfectionStatus(bool, Char) (BP_FirstPersonCharacter_C.cpp:18000), so clear it in that hook, after its body.
+    if ROLE == "host-spawn" then
+        hook(FPC_PATH .. ":UpdateInfectionStatus", function(_, b, char)
+            if get(b) ~= true then return end
+            local c = get(char)
+            if not valid(c) then return end
+            local okW = pcall(function() c["StartedInfection?"] = false end)
+            say("INFECTCLEAR host at once victim=%s StartedInfection? -> false ok=%s hp=%s", who(c), tostring(okW), fmt1(hpOf(c)))
+        end)
+    end
 end
 local function infectionTick()
     while #S.infQueue > 0 and os.clock() - S.infQueue[1].at >= 0.2 do

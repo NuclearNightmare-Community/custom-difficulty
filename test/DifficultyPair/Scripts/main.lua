@@ -23,10 +23,16 @@
 --                      within 2 m of B, first just in front of it (MOVE host ... (near ...)), facing where B faces (FACE), re-placed outside grab
 --                      windows, and logs the Watcher's state every 5 s (WATCH), so the Watcher has two players in reach:
 --                      it guards the Watcher's victim rule (Target vs AttackedPlayer).
-
+--                      Story 10: logs its view of B once a second for 16 s after each grab on B (OTHERPOS: position,
+--                      montage, PlayingMontage, movement mode). With Scripts\measure.txt (d10-measure, no Difficulty on
+--                      the host) only the Meek and the Watcher, each enemy hit on either player costs 25 HP (an
+--                      execution doesn't kill), a case ends at least 17 s after its first grab on B and only while the
+--                      host sees B free, and B is refilled only 17 s after the last grab.
 --   client-watch       (B, VM; story 5) logs only: each grab on B with its montage, and B's montage, PlayingMontage,
---                      movement mode and Health 6 s and 12 s later (AFTERGRAB). The real Difficulty (or none) decides.
---                      Clears infection timers like the host.
+--                      movement mode, Health and position 6, 12 and 16 s later (AFTERGRAB). The real Difficulty (or
+--                      none) decides. Clears infection timers like the host. Story 10, with Scripts\measure.txt: also
+--                      5 s after the grab, B's own view once a second for 16 s (MYPOS), and B walks backwards from
+--                      +1 s to +16 s (WALK: how far it got).
 -- Every role's GRAB #n line on a Watcher ends with target=<me|other|none> attacked=<me|other|none>, read from that
 -- Watcher in the multicast hook (story 11).
 --   host-revive        (A, host) reinforcement steps (item 4): dies three times; sets TimesUsedReinforcements and
@@ -60,6 +66,16 @@ do
     local f = io.open(scriptDir .. "\\watcher-near.txt", "r")
     if f then f:close() WATCHER_NEAR = ROLE == "host-spawn" end
 end
+-- Story 10: Scripts\measure.txt (staged by d10-measure) turns on the grab-recovery measurement. host-spawn: only the
+-- Meek and the Watcher, every enemy hit on either player costs MEASURE_HIT (the executions don't kill; no Difficulty
+-- on the host), and a case ends at least 17 s after its first grab on B, only while the host sees B free (no enemy
+-- despawned while it holds B). client-watch: after each grab on B, B walks backwards from +1 s to +16 s (WALK) and
+-- logs its own state once a second (MYPOS).
+local MEASURE = false
+do
+    local f = io.open(scriptDir .. "\\measure.txt", "r")
+    if f then f:close() MEASURE = ROLE == "host-spawn" or ROLE == "client-watch" end
+end
 -- Stale signal files from an earlier run.
 for _, n in ipairs({ "bready", "temp-start", "temp-end", "done", "s1", "s2", "s3", "s3done", "kill-b", "s4done",
                      "b-s1", "b-s2", "b-s3", "b-s3done", "b-s4done", "t1", "t2", "tfinal", "b-t1", "b-t2", "b-tfinal" }) do os.remove(scriptDir .. "\\" .. n .. ".txt") end
@@ -69,6 +85,8 @@ local FPC_PATH = "/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstP
 local STANDARD = { [0] = 100, [1] = 50, [2] = 25, [3] = 17 }
 local LIMIT = { [0] = 2, [1] = 4, [2] = 6, [3] = 8 } -- tokens for Classified Minium 0..3 (NukeComputer_UI_C)
 local PROBE_HIT = 5
+local MEASURE_HIT = 25 -- story 10 (measure.txt): what each enemy hit costs, as Enemy Damage 25 on Nightmare
+local AFTER_AT = MEASURE and { 5, 6, 12, 16 } or { 6, 12, 16 } -- s after a grab: the AFTERGRAB lines
 local SPAWN_DIST = 700
 
 local S = { checks = 0, failures = 0, seq = 0, ctx = {}, nested = 0, hooks = {}, case = nil, saved = {}, pending = {},
@@ -218,6 +236,51 @@ local function reinfState(tag)
     return cnt, dis, cm
 end
 
+-- ---------------------------------------------------------------- positions and B's walk (story 10)
+local function posOf(ch)
+    local ok, l = pcall(function() return ch:K2_GetActorLocation() end)
+    if not ok or not l then return nil end
+    local x, y, z = num(l.X), num(l.Y), num(l.Z)
+    if not (x and y and z) then return nil end
+    return { X = x, Y = y, Z = z }
+end
+local function posStr(p) return p and string.format("x=%.0f y=%.0f z=%.0f", p.X, p.Y, p.Z) or "x=? y=? z=?" end
+local function posDist(a, b) if not (a and b) then return nil end return math.sqrt((a.X - b.X) ^ 2 + (a.Y - b.Y) ^ 2) end -- horizontal
+-- B (client-watch with measure.txt) walks backwards, away from the enemy spawned in front of it, from +1 s to +16 s
+-- after a grab on it: AddMovementInput every 30 ms from a game-thread loop (LoopInGameThreadWithDelay, never an async
+-- loop). A newer grab or +16 s stops it with one WALK line: how far B got on its own screen.
+local function walkStop(why)
+    local w = S.walk
+    if not w then return end
+    S.walk = nil
+    if w.handle ~= nil then pcall(CancelDelayedAction, w.handle) end
+    local m = me()
+    local p = m and posOf(m)
+    local d = posDist(w.start, p)
+    local sp
+    pcall(function() sp = num(m.CharacterMovement.MaxWalkSpeed) end)
+    say("WALK #%d %s dist=%s start=(%s) end=(%s) inputs=%d fails=%d maxWalkSpeed=%s", w.seq, why, d and string.format("%.0f", d) or "?",
+        posStr(w.start), posStr(p), w.inputs, w.fails, sp and string.format("%.0f", sp) or "?")
+end
+local function walkStart(seq)
+    local m = me()
+    if not m then say("WALK #%d no pawn", seq) return end
+    local w = { seq = seq, start = posOf(m), inputs = 0, fails = 0 }
+    S.walk = w
+    local ok, h = pcall(LoopInGameThreadWithDelay, 30, function()
+        if S.walk ~= w then return true end
+        local p = me()
+        if not p then return end
+        local okI = pcall(function()
+            local f = p:GetActorForwardVector()
+            p:AddMovementInput({ X = -f.X, Y = -f.Y, Z = 0 }, 1.0, false)
+        end)
+        if okI then w.inputs = w.inputs + 1 else w.fails = w.fails + 1 end
+    end)
+    if ok then w.handle = h say("WALK #%d start (%s)", seq, posStr(w.start))
+    else S.walk = nil say("WALK #%d no game-thread loop: %s", seq, tostring(h)) end
+end
+
 -- ---------------------------------------------------------------- steps and signals
 local steps = {}
 local function step(name, fn) steps[#steps + 1] = { name = name, fn = fn } end
@@ -289,6 +352,8 @@ local SPAWN_CASES = {
     { name = "Watcher", path = "/Game/AI/EyeMonster_AI.EyeMonster_AI_C", target = "other", flip = false, wanted = 1, near = true },
 }
 ENEMY_OF["Stalker_AI_C"] = "Stalker"
+-- Story 10 (measure.txt): the Watcher's EyeGouge and one more execution, the Meek's.
+if MEASURE then SPAWN_CASES = { SPAWN_CASES[1], SPAWN_CASES[5] } end
 local function enemyName(o) return valid(o) and (ENEMY_OF[classOf(o)] or classOf(o)) or "none" end
 local GRABS = {
     { fn = "/Game/AI/SCP_AI.SCP_AI_C:Attack", victim = 2 },
@@ -408,8 +473,20 @@ local function installGrabHooks(noInfect)
             say("GRAB #%d %s %s victim=%s hpSeen=%s hpNow=%s montage=%s diff=%s (start %s)%s", S.seq, enemyName(attacker), g.fn:match(":(.+)$"),
                 who(victim), fmt1(hpSeen), fmt1(hpOf(victim)), valid(victim) and montageOf(victim) or "?", dNow, tostring(S.diff), wf)
             S.anyGrabAt = os.clock()
-            if isMe(victim) then S.grabsOnMe = S.grabsOnMe + 1 S.ownGrabAt = { t = os.clock(), n = 0, seq = S.seq } end
-            if isOther(victim) then S.hostGrabAt = { t = os.clock(), n = 0, seq = S.seq } end
+            if isMe(victim) then
+                S.grabsOnMe = S.grabsOnMe + 1 S.ownGrabAt = { t = os.clock(), n = 0, seq = S.seq }
+                -- Story 10: B's walk restarts with each grab on it (a running one ends here).
+                if MEASURE and not IS_HOST then
+                    walkStop("cut by grab #" .. S.seq)
+                    S.walkFor = { t = os.clock(), seq = S.seq }
+                    S.myPosAt = { t = os.clock(), n = 0, seq = S.seq }
+                end
+            end
+            if isOther(victim) then
+                S.hostGrabAt = { t = os.clock(), n = 0, seq = S.seq }
+                -- Story 10: the host's view of B once a second for 16 s (OTHERPOS).
+                if IS_HOST then S.posAt = { t = os.clock(), n = 0, seq = S.seq } end
+            end
             local c = S.case
             -- A case counts only grabs on its own target (a Meek sent at B can pick the host instead).
             local onTarget = (c and c.target == "me") and isMe(victim) or (c and c.target ~= "me" and isOther(victim))
@@ -418,12 +495,13 @@ local function installGrabHooks(noInfect)
     end
 end
 
--- Host: damage compensation (every enemy hit on either player costs PROBE_HIT), as the mod's Health compensation.
+-- Host: damage compensation (every enemy hit on either player costs PROBE_HIT, MEASURE_HIT with measure.txt), as the
+-- mod's Health compensation.
 local function compensate(victim, amount, why)
     if not (isMe(victim) or isOther(victim)) or not amount or amount <= 2 then return end
     local hp = hpOf(victim)
     if not hp then return end
-    local new = hp + amount - PROBE_HIT
+    local new = hp + amount - (MEASURE and MEASURE_HIT or PROBE_HIT)
     pcall(function() victim.Health = new end)
     say("COMP %s victim=%s hp %.2f -> %.2f (the native %.2f should leave %.2f)", why, who(victim), hp, new, amount, new - amount)
 end
@@ -489,18 +567,37 @@ local function monitor()
         local h = hpOf(m)
         if h and h ~= S.lastMyHp then say("MYHP %s", fmt1(h)) S.lastMyHp = h end
     end
-    -- 6 s and 12 s after a grab: the victim's state on this machine (no recovery is forced: does it come back alone?).
+    -- 6, 12 and 16 s after a grab (5 s too with measure.txt: just before Difficulty's recovery at 6 s): the victim's
+    -- state on this machine and where it stands (no recovery is forced here: does it come back alone?).
     for _, k in ipairs({ "ownGrabAt", "hostGrabAt" }) do
         local g = S[k]
         local ch = k == "ownGrabAt" and m or o
         if g and ch then
-            local dt = os.clock() - g.t
-            if (g.n == 0 and dt >= 6) or (g.n == 1 and dt >= 12) then
+            local at = AFTER_AT[g.n + 1]
+            if at and os.clock() - g.t >= at then
                 g.n = g.n + 1
-                say("AFTERGRAB #%d %s %d s: %s", g.seq, k == "ownGrabAt" and "me" or "other", g.n * 6, stateOf(ch))
-                if g.n >= 2 then S[k] = nil end
+                say("AFTERGRAB #%d %s %d s: %s %s", g.seq, k == "ownGrabAt" and "me" or "other", at, stateOf(ch), posStr(posOf(ch)))
+                if g.n >= #AFTER_AT then S[k] = nil end
             end
         end
+    end
+    -- Story 10: once a second for 16 s after a grab on B, B's position, montage, PlayingMontage and movement mode: the
+    -- host's view (OTHERPOS), and with measure.txt B's own (MYPOS). A newer grab on B starts a new window.
+    for _, w in ipairs({ { k = "posAt", tag = "OTHERPOS", ch = o, on = IS_HOST }, { k = "myPosAt", tag = "MYPOS", ch = m, on = MEASURE and not IS_HOST } }) do
+        local p = S[w.k]
+        if w.on and p and w.ch and os.clock() - p.t >= p.n + 1 then
+            p.n = p.n + 1
+            say("%s #%d t=%d %s %s", w.tag, p.seq, p.n, posStr(posOf(w.ch)), stateOf(w.ch))
+            if p.n >= 16 then S[w.k] = nil end
+        end
+    end
+    -- Story 10: B walks from +1 s to +16 s after a grab on it (input while it is held does nothing: a player would
+    -- keep pressing too), so it moves as soon as the game lets it.
+    if MEASURE and not IS_HOST and S.walkFor then
+        local w = S.walkFor
+        local dt = os.clock() - w.t
+        if not w.started and dt >= 1 then w.started = true walkStart(w.seq) end
+        if dt >= 16 then walkStop("done") S.walkFor = nil end
     end
     -- Temperature as this machine sees it during the hold phase.
     if not IS_HOST and has("temp-start") and not has("temp-end") and m then
@@ -797,7 +894,8 @@ local function buildHostSpawn()
         say("STARTED Diffculty=%s", tostring(d))
     end)
     -- Story 11: story 2's infection hook too (it clears the BecomeInfected timer), so infection doesn't end a case.
-    step("hooks", function() installGrabHooks(false) S.guard = true end)
+    -- Story 10 (measure.txt): the damage hooks too, so each enemy hit costs MEASURE_HIT and an execution doesn't kill.
+    step("hooks", function() installGrabHooks(false) if MEASURE then installDamageHooks() end S.guard = true end)
     for _, c in ipairs(SPAWN_CASES) do
         local label = c.name .. " on B"
         reviveB("before " .. c.name)
@@ -852,10 +950,18 @@ local function buildHostSpawn()
                         end
                     end
                 end
-                -- B logs its own 6 s state (AFTERGRAB); end 9 s after the first grab.
+                -- B logs its own 6 s state (AFTERGRAB); end 9 s after the first grab. measure.txt: 17 s after it, and
+                -- only while the host sees B free (no montage playing, walking), so no enemy is despawned while it
+                -- holds B (the despawn kept B stuck on 2026-11-15).
                 if (c.grabs or 0) >= c.wanted then
                     c.tEnough = c.tEnough or os.clock()
-                    if os.clock() - c.tEnough >= 9 then return true end
+                    if not MEASURE and os.clock() - c.tEnough >= 9 then return true end
+                    if MEASURE and os.clock() - c.tEnough >= 17 then
+                        local pm, mode
+                        pcall(function() pm = tg.PlayingMontage end)
+                        pcall(function() mode = num(tg.CharacterMovement.MovementMode) end)
+                        if pm == false and mode == 1 then return true end
+                    end
                 end
                 if os.clock() - t0 > 120 then say("TIMEOUT %s grabs=%d", label, c.grabs or 0) return true end
                 return false
@@ -867,8 +973,10 @@ local function buildHostSpawn()
             S.case = nil
             local x = c.actor and StaticFindObject(c.actor)
             if valid(x) then pcall(function() x:K2_DestroyActor() end) end
-            -- Refill only outside a grab window: 8 s after the last grab on B.
-            return function() return not c.lastGrab or os.clock() - c.lastGrab >= 8 end, 20, "the grab window over"
+            -- Refill only outside a grab window: 8 s after the last grab on B (measure.txt: 17 s, after its 16 s of
+            -- OTHERPOS and MYPOS lines).
+            local win = MEASURE and 17 or 8
+            return function() return not c.lastGrab or os.clock() - c.lastGrab >= win end, win + 12, "the grab window over"
         end)
         step("refill after " .. label, function()
             local o = other()
@@ -889,6 +997,11 @@ end
 local function buildClientGrab()
     waitMatch()
     step("ready", function() installGrabHooks(false) signal("bready") end)
+    -- Story 10 (measure.txt): B's walk with no grab first, 3 s, the baseline for the WALK distances after grabs.
+    if MEASURE then
+        step("baseline walk", function() walkStart(0) return after(3), 8 end)
+        step("baseline walk end", function() walkStop("baseline") end)
+    end
     step("until done", function()
         return function() return has("done") end, 1500, "the host's done signal"
     end)

@@ -46,6 +46,7 @@ M.TOLERANCE = 0.01    -- HP: the guards' tolerance
 M.RESTORE_DELAY = 10  -- ms: the next-tick restore fallback
 M.CLIENT_RANGE = 1000 -- cm: on a client, the nearest grab-class AI this close is the grab's attacker when nothing names it
 M.RECOVER_DELAY = 6000 -- ms: the recovery check after an execution began on this machine's own player
+M.READBACK_DELAY = 500 -- ms: the recovery's readback after its writes (story 10)
 
 -- The Stalker's presentation (native, first call in PlayDamageEvent's body on every machine, before its Health
 -- test): a modded client's hook point for its own Stalker grab (the Stalker's HasPerk(0x27) runs on the host only).
@@ -796,7 +797,8 @@ end
 -- ---------------------------------------------------------------- the recovery (every machine, own player only)
 -- noteGrab(v, vpath, decision): a grab began on this machine's own player. decision is the one this machine's game
 -- test makes ("e" / "s"; nil: the game's own, from Health and the standard hit). After an execution, the check runs
--- RECOVER_DELAY later.
+-- RECOVER_DELAY later, and when it acted, the readback READBACK_DELAY after that (story 10). Both are scheduled here,
+-- from the hook (the path the restore fallback already uses in game), none from inside a delayed callback.
 function A:noteGrab(v, vpath, decision)
     local R = self.recover
     R.seq = R.seq + 1
@@ -807,25 +809,54 @@ function A:noteGrab(v, vpath, decision)
     if decision ~= "e" then return end
     local seq, world = R.seq, self.o.world()
     local o = self.o
-    -- core's weak handle when there is one (no StaticFindObject miss after the pawn is gone), else the path.
+    -- core's weak handle when there is one (no StaticFindObject miss after the pawn is gone), else the path. Kept
+    -- until the readback, freed once nothing runs any more.
     local h
     if o.ref and o.deref then
         local okR, r = pcall(o.ref, v)
         if okR and r ~= nil then h = r end
     end
-    self:delay(M.RECOVER_DELAY, function()
-        local ok, err = pcall(self.recoverCheck, self, vpath, seq, world, h)
+    -- acted: nil until the check ran, then whether it acted; readback: a readback is scheduled and frees the handle.
+    local state = { acted = nil, readback = false, freed = false }
+    local function free()
+        if state.freed then return end
+        state.freed = true
         if h ~= nil and o.free then pcall(o.free, h) end
-        if not ok then o.warnOnce("recover:" .. tostring(err), "recovery check failed: %s", tostring(err)) end
+    end
+    local okD = self:delay(M.RECOVER_DELAY, function()
+        local ok, acted = pcall(self.recoverCheck, self, vpath, seq, world, h)
+        if not ok then o.warnOnce("recover:" .. tostring(acted), "recovery check failed: %s", tostring(acted)) end
+        state.acted = ok and acted == true
+        if not (state.acted and state.readback) then free() end
     end, "recovery")
+    if not okD then free() return end
+    state.readback = self:delay(M.RECOVER_DELAY + M.READBACK_DELAY, function()
+        if state.acted == nil then state.readback = false return end -- ran before the check: the check frees
+        if state.acted then
+            local okR, err = pcall(self.readback, self, vpath, world, h)
+            if not okR then o.warnOnce("readback:" .. tostring(err), "recovery readback failed: %s", tostring(err)) end
+        end
+        free()
+    end, "recovery readback")
 end
 
--- recoverCheck(vpath, seq, world, h): the player still alive, no newer grab, same world: stop the montage,
--- PlayingMontage = false, walking movement (the game's own enemy-died branch). Runs after a back-off too. h: core's
--- weak handle on the pawn (nil: found again by path).
-function A:recoverCheck(vpath, seq, world, h)
-    if self.recover.seq ~= seq then return end -- another grab began since
-    if world == nil or self.o.world() ~= world then return end
+-- errText(err): a failed call's error for the log, on one line and bounded.
+local function errText(err)
+    local t = tostring(err):gsub("%s+", " ")
+    if #t > 200 then t = t:sub(1, 200) .. "..." end
+    return t
+end
+local function montageName(m)
+    if not exists(m) then return "none" end
+    local ok, n = pcall(function() return m:GetFName():ToString() end)
+    if ok and type(n) == "string" and n ~= "" then return n end
+    return "unnamed"
+end
+
+-- recoverPawn(vpath, world, h) -> the player's live pawn, or nil (another world, gone, another object at the path).
+-- h: core's weak handle on the pawn (nil: found again by path).
+function A:recoverPawn(vpath, world, h)
+    if world == nil or self.o.world() ~= world then return nil end
     local v
     if h ~= nil then
         local okD, d = pcall(self.o.deref, h)
@@ -833,16 +864,49 @@ function A:recoverCheck(vpath, seq, world, h)
     else
         v = StaticFindObject(vpath)
     end
-    if not exists(v) or not self:alive(v) or pathOf(v) ~= vpath then return end
+    if not exists(v) or not self:alive(v) or pathOf(v) ~= vpath then return nil end
+    return v
+end
+
+-- recoverCheck(vpath, seq, world, h) -> true when it acted: the player still alive, no newer grab, same world: stop
+-- the current montage, PlayingMontage = false, walking movement (the game's own enemy-died branch). Story 10: with no
+-- current montage there is nothing to stop (no call, stop=skip), and a failed call logs its error text. Runs after a
+-- back-off too.
+function A:recoverCheck(vpath, seq, world, h)
+    if self.recover.seq ~= seq then return false end -- another grab began since
+    local v = self:recoverPawn(vpath, world, h)
+    if not v then return false end
     local hp = hpOf(v)
-    if not hp or hp <= 0 then return end
+    if not hp or hp <= 0 then return false end
     local m
     pcall(function() m = v:GetCurrentMontage() end)
-    local okS = pcall(function() if exists(m) then v:StopAnimMontage(m) else v:StopAnimMontage() end end)
-    local okP = pcall(function() v.PlayingMontage = false end)
-    local okM = pcall(function() v.CharacterMovement:SetMovementMode(1, 0) end)
-    self.o.say("info", "RECOVER hp=%s montage=%s stop=%s playing=%s movement=%s", F(hp), exists(m) and "yes" or "none",
-        tostring(okS), tostring(okP), tostring(okM))
+    local errs = {}
+    local stop = "skip"
+    if exists(m) then
+        local okS, eS = pcall(function() v:StopAnimMontage(m) end)
+        stop = tostring(okS)
+        if not okS then errs[#errs + 1] = "stop: " .. errText(eS) end
+    end
+    local okP, eP = pcall(function() v.PlayingMontage = false end)
+    if not okP then errs[#errs + 1] = "playing: " .. errText(eP) end
+    local okM, eM = pcall(function() v.CharacterMovement:SetMovementMode(1, 0) end)
+    if not okM then errs[#errs + 1] = "movement: " .. errText(eM) end
+    self.o.say("info", "RECOVER hp=%s montage=%s stop=%s playing=%s movement=%s%s", F(hp), exists(m) and "yes" or "none",
+        stop, tostring(okP), tostring(okM), #errs > 0 and (" err=" .. table.concat(errs, "; ")) or "")
+    return true
+end
+
+-- readback(vpath, world, h): READBACK_DELAY after the recovery's writes, what the player's pawn reads now (story 10):
+-- PlayingMontage, the movement mode (1: walking) and the current montage. A log line only.
+function A:readback(vpath, world, h)
+    local v = self:recoverPawn(vpath, world, h)
+    if not v then self.o.say("info", "RECOVER readback gone") return end
+    local playing, mode, m
+    local okP = pcall(function() playing = v.PlayingMontage end)
+    local okM = pcall(function() mode = v.CharacterMovement.MovementMode end)
+    pcall(function() m = v:GetCurrentMontage() end)
+    self.o.say("info", "RECOVER readback playing=%s movement=%s montage=%s hp=%s", okP and tostring(playing) or "?",
+        okM and tostring(num(mode) or mode) or "?", montageName(m), F(hpOf(v)))
 end
 
 -- restore(vpath, how): put the saved Health back, only if Health still holds the temporary value.
@@ -874,18 +938,20 @@ function A:later(vpath)
     self:delay(M.RESTORE_DELAY, self:guard("restore fallback", function(s) s:restore(vpath, "next tick") end), "restore")
 end
 
--- delay(ms, fn, what): fn once on the game thread ms later (called from the game thread: a hook body).
+-- delay(ms, fn, what) -> true when scheduled: fn once on the game thread ms later (called from the game thread: a
+-- hook body or a delayed callback).
 function A:delay(ms, fn, what)
-    if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, ms, fn) then return end
+    if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, ms, fn) then return true end
     local handle, done = nil, false
     local ok, h = pcall(LoopInGameThreadWithDelay, ms, function()
         if not done then done = true fn() end
         if handle ~= nil then pcall(CancelDelayedAction, handle) end
         return true
     end)
-    if ok then handle = h
-    elseif what == "restore" then self.o.warnOnce("later", "no game-thread delay available (%s); the grab hook restores alone", tostring(h))
+    if ok then handle = h return true end
+    if what == "restore" then self.o.warnOnce("later", "no game-thread delay available (%s); the grab hook restores alone", tostring(h))
     else self.o.warnOnce("later:" .. tostring(what), "no game-thread delay available (%s); no %s", tostring(h), tostring(what)) end
+    return false
 end
 
 -- UpdateFriendlyFire (host): the match starts. Knob values are parsed again for every match.

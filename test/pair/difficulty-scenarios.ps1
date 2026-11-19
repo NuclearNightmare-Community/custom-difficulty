@@ -22,6 +22,14 @@
                      matches it, B revived after each death, two players throughout (the session outcome).
     d5-host-vanilla  the host has no core and no Difficulty, B is modded: one inactive line on B, no GRAB, RESTORE
                      or RECOVER there.
+  Story 10 (a measurement, no pass/fail on Difficulty; Verdict NOT-STUCK, STUCK or INCONCLUSIVE, ScenarioReport.D10):
+    d10-measure      the host has only DifficultyPair host-spawn with measure.txt (no core, no Difficulty; each enemy
+                     hit costs 25 HP), B is modded with client-watch and measure.txt: a Meek and a Watcher execute B at
+                     full Health without killing it; B's state at 5, 6, 12, 16 s, its RECOVER and readback, B's view of
+                     itself (MYPOS) and the host's view of B (OTHERPOS) once a second for 16 s, B walking backwards
+                     from +1 s (WALK). NOT-STUCK when every judged execution shows B free (no montage playing, walking)
+                     on both machines and moving at least 10 cm on the host's screen within its 16 s, a Watcher
+                     EyeGouge and another enemy's included; STUCK when a full 16 s window never shows that.
   Story 14 (the Insta-kill box on a modded client; Nightmare lobby, the host's dev.lua enemyDamage=25;kill.meek=1,
   DifficultyPair host-spawn + client-watch, B modded as in d5-grab-modded):
     d14-kill-modded  the Meek's grab on B: "decision=e ... kill=yes" in both logs (host victim=client spare=yes, B
@@ -56,15 +64,17 @@ $script:DpSignals = @('bready', 'temp-start', 'temp-end', 'done', 's1', 's2', 's
 # A copy of DifficultyPair with Scripts\role.txt, in its own folder per role (host and VM copies differ).
 # -WatcherNear (host-spawn, story 11): also Scripts\watcher-near.txt, so the Watcher case keeps the host within 2 m of B
 # instead of 2500 cm away (two players in the Watcher's reach; it guards the Watcher's victim rule).
-function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive', 'host-spawn', 'client-watch', 'host-tokens', 'client-tokens')] [string] $Role, [switch] $WatcherNear) {
-    $stage = Join-Path ([IO.Path]::GetTempPath()) "nn-dp-stage-$Role$(if ($WatcherNear) { '-near' })"
+# -Measure (host-spawn, client-watch; story 10): also Scripts\measure.txt, the grab-recovery measurement (d10-measure).
+function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive', 'host-spawn', 'client-watch', 'host-tokens', 'client-tokens')] [string] $Role, [switch] $WatcherNear, [switch] $Measure) {
+    $stage = Join-Path ([IO.Path]::GetTempPath()) "nn-dp-stage-$Role$(if ($WatcherNear) { '-near' })$(if ($Measure) { '-measure' })"
     Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     $dst = Join-Path $stage 'DifficultyPair'
     New-Item -ItemType Directory -Force $stage | Out-Null
     Copy-Item $DpDriver $dst -Recurse
-    Remove-Item (Join-Path $dst 'Scripts\watcher-near.txt') -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $dst 'Scripts\watcher-near.txt'), (Join-Path $dst 'Scripts\measure.txt') -Force -ErrorAction SilentlyContinue
     Set-Content (Join-Path $dst 'Scripts\role.txt') $Role -NoNewline
     if ($WatcherNear) { Set-Content (Join-Path $dst 'Scripts\watcher-near.txt') '1' -NoNewline }
+    if ($Measure) { Set-Content (Join-Path $dst 'Scripts\measure.txt') '1' -NoNewline }
     $dst
 }
 
@@ -233,7 +243,8 @@ function Get-DpRemovePaths {
 }
 
 # The VM copy for a story 5 scenario: UE4SS on, client-watch, and with -Modded core (first in mods.txt) and Difficulty.
-function Set-DpVMModded([switch] $Modded) {
+# -Measure (story 10): client-watch with measure.txt (B walks after each grab on it).
+function Set-DpVMModded([switch] $Modded, [switch] $Measure) {
     Restore-VMBaseline
     Invoke-VMDeploy -Remove -Path (Get-DpRemovePaths)
     Invoke-VMDeploy -UE4SS On
@@ -241,7 +252,7 @@ function Set-DpVMModded([switch] $Modded) {
         & (Join-Path $Workspace 'tools/vm/vm-deploy.ps1') -Path $DpCorePackage -First
         Invoke-VMDeploy -Path (Get-DpModStage -Side client)
     }
-    Invoke-VMDeploy -Path (Get-DpStage -Role 'client-watch')
+    Invoke-VMDeploy -Path (Get-DpStage -Role 'client-watch' -Measure:$Measure)
 }
 
 # Lines of one log with a tag, the prefix up to the tag cut off.
@@ -379,6 +390,120 @@ function New-DpD5Scenario([string] $Summary, [ValidateSet('modded', 'unmodded', 
 $DpPairScenarios['d5-grab-modded'] = New-DpD5Scenario "Difficulty story 5: host and B both run $DpCoreName and Difficulty (host Enemy Damage 25, Nightmare); Meek, Mimic, Psycho, Watcher and Stalker grab B at full Health: decision=s on both machines, B's survivable montage, B >= 1 HP and moving at 6 s" 'modded'
 $DpPairScenarios['d5-grab-unmodded'] = New-DpD5Scenario "Difficulty story 5: the host runs $DpCoreName and Difficulty, B only UE4SS and its watcher: the host keeps the game's decision (spare=no(absent)), B's montage matches it, B revived after each execution, two players throughout" 'unmodded'
 $DpPairScenarios['d5-host-vanilla'] = New-DpD5Scenario "Difficulty story 5: the host runs no Difficulty, B runs $DpCoreName and Difficulty: one inactive line on B and no GRAB, RESTORE or RECOVER" 'host-vanilla'
+
+# ------------------------------------------------------------------------------------------------ story 10
+# d10-measure: does a client stay stuck after a non-lethal execution? The host runs no core and no Difficulty, only
+# host-spawn with measure.txt: the Meek and the Watcher, each enemy hit costs 25 HP, so both machines play the game's
+# execution at full Health and B survives it (the shape of the 2026-11-15 15:31 EyeGouge), with no despawn and no
+# refill inside the 16 s window. B runs core and Difficulty (inactive without a host Difficulty, so the execution is
+# the game's own and the 6 s recovery runs with its readback) and client-watch with measure.txt (B walks backwards
+# from +1 s to +16 s, and logs its own view once a second: MYPOS).
+$script:DpMoveCm = 10   # cm: what B must cover on the host's screen, after the host first sees it free, to count as moving
+
+function Get-DpPos([string] $Line) {
+    if ($Line -match 'x=(-?\d+) y=(-?\d+) z=(-?\d+)') { return [pscustomobject]@{ X = [double]$Matches[1]; Y = [double]$Matches[2]; Z = [double]$Matches[3] } }
+    $null
+}
+function Get-DpMode([string] $Line) { if ($Line -match 'movement=(\S+)') { return $Matches[1] } $null }
+# A sample shows the player free: no montage playing (PlayingMontage=false) and walking (movement=1).
+function Test-DpFree([string] $Line) { $Line -match 'PlayingMontage=false' -and (Get-DpMode $Line) -in '1', 'MOVE_Walking' }
+
+# One row per grab on B, paired by order with the host's grab on B. From the once-a-second samples of the 16 s window
+# (OTHERPOS on the host, MYPOS on B; a newer grab on B ends a window early): when each machine first saw B free, and
+# how far B got on the host's screen from there (B walks from +1 s). moved: free on both machines and at least DpMoveCm
+# covered on the host's screen within the window. stuck: both machines' 16 samples all came and that didn't happen. cut:
+# the window ended early (a newer grab, the run's end) before it happened (not judged).
+function Get-DpD10Rows([string[]] $HostLines, [string[]] $VMLines) {
+    $rx = '^GRAB #(\d+) (\S+) \S+ victim=(me|other) .*montage=(\S+) '
+    $bGrabs = @(foreach ($l in $VMLines) { if ($l -match $rx -and $Matches[3] -eq 'me') { [pscustomobject]@{ Seq = [int]$Matches[1]; Enemy = $Matches[2]; Montage = $Matches[4] } } })
+    $hGrabs = @(foreach ($l in $HostLines) { if ($l -match $rx -and $Matches[3] -eq 'other') { [pscustomobject]@{ Seq = [int]$Matches[1]; Enemy = $Matches[2]; Montage = $Matches[4] } } })
+    $rows = @()
+    for ($i = 0; $i -lt $bGrabs.Count; $i++) {
+        $b = $bGrabs[$i]
+        $h = if ($i -lt $hGrabs.Count) { $hGrabs[$i] } else { $null }
+        $kind = if ($b.Montage -match $DpExecMontage) { 'e' } elseif ($b.Montage -match $DpSurvMontage) { 's' } else { '?' }
+        $after = @{}; $mine = @{}
+        foreach ($l in $VMLines) {
+            if ($l -match "^AFTERGRAB #$($b.Seq) me (\d+) s: (.*)$") { $after[$Matches[1]] = $Matches[2] }
+            if ($l -match "^MYPOS #$($b.Seq) t=(\d+) (.*)$") { $mine[[int]$Matches[1]] = $Matches[2] }
+        }
+        $walk = $VMLines | Where-Object { $_ -match "^WALK #$($b.Seq) (done|cut) " } | Select-Object -Last 1
+        $pos = @{}
+        if ($h) { foreach ($l in $HostLines) { if ($l -match "^OTHERPOS #$($h.Seq) t=(\d+) (.*)$") { $pos[[int]$Matches[1]] = $Matches[2] } } }
+        $hostFree = $pos.Keys | Sort-Object | Where-Object { Test-DpFree $pos[$_] } | Select-Object -First 1
+        $bFree = $mine.Keys | Sort-Object | Where-Object { Test-DpFree $mine[$_] } | Select-Object -First 1
+        $moved = $null
+        if ($null -ne $hostFree) {
+            $p0 = Get-DpPos $pos[$hostFree]
+            foreach ($t in @($pos.Keys | Where-Object { $_ -gt $hostFree })) {
+                $p = Get-DpPos $pos[$t]
+                if ($p0 -and $p) {
+                    $d = [math]::Round([math]::Sqrt([math]::Pow($p.X - $p0.X, 2) + [math]::Pow($p.Y - $p0.Y, 2)))
+                    if ($null -eq $moved -or $d -gt $moved) { $moved = $d }
+                }
+            }
+        }
+        $complete = $pos.ContainsKey(16) -and $mine.ContainsKey(16)   # both machines' full 16 s
+        $state = if ($null -ne $hostFree -and $null -ne $bFree -and $null -ne $moved -and $moved -ge $DpMoveCm) { 'moved' } elseif ($complete) { 'stuck' } else { 'cut' }
+        $rows += [pscustomobject]@{
+            Index = $i + 1; Enemy = $b.Enemy; Montage = $b.Montage; Kind = $kind; BSeq = $b.Seq
+            HostSeq = $(if ($h) { $h.Seq } else { $null }); HostMontage = $(if ($h) { $h.Montage } else { $null })
+            HostFreeAt = $hostFree; BFreeAt = $bFree; HostMovedCm = $moved; HostSamples = $pos.Count; BSamples = $mine.Count
+            B5 = $after['5']; B6 = $after['6']; B12 = $after['12']; B16 = $after['16']
+            Walk = $walk; State = $state
+        }
+    }
+    $rows
+}
+
+# Result NOT-STUCK: every judged execution on B moved again by 16 s, with at least one Watcher EyeGouge and one
+# execution by another enemy judged. STUCK: a judged execution didn't. INCONCLUSIVE: not enough judged (cut, missing),
+# or the host ran Difficulty. The result is the scenario's Verdict.
+function Get-DpD10Report {
+    $r = Get-DpReport
+    $hostLog = Join-Path $outDir "$Label.host.UE4SS.log"
+    $hd = Get-DpTagged $hostLog $DpName
+    $vd = Get-DpTagged $vmLogPath $DpName
+    $hp = Get-DpTagged $hostLog 'DifficultyPair'
+    $vp = Get-DpTagged $vmLogPath 'DifficultyPair'
+    $notes = [Collections.Generic.List[string]]::new()
+    $rows = @(Get-DpD10Rows $hp $vp)
+    $ex = @($rows | Where-Object { $_.Kind -eq 'e' })
+    $judged = @($ex | Where-Object { $_.State -ne 'cut' })
+    $stuck = @($judged | Where-Object { $_.State -eq 'stuck' })
+    $eyeGouge = @($judged | Where-Object { $_.Enemy -eq 'Watcher' -and $_.Montage -match 'EyeGouge' })
+    $otherEx = @($judged | Where-Object { $_.Enemy -ne 'Watcher' })
+    if ($hd.Count) { $notes.Add("host: $($hd.Count) $DpName lines (the host must run no Difficulty here)") }
+    if (-not ($vd | Where-Object { $_ -match '^READY ' })) { $notes.Add("B: $DpName never got READY") }
+    $unpaired = @($rows | Where-Object { $null -eq $_.HostSeq })
+    if ($unpaired.Count) { $notes.Add("$($unpaired.Count) grab(s) on B seen by B but not by the host") }
+    if (-not $eyeGouge.Count) { $notes.Add('no judged Watcher EyeGouge execution on B') }
+    if (-not $otherEx.Count) { $notes.Add('no judged execution on B by another enemy') }
+    $result10 = if ($stuck.Count) { 'STUCK' } elseif ($eyeGouge.Count -and $otherEx.Count -and -not $hd.Count) { 'NOT-STUCK' } else { 'INCONCLUSIVE' }
+    $r.D10 = [ordered]@{
+        Result = $result10; Notes = @($notes)
+        Executions = @($ex | ForEach-Object { "#$($_.Index) $($_.Enemy) $($_.Montage) (host $($_.HostMontage)): $($_.State); free on the host at t=$($_.HostFreeAt) s, on B at t=$($_.BFreeAt) s; B covered $($_.HostMovedCm) cm on the hosts screen after that ($($_.HostSamples) host samples); $($_.Walk)" })
+        Rows = @($rows)
+        Recover = @($vd | Where-Object { $_ -match '^RECOVER ' })
+        VMInactive = @($vd | Where-Object { $_ -match 'inactive' })
+        Session = $result.Outcome
+    }
+    Write-Host "D10 $result10 (judged executions $($judged.Count), stuck $($stuck.Count))"
+    foreach ($n in $notes) { Write-Host "NOTE $n" }
+    $r.Verdict = $result10
+    $r
+}
+$DpPairScenarios['d10-measure'] = @{
+    Summary = "Difficulty story 10: the host runs no Difficulty (each enemy hit costs 25 HP), B runs $DpCoreName and Difficulty (inactive, so its 6 s recovery and readback run); a Meek and a Watcher execute B at full Health without killing it; B's state at 5, 6, 12 and 16 s on both machines, the host's view once a second, B walking from +6 s: does B move again by 16 s?"
+    Prereq = $DpD5Prereq
+    HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '0' }   # Nightmare: every stock grab at 100 HP executes
+    HostModPaths = { @(Get-DpStage -Role 'host-spawn' -Measure) }
+    VMSetup = { Set-DpVMModded -Modded -Measure }
+    VMRestore = { Invoke-VMDeploy -Remove -Path (Get-DpRemovePaths); Restore-VMBaseline }
+    AfterJoin = { Invoke-DpRelay }
+    PlaySec = 20
+    Check = { Get-DpD10Report }
+}
 
 # ------------------------------------------------------------------------------------------------ story 14
 # d14-kill-modded: the Meek's Insta-kill box ticked on the host; B (modded) dies to the Meek on both machines and the

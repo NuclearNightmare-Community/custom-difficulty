@@ -980,7 +980,8 @@ local function hostBossHooks()
         if c and c.cldPre and not c.cldAt then c.cldAt, c.ret, c.s0 = os.clock(), ret, hostSnapB(c.vpath) end
     end)
     for _, fn in ipairs({ "StartWatching", "WatchFinisherPresentation" }) do
-        hook(REC .. fn, function(_, boss)
+        -- A failed hook would read as presentation=no: checked.
+        check(hook(REC .. fn, function(_, boss)
             local cls = classOf(get(boss))
             say("BOSSHOOK %s boss=%s", fn, cls)
             local c = HB.cur
@@ -988,7 +989,7 @@ local function hostBossHooks()
                 if fn == "StartWatching" and not c.watchAt then c.watchAt = os.clock() end
                 if fn == "WatchFinisherPresentation" then c.wfpAt = os.clock() end
             end
-        end)
+        end), "BOSSHOOKS %s hooked", fn)
     end
     return okC
 end
@@ -1025,12 +1026,12 @@ local function buildHostBossCases()
             local cls = loadClass(c.path)
             if not check(cls ~= nil, "CLASS %s %s", c.name, c.path) then return end
             -- AttackMulti is a Blueprint multicast: the callback runs after the body.
-            hook(c.path .. ":AttackMulti", function(selfp)
+            check(hook(c.path .. ":AttackMulti", function(selfp)
                 local cls2 = classOf(get(selfp))
                 say("BOSSHOOK AttackMulti boss=%s", cls2)
                 local cc = HB.cur
                 if cc and cls2 == cc.short then cc.multiAt = os.clock() end
-            end)
+            end), "BOSSHOOKS %s AttackMulti hooked", c.name)
             c.target, c.tries = "other", 0
             S.case = c -- the monitor's guard keeps the case's boss
             local okS, x, ctl = pcall(spawnInFront, cls, target)
@@ -1104,7 +1105,9 @@ local function buildHostBossCases()
                 if c.s6 and since >= 12 then
                     local s = hostSnapB(c.vpath)
                     bossStateLine(c.name, "host", 12, s)
-                    bossVerdicts(c.name, "host", s, c.presentation)
+                    -- The verdict covers the whole window: a presentation call after the t=0 line counts too.
+                    local late = (c.multiAt ~= nil and c.multiAt >= c.cldPre) or (c.wfpAt ~= nil and c.wfpAt >= c.cldPre)
+                    bossVerdicts(c.name, "host", s, (c.presentation == "yes" or late) and "yes" or "no")
                     return true
                 end
                 return false
@@ -1127,12 +1130,13 @@ local function clientBossHooks()
     for _, b in ipairs(BOSS_CASES) do
         local cls = loadClass(b.path)
         if not cls then say("HOOK %s:AttackMulti FAIL class not loaded", b.path) end
-        hook(b.path .. ":AttackMulti", function(selfp)
+        -- A failed hook would read as presentation=no: checked.
+        check(hook(b.path .. ":AttackMulti", function(selfp)
             local cls2 = classOf(get(selfp))
             say("BOSSHOOK AttackMulti boss=%s", cls2)
             local bb = BOSS_OF[cls2]
             if bb then BW.multi[bb.name] = os.clock() end
-        end)
+        end), "BOSSHOOKS %s AttackMulti hooked", b.name)
     end
 end
 -- The live boss nearest this machine's player (bosses replicate to B).

@@ -539,7 +539,7 @@ teleported at least 2500 cm from B (`MOVE host <n> cm from B`); hp <= 0 is dead 
 that body); a dead B is revived specifically, after its real death (up to 30 s), with
 `ReinforceSpecficPlayer(<B's dead character>)` and then `Reinformant()` every 5 s (up to 6 `RETRY` lines), and the
 host the same way (`REVIVE-HOST`) when it has no character; a playable-monster B is a FAIL at once. Both roles clear
-infection timers (story 2's hook). A Watcher's `GRAB #n` line ends with `target=<me|other|none>
+infection timers (story 2's hook); the host also clears a victim's `StartedInfection?` in that hook, at once (it decides a playable monster at the death, which can follow an execution within a second). A Watcher's `GRAB #n` line ends with `target=<me|other|none>
 attacked=<me|other|none>`. In `d5-grab-modded` only (the stage adds `Scripts\watcher-near.txt` beside `role.txt`), the
 Watcher case instead keeps the host within 2 m of B, just in front of B and facing like it (`MOVE host <n> cm from B
 (near, ...)`, `FACE host ...`), re-placed outside grab windows, and logs the Watcher's `Target`, `AttackedPlayer`,

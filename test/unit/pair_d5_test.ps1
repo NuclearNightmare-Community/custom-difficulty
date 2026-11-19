@@ -271,36 +271,48 @@ try {
 
     $hEnd = '[DifficultyPair] END result=PASS checks=4 failures=0 role=host-spawn'
     $vEnd = '[DifficultyPair] END result=PASS checks=1 failures=0 role=client-watch'
-    # One execution on B: B's grab (seq bs), the host's grab (seq hs); B walks from +6 s; the host sees B move (or not).
-    function D10Exec([int] $bs, [int] $hs, [string] $enemy, [string] $montage, [int] $mode16 = 1, [int] $step = 30, [switch] $Cut) {
+    # One execution on B: B's grab (seq bs), the host's grab (seq hs). Both machines see B held until free (s), then
+    # walking (step cm per second on the host's screen); samples: how many of the 16 one-second samples came (a newer
+    # grab or the run's end cuts a window); bFree: when B sees itself free (0: never).
+    function D10Exec([int] $bs, [int] $hs, [string] $enemy, [string] $montage, [int] $free = 8, [int] $step = 20, [int] $samples = 16, [int] $bFree = -1) {
+        if ($bFree -lt 0) { $bFree = $free }
         $v = @("[DifficultyPair] GRAB #$bs $enemy AttackMulti victim=me hpSeen=100.00 hpNow=100.00 montage=$montage diff=0 (start 0)")
         $h = @("[DifficultyPair] GRAB #$hs $enemy AttackMulti victim=other hpSeen=100.00 hpNow=100.00 montage=$montage diff=0 (start 0)")
-        foreach ($t in 5, 6, 12) { $v += "[DifficultyPair] AFTERGRAB #$bs me $t s: montage=none PlayingMontage=false movement=1 hp=75.00 x=0 y=0 z=0" }
-        if (-not $Cut) { $v += "[DifficultyPair] AFTERGRAB #$bs me 16 s: montage=none PlayingMontage=false movement=$mode16 hp=75.00 x=300 y=0 z=0" }
-        $v += "[DifficultyPair] WALK #$bs done dist=300 start=(x=0 y=0 z=0) end=(x=300 y=0 z=0) inputs=330 fails=0"
-        foreach ($t in 1..16) { $x = if ($t -le 6) { 0 } else { ($t - 6) * $step }; $h += "[DifficultyPair] OTHERPOS #$hs t=$t x=$x y=0 z=0 montage=none PlayingMontage=false movement=1 hp=75.00" }
+        $held = "montage=$montage PlayingMontage=true movement=0 hp=75.00"
+        $loose = 'montage=none PlayingMontage=false movement=1 hp=75.00'
+        foreach ($t in 1..$samples) {
+            $x = if ($t -le $free) { 0 } else { ($t - $free) * $step }
+            $h += "[DifficultyPair] OTHERPOS #$hs t=$t x=$x y=0 z=0 $(if ($t -ge $free) { $loose } else { $held })"
+            $v += "[DifficultyPair] MYPOS #$bs t=$t x=$x y=0 z=0 $(if ($bFree -gt 0 -and $t -ge $bFree) { $loose } else { $held })"
+        }
+        $v += "[DifficultyPair] WALK #$bs done dist=300 start=(x=0 y=0 z=0) end=(x=300 y=0 z=0) inputs=500 fails=0"
         @{ H = $h; V = $v }
     }
     $vReady = @('[Difficulty] READY version=0.1.0 Nucleus=0.15.0 need=0.15.0', '[Difficulty] host has no Difficulty, inactive (no-state)',
                 '[Difficulty] RECOVER hp=75 montage=yes stop=true playing=true movement=true',
                 '[Difficulty] RECOVER readback playing=false movement=1 montage=none hp=75')
-    $a = D10Exec 3 7 'Meek' 'AM_StabAndDump'; $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage'
+    # The Meek frees B at 5 s and grabs again at 6 s (a window of 6 samples); the Watcher frees it at 8 s.
+    $a = D10Exec 3 7 'Meek' 'AM_StabAndDump' -free 5 -samples 6; $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage'
     Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
     $r = Get-DpD10Report
     Ok ($r.Verdict -eq 'NOT-STUCK' -and $r.D10.Executions.Count -eq 2) 'd10: both executions moved -> NOT-STUCK' (($r.D10.Notes + $r.D10.Executions) -join '; ')
-    Ok ($r.D10.Rows[1].HostMovedCm -eq 300 -and $r.D10.Rows[1].HostSeq -eq 15) 'd10: the host''s view paired by order, 300 cm from +6 s' ($r.D10.Rows[1] | Out-String)
+    Ok ($r.D10.Rows[1].HostMovedCm -eq 160 -and $r.D10.Rows[1].HostSeq -eq 15 -and $r.D10.Rows[1].HostFreeAt -eq 8 -and $r.D10.Rows[1].BFreeAt -eq 8) 'd10: the host''s view paired by order; free at 8 s, 160 cm after' ($r.D10.Rows[1] | Out-String)
+    Ok ($r.D10.Rows[0].State -eq 'moved' -and $r.D10.Rows[0].HostMovedCm -eq 20) 'd10: a short window (regrab at 6 s) still judged moved' ($r.D10.Rows[0] | Out-String)
     Ok ($r.D10.Recover.Count -eq 2) 'd10: RECOVER and readback reported' ($r.D10.Recover -join '; ')
     $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage' -step 0
     Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
     $r = Get-DpD10Report
-    Ok ($r.Verdict -eq 'STUCK' -and $r.D10.Rows[1].State -eq 'stuck') 'd10: the host never sees B move -> STUCK' (($r.D10.Notes + $r.D10.Executions) -join '; ')
-    $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage' -mode16 0
+    Ok ($r.Verdict -eq 'STUCK' -and $r.D10.Rows[1].State -eq 'stuck') 'd10: free but the host never sees B move -> STUCK' (($r.D10.Notes + $r.D10.Executions) -join '; ')
+    $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage' -free 17
     Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
-    Ok ((Get-DpD10Report).Verdict -eq 'STUCK') 'd10: B not walking on its own screen at 16 s -> STUCK'
-    $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage' -Cut
+    Ok ((Get-DpD10Report).Verdict -eq 'STUCK') 'd10: held on both machines through 16 s -> STUCK'
+    $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage' -bFree 0
+    Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
+    Ok ((Get-DpD10Report).Verdict -eq 'STUCK') 'd10: the host frees B, B never sees itself free -> STUCK'
+    $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage' -samples 7
     Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
     $r = Get-DpD10Report
-    Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'no judged Watcher EyeGouge')) 'd10: the EyeGouge window cut by a newer grab -> INCONCLUSIVE' (($r.D10.Notes) -join '; ')
+    Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'no judged Watcher EyeGouge')) 'd10: the EyeGouge window cut while B is held -> INCONCLUSIVE' (($r.D10.Notes) -join '; ')
     $b = D10Exec 9 15 'Watcher' 'AnimSeq_Headbutt_PunchCombo'
     Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
     Ok ((Get-DpD10Report).Verdict -eq 'INCONCLUSIVE') 'd10: no Watcher EyeGouge (a survivable Watcher grab) -> INCONCLUSIVE'

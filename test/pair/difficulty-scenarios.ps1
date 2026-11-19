@@ -25,10 +25,11 @@
   Story 10 (a measurement, no pass/fail on Difficulty; Verdict NOT-STUCK, STUCK or INCONCLUSIVE, ScenarioReport.D10):
     d10-measure      the host has only DifficultyPair host-spawn with measure.txt (no core, no Difficulty; each enemy
                      hit costs 25 HP), B is modded with client-watch and measure.txt: a Meek and a Watcher execute B at
-                     full Health without killing it; B's state at 5, 6, 12, 16 s, its RECOVER and readback, the host's
-                     view of B once a second for 16 s (OTHERPOS), B walking backwards from +6 s (WALK). NOT-STUCK when
-                     every execution whose 16 s window wasn't cut by a newer grab ends with B walking on its own screen
-                     and at least 100 cm covered on the host's, a Watcher EyeGouge and another enemy's included.
+                     full Health without killing it; B's state at 5, 6, 12, 16 s, its RECOVER and readback, B's view of
+                     itself (MYPOS) and the host's view of B (OTHERPOS) once a second for 16 s, B walking backwards
+                     from +1 s (WALK). NOT-STUCK when every judged execution shows B free (no montage playing, walking)
+                     on both machines and moving at least 10 cm on the host's screen within its 16 s, a Watcher
+                     EyeGouge and another enemy's included; STUCK when a full 16 s window never shows that.
   Story 14 (the Insta-kill box on a modded client; Nightmare lobby, the host's dev.lua enemyDamage=25;kill.meek=1,
   DifficultyPair host-spawn + client-watch, B modded as in d5-grab-modded):
     d14-kill-modded  the Meek's grab on B: "decision=e ... kill=yes" in both logs (host victim=client spare=yes, B
@@ -396,18 +397,22 @@ $DpPairScenarios['d5-host-vanilla'] = New-DpD5Scenario "Difficulty story 5: the 
 # execution at full Health and B survives it (the shape of the 2026-11-15 15:31 EyeGouge), with no despawn and no
 # refill inside the 16 s window. B runs core and Difficulty (inactive without a host Difficulty, so the execution is
 # the game's own and the 6 s recovery runs with its readback) and client-watch with measure.txt (B walks backwards
-# from +6 s to +16 s).
-$script:DpMoveCm = 100   # cm: what B must cover on the host's screen between +6 s and +16 s to count as moving
+# from +1 s to +16 s, and logs its own view once a second: MYPOS).
+$script:DpMoveCm = 10   # cm: what B must cover on the host's screen, after the host first sees it free, to count as moving
 
 function Get-DpPos([string] $Line) {
     if ($Line -match 'x=(-?\d+) y=(-?\d+) z=(-?\d+)') { return [pscustomobject]@{ X = [double]$Matches[1]; Y = [double]$Matches[2]; Z = [double]$Matches[3] } }
     $null
 }
 function Get-DpMode([string] $Line) { if ($Line -match 'movement=(\S+)') { return $Matches[1] } $null }
+# A sample shows the player free: no montage playing (PlayingMontage=false) and walking (movement=1).
+function Test-DpFree([string] $Line) { $Line -match 'PlayingMontage=false' -and (Get-DpMode $Line) -in '1', 'MOVE_Walking' }
 
-# One row per grab on B, paired by order with the host's grab on B: B's own states (5, 6, 12, 16 s), B's walk, the
-# host's view (OTHERPOS once a second), and whether B moved again by 16 s (walking on B's screen at 16 s and at least
-# DpMoveCm covered on the host's screen between +6 s and +16 s). cut: a newer grab came before 16 s (not judged).
+# One row per grab on B, paired by order with the host's grab on B. From the once-a-second samples of the 16 s window
+# (OTHERPOS on the host, MYPOS on B; a newer grab on B ends a window early): when each machine first saw B free, and
+# how far B got on the host's screen from there (B walks from +1 s). moved: free on both machines and at least DpMoveCm
+# covered on the host's screen within the window. stuck: both machines' 16 samples all came and that didn't happen. cut:
+# the window ended early (a newer grab, the run's end) before it happened (not judged).
 function Get-DpD10Rows([string[]] $HostLines, [string[]] $VMLines) {
     $rx = '^GRAB #(\d+) (\S+) \S+ victim=(me|other) .*montage=(\S+) '
     $bGrabs = @(foreach ($l in $VMLines) { if ($l -match $rx -and $Matches[3] -eq 'me') { [pscustomobject]@{ Seq = [int]$Matches[1]; Enemy = $Matches[2]; Montage = $Matches[4] } } })
@@ -417,40 +422,35 @@ function Get-DpD10Rows([string[]] $HostLines, [string[]] $VMLines) {
         $b = $bGrabs[$i]
         $h = if ($i -lt $hGrabs.Count) { $hGrabs[$i] } else { $null }
         $kind = if ($b.Montage -match $DpExecMontage) { 'e' } elseif ($b.Montage -match $DpSurvMontage) { 's' } else { '?' }
-        $after = @{}
-        foreach ($l in $VMLines) { if ($l -match "^AFTERGRAB #$($b.Seq) me (\d+) s: (.*)$") { $after[$Matches[1]] = $Matches[2] } }
+        $after = @{}; $mine = @{}
+        foreach ($l in $VMLines) {
+            if ($l -match "^AFTERGRAB #$($b.Seq) me (\d+) s: (.*)$") { $after[$Matches[1]] = $Matches[2] }
+            if ($l -match "^MYPOS #$($b.Seq) t=(\d+) (.*)$") { $mine[[int]$Matches[1]] = $Matches[2] }
+        }
         $walk = $VMLines | Where-Object { $_ -match "^WALK #$($b.Seq) (done|cut) " } | Select-Object -Last 1
         $pos = @{}
-        $hAfter = @{}
-        if ($h) {
-            foreach ($l in $HostLines) {
-                if ($l -match "^OTHERPOS #$($h.Seq) t=(\d+) (.*)$") { $pos[[int]$Matches[1]] = $Matches[2] }
-                if ($l -match "^AFTERGRAB #$($h.Seq) other (\d+) s: (.*)$") { $hAfter[$Matches[1]] = $Matches[2] }
-            }
-        }
-        $complete = $after.ContainsKey('16')
-        # The host's view: from the first sample at or after +6 s, the farthest B got by +16 s.
-        $from = $pos.Keys | Where-Object { $_ -ge 6 } | Sort-Object | Select-Object -First 1
+        if ($h) { foreach ($l in $HostLines) { if ($l -match "^OTHERPOS #$($h.Seq) t=(\d+) (.*)$") { $pos[[int]$Matches[1]] = $Matches[2] } } }
+        $hostFree = $pos.Keys | Sort-Object | Where-Object { Test-DpFree $pos[$_] } | Select-Object -First 1
+        $bFree = $mine.Keys | Sort-Object | Where-Object { Test-DpFree $mine[$_] } | Select-Object -First 1
         $moved = $null
-        if ($null -ne $from) {
-            $p0 = Get-DpPos $pos[$from]
-            foreach ($t in @($pos.Keys | Where-Object { $_ -gt $from -and $_ -le 16 })) {
+        if ($null -ne $hostFree) {
+            $p0 = Get-DpPos $pos[$hostFree]
+            foreach ($t in @($pos.Keys | Where-Object { $_ -gt $hostFree })) {
                 $p = Get-DpPos $pos[$t]
                 if ($p0 -and $p) {
-                    $d = [math]::Sqrt([math]::Pow($p.X - $p0.X, 2) + [math]::Pow($p.Y - $p0.Y, 2))
-                    if ($null -eq $moved -or $d -gt $moved) { $moved = [math]::Round($d) }
+                    $d = [math]::Round([math]::Sqrt([math]::Pow($p.X - $p0.X, 2) + [math]::Pow($p.Y - $p0.Y, 2)))
+                    if ($null -eq $moved -or $d -gt $moved) { $moved = $d }
                 }
             }
         }
-        $mode16 = if ($complete) { Get-DpMode $after['16'] } else { $null }
-        $walking = $mode16 -in '1', 'MOVE_Walking'
-        $state = if (-not $complete) { 'cut' } elseif ($walking -and $null -ne $moved -and $moved -ge $DpMoveCm) { 'moved' } else { 'stuck' }
+        $complete = $pos.ContainsKey(16) -and $mine.ContainsKey(16)   # both machines' full 16 s
+        $state = if ($null -ne $hostFree -and $null -ne $bFree -and $null -ne $moved -and $moved -ge $DpMoveCm) { 'moved' } elseif ($complete) { 'stuck' } else { 'cut' }
         $rows += [pscustomobject]@{
             Index = $i + 1; Enemy = $b.Enemy; Montage = $b.Montage; Kind = $kind; BSeq = $b.Seq
             HostSeq = $(if ($h) { $h.Seq } else { $null }); HostMontage = $(if ($h) { $h.Montage } else { $null })
+            HostFreeAt = $hostFree; BFreeAt = $bFree; HostMovedCm = $moved; HostSamples = $pos.Count; BSamples = $mine.Count
             B5 = $after['5']; B6 = $after['6']; B12 = $after['12']; B16 = $after['16']
-            Host6 = $hAfter['6']; Host12 = $hAfter['12']; Host16 = $hAfter['16']
-            Walk = $walk; HostMovedCm = $moved; Mode16 = $mode16; State = $state
+            Walk = $walk; State = $state
         }
     }
     $rows
@@ -482,7 +482,7 @@ function Get-DpD10Report {
     $result10 = if ($stuck.Count) { 'STUCK' } elseif ($eyeGouge.Count -and $otherEx.Count -and -not $hd.Count) { 'NOT-STUCK' } else { 'INCONCLUSIVE' }
     $r.D10 = [ordered]@{
         Result = $result10; Notes = @($notes)
-        Executions = @($ex | ForEach-Object { "#$($_.Index) $($_.Enemy) $($_.Montage) (host $($_.HostMontage)): $($_.State); B 16 s movement=$($_.Mode16), host saw B cover $($_.HostMovedCm) cm from +6 s; $($_.Walk)" })
+        Executions = @($ex | ForEach-Object { "#$($_.Index) $($_.Enemy) $($_.Montage) (host $($_.HostMontage)): $($_.State); free on the host at t=$($_.HostFreeAt) s, on B at t=$($_.BFreeAt) s; B covered $($_.HostMovedCm) cm on the hosts screen after that ($($_.HostSamples) host samples); $($_.Walk)" })
         Rows = @($rows)
         Recover = @($vd | Where-Object { $_ -match '^RECOVER ' })
         VMInactive = @($vd | Where-Object { $_ -match 'inactive' })

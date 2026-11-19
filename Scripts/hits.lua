@@ -46,6 +46,7 @@ M.TOLERANCE = 0.01    -- HP: the guards' tolerance
 M.RESTORE_DELAY = 10  -- ms: the next-tick restore fallback
 M.CLIENT_RANGE = 1000 -- cm: on a client, the nearest grab-class AI this close is the grab's attacker when nothing names it
 M.RECOVER_DELAY = 6000 -- ms: the recovery check after an execution began on this machine's own player
+M.READBACK_DELAY = 500 -- ms: the recovery's readback after its writes (story 10)
 
 -- The Stalker's presentation (native, first call in PlayDamageEvent's body on every machine, before its Health
 -- test): a modded client's hook point for its own Stalker grab (the Stalker's HasPerk(0x27) runs on the host only).
@@ -796,7 +797,8 @@ end
 -- ---------------------------------------------------------------- the recovery (every machine, own player only)
 -- noteGrab(v, vpath, decision): a grab began on this machine's own player. decision is the one this machine's game
 -- test makes ("e" / "s"; nil: the game's own, from Health and the standard hit). After an execution, the check runs
--- RECOVER_DELAY later, and when it acted, the readback READBACK_DELAY after that (story 10).
+-- RECOVER_DELAY later, and when it acted, the readback READBACK_DELAY after that (story 10). Both are scheduled here,
+-- from the hook (the path the restore fallback already uses in game), none from inside a delayed callback.
 function A:noteGrab(v, vpath, decision)
     local R = self.recover
     R.seq = R.seq + 1
@@ -814,19 +816,28 @@ function A:noteGrab(v, vpath, decision)
         local okR, r = pcall(o.ref, v)
         if okR and r ~= nil then h = r end
     end
-    local function free() if h ~= nil and o.free then pcall(o.free, h) end end
+    -- acted: nil until the check ran, then whether it acted; readback: a readback is scheduled and frees the handle.
+    local state = { acted = nil, readback = false, freed = false }
+    local function free()
+        if state.freed then return end
+        state.freed = true
+        if h ~= nil and o.free then pcall(o.free, h) end
+    end
     local okD = self:delay(M.RECOVER_DELAY, function()
         local ok, acted = pcall(self.recoverCheck, self, vpath, seq, world, h)
         if not ok then o.warnOnce("recover:" .. tostring(acted), "recovery check failed: %s", tostring(acted)) end
-        if not (ok and acted) then free() return end
-        local okB = self:delay(M.READBACK_DELAY, function()
-            local okR, err = pcall(self.readback, self, vpath, world, h)
-            free()
-            if not okR then o.warnOnce("readback:" .. tostring(err), "recovery readback failed: %s", tostring(err)) end
-        end, "recovery readback")
-        if not okB then free() end
+        state.acted = ok and acted == true
+        if not (state.acted and state.readback) then free() end
     end, "recovery")
-    if not okD then free() end
+    if not okD then free() return end
+    state.readback = self:delay(M.RECOVER_DELAY + M.READBACK_DELAY, function()
+        if state.acted == nil then state.readback = false return end -- ran before the check: the check frees
+        if state.acted then
+            local okR, err = pcall(self.readback, self, vpath, world, h)
+            if not okR then o.warnOnce("readback:" .. tostring(err), "recovery readback failed: %s", tostring(err)) end
+        end
+        free()
+    end, "recovery readback")
 end
 
 -- errText(err): a failed call's error for the log, on one line and bounded.

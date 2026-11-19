@@ -1813,6 +1813,7 @@ do -- the Watcher's AttackedPlayer more than 10 m from it: decided for v
     T.other._loc = { X = 5000, Y = 0, Z = 0 }
     rawset(T.watcher, "Target", T.me)
     rawset(T.watcher, "AttackedPlayer", T.other)
+    T.locked[T.watcher._path] = T.other -- the Watcher names itself: only the range keeps v
     W.fire(HASPERK, W.p(T.me), W.p(39))
     eq(T.me._hp, 101, "Watcher far: v flipped")
     eq(T.other.writes, 0, "Watcher far: the far AttackedPlayer untouched")
@@ -1825,14 +1826,19 @@ do -- a dead or non-player AttackedPlayer: decided for v
     rawset(T.other, "_garbage", true)
     rawset(T.watcher, "Target", T.me)
     rawset(T.watcher, "AttackedPlayer", T.other)
+    T.locked[T.watcher._path] = T.other -- the Watcher names itself: only livePlayer keeps v
     W.fire(HASPERK, W.p(T.me), W.p(39))
     eq(T.me._hp, 101, "AttackedPlayer not live: decided for v")
+    eq(T.other.writes, 0, "AttackedPlayer not live: untouched")
     setup{ knobs = "enemyDamage=25", diff = 0, net = F.net() }
     addWatcher()
     rawset(T.watcher, "Target", T.me)
     rawset(T.watcher, "AttackedPlayer", T.meek)
+    T.locked[T.watcher._path] = T.meek
+    T.meek._hp = 100 -- alive with Health: only the player-class check keeps v
     W.fire(HASPERK, W.p(T.me), W.p(39))
     eq(T.me._hp, 101, "AttackedPlayer not a player: decided for v")
+    eq(T.meek.writes, 0, "AttackedPlayer not a player: untouched")
 end
 do -- solo / the same player (Target == AttackedPlayer) on a client: unchanged
     clientSetup(hv{ ver = 1000, compat = 1000, enemyDamage = 25 })
@@ -1885,6 +1891,21 @@ do -- host: a stale Watcher alone (Target v, AttackedPlayer the other player, no
     eq(T.me._hp, 101, "host unnamed Watcher: v flipped")
     eq(T.other.writes, 0, "host unnamed Watcher: no redirect on the host without the Watcher's own lock")
     eq(count("victim=client"), 0, "host unnamed Watcher: no client GRAB", dump())
+end
+do -- host: a Meek has v locked while a named Watcher (own lock on its AttackedPlayer) chases v: the Meek's grab, v
+    local net = F.net()
+    setup{ knobs = "enemyDamage=25", diff = 0, net = net }
+    net.compat[T.ps[2]] = true
+    addWatcher()
+    rawset(T.watcher, "Target", T.me)
+    rawset(T.watcher, "AttackedPlayer", T.other)
+    T.locked[T.watcher._path] = T.other
+    T.locked[T.meek._path] = T.me
+    W.fire(HASPERK, W.p(T.me), W.p(39))
+    eq(T.me._hp, 101, "host Meek locked on v + named Watcher: v flipped")
+    eq(T.other.writes, 0, "host Meek locked on v + named Watcher: the Watcher's AttackedPlayer untouched")
+    W.fire(MEEK_ATTACK, W.p(T.meek), W.p(0), W.p(T.me))
+    eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=local spare=yes$"), 1, "host Meek locked on v + named Watcher: the Meek's GRAB", dump())
 end
 do -- host: a Watcher whose own lock names a dead AttackedPlayer (Health 0): not a live player, v
     local net = F.net()

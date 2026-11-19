@@ -285,8 +285,9 @@ function A:rowOf(o) return M.CLASS_ROW[classOf(o) or ""] end
 -- a Watcher chasing v is the Stalker's), else the nearest live Stalker. Returns path, row, short class, the attacker
 -- object (for this callback only; any may be nil).
 -- client (story 5): HasPerk(0x27) on a client is always one of the five AI grabs, and GetLockedVictim may not be set
--- there, so the fallback is the nearest of those AI within CLIENT_RANGE (story 11 guard: not a Watcher by its Target,
--- so another enemy's grab next to a Watcher chasing v keeps its own row); nothing found: no row (enemy % 100).
+-- there, so the fallback is the nearest of those AI within CLIENT_RANGE; the client returns before the Watcher-by-Target
+-- fallback (story 11 guard), so another enemy's grab next to a Watcher chasing v keeps its own row; nothing found: no
+-- row (enemy % 100).
 function A:grabAttacker(v, vpath, client)
     local ctx = cdo(CTX_CDO)
     local best, bestD, bestShort, bestObj
@@ -298,7 +299,7 @@ function A:grabAttacker(v, vpath, client)
                 local lv
                 if ctx then pcall(function() lv = ctx:GetLockedVictim(a) end) end
                 if exists(lv) and pathOf(lv) == vpath then return ap, M.CLASS_ROW[g.short], g.short, a end
-                if g.short == WATCHER and not watcher and not client then
+                if g.short == WATCHER and not watcher then
                     local t
                     pcall(function() t = a.Target end)
                     if exists(t) and pathOf(t) == vpath then watcher = { ap, a } end

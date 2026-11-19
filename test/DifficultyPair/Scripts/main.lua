@@ -17,7 +17,8 @@
 --                      30 s), ReinforceSpecficPlayer(<B's dead character>), then Reinformant() every 5 s (up to 6
 --                      tries) until B has a new character; a playable-monster B is a FAIL at once. The host is revived
 --                      the same way when it has no character. Clears infection timers (story 2's hook) and
---                      either player's StartedInfection? on the host (it decides a playable monster at death), at once in the UpdateInfectionStatus hook and every 2 s.
+--                      either player's StartedInfection? on the host (it decides a playable monster at death), at once
+--                      in the UpdateInfectionStatus hook and every 2 s.
 --                      With Scripts\watcher-near.txt (story 11, d5-grab-modded) the Watcher case instead keeps the host
 --                      within 2 m of B, first just in front of it (MOVE host ... (near ...)), facing where B faces (FACE), re-placed outside grab
 --                      windows, and logs the Watcher's state every 5 s (WATCH), so the Watcher has two players in reach:

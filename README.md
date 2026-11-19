@@ -588,6 +588,23 @@ grabbed the host while B was its `Target` (decided for the host, B untouched), a
   8-9 s after each Watcher EyeGouge, and B walked on the host's screen (the driver's input walks about 18 cm/s, the
   baseline too). For the EyeGouge, B's own montage and `PlayingMontage` were already cleared by the recovery at 6 s.
   That run's Meek readbacks logged the next grab's state; the readback now logs `superseded` after a newer grab.
+- `d15-boss-pair` (story 15): both machines modded, host knobs `enemyDamage=25`, Nightmare; the stages add
+  `Scripts\boss.txt` to `host-spawn` and `client-watch` (without it both roles are unchanged). Instead of the grab
+  enemies the host spawns the Slug Queen, then the Apex Predator, in front of B (host refilled and moved at least
+  2500 cm away, B refilled, natural enemies cleared every 2 s), and runs story 13's ladder aimed at B: every 2 s it
+  teleports the server-owned boss about 100 uu in front of B (never B's pawn) and nudges it (Queen
+  `SeePlayerServer(B)`, Apex `HeardNoise(B's location, 1.0)`); after 20 s without a `CommitLethalDamage` on B,
+  `AttackServer(B)` every 5 s; 60 s without one (plus up to 20 s while a grab is under way) is `NOTSHOWN <boss>`
+  (`BOSSTRY` per attempt). The host logs `BOSSCLD pre/post`, `BOSSHOOK` (`StartWatching`,
+  `WatchFinisherPresentation`, `AttackMulti`) and `BOSSSTATE <boss> view=host t=0|6|12` (t=0 the post-hook,
+  `presentation=` on t=0); B hooks both bosses' `AttackMulti` and logs `BOSSSTATE <boss> view=B t=0|6|12`, t=0 being
+  the first drop of its own Health while a boss is alive. Each machine judges its own view at 12 s: B alive with
+  70 <= Health <= 80, moving (`PlayingMontage` false, movement 1), no presentation. A B death is `BOSSDEATH <boss> on
+  B` and a FAIL; B is revived and the next case runs. FAILs (misses in `ScenarioReport.D15.Misses`, per-boss rows in
+  `ScenarioReport.D15.Rows`) without the host's `MATCH start knobs=enemyDamage=25`, per boss the host's
+  `BOSSCLD pre ... victim=other` and Difficulty's `HIT enemy=<row> via=CommitLethalDamage ... kind=hit`, every
+  `BOSSSTATE` t=0/6/12 on both machines; on a `NOTSHOWN`, a `BOSSDEATH`, any driver FAIL, an END not PASS or an
+  inactive line on B.
 The verdict is in `dumps/<copy>/pair/<label>.json` (`ScenarioReport.Verdict`, misses in `ScenarioReport.D5.Misses`).
 The host copy must have no Nucleus or Difficulty of its own installed (`pair.ps1` refuses mods it didn't put there):
 run their `deploy.ps1 -Remove` first. All three passed on V8.2.3 on 2026-11-17 with story 11's harness (Outcome and

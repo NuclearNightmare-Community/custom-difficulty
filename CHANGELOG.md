@@ -46,6 +46,9 @@ Not released yet. Earlier work is described in `README.md`.
   the dodge are unchanged. GRAB lines end with ` kill=yes` when ticked. Modded clients get the six grab boxes as one
   published key, `kills` (a bitmask 0..63, published only when a box is ticked). New `run.ps1` scenarios
   `insta-kill` and `insta-kill-boss`; `screen` and `presets` tick Meek's box; pair scenario `d14-kill-modded`.
+- Story 15 (tests only, no change to the mod): pair scenario `d15-boss-pair`, the Slug Queen's and the Apex
+  Predator's finisher grabs on a remote client at Enemy Damage 25 (`boss.txt` for `host-spawn` and `client-watch`):
+  the host's `CommitLethalDamage` on B, and B's state 0, 6 and 12 s after it on both machines.
 
 ### Changed
 

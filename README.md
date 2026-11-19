@@ -539,7 +539,9 @@ teleported at least 2500 cm from B (`MOVE host <n> cm from B`); hp <= 0 is dead 
 that body); a dead B is revived specifically, after its real death (up to 30 s), with
 `ReinforceSpecficPlayer(<B's dead character>)` and then `Reinformant()` every 5 s (up to 6 `RETRY` lines), and the
 host the same way (`REVIVE-HOST`) when it has no character; a playable-monster B is a FAIL at once. Both roles clear
-infection timers (story 2's hook); the host also clears a victim's `StartedInfection?` at once in the `UpdateInfectionStatus` multicast hook that sets it (it decides a playable monster at the death, which can follow an execution within a second). A Watcher's `GRAB #n` line ends with `target=<me|other|none>
+infection timers (story 2's hook); the host also clears a victim's `StartedInfection?` at once in the
+`UpdateInfectionStatus` multicast hook that sets it (it decides a playable monster at the death, which can follow an
+execution within a second). A Watcher's `GRAB #n` line ends with `target=<me|other|none>
 attacked=<me|other|none>`. In `d5-grab-modded` only (the stage adds `Scripts\watcher-near.txt` beside `role.txt`), the
 Watcher case instead keeps the host within 2 m of B, just in front of B and facing like it (`MOVE host <n> cm from B
 (near, ...)`, `FACE host ...`), re-placed outside grab windows, and logs the Watcher's `Target`, `AttackedPlayer`,
@@ -547,7 +549,9 @@ distances and speed every 5 s (`WATCH ...`): two players in the Watcher's reach 
 need players apart). In three runs on 2026-11-17 (Tower Island) the Watcher grabbed B, its `Target`, every time
 (`target=other attacked=other`), even with the host 88 cm from it and B 216 cm. The victim resolution above was merged
 anyway (user, 2026-11-17): the 2026-11-15 mismatch was real, and it changes nothing when `Target == AttackedPlayer`;
-its guard (only the Watcher's own grab is redirected) followed on 2026-11-18.
+its guard (only the Watcher's own grab is redirected) followed on 2026-11-18. On 2026-11-19 the host-near Watcher case
+grabbed the host while B was its `Target` (decided for the host, B untouched), and the case can stall with no grab in
+120 s.
 
 - `d5-grab-modded`: both machines modded. FAILs unless both logs show `decision=s` for B per enemy at full Health,
   B's driver sees the survivable montage and B is alive and moving 6 s later. `RECOVER` lines are reported.

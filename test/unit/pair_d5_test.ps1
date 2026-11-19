@@ -320,6 +320,18 @@ try {
     Logs ($a.H + $b.H + '[Difficulty] GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=client spare=yes' + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
     $r = Get-DpD10Report
     Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'must run no Difficulty')) 'd10: a host running Difficulty -> INCONCLUSIVE' (($r.D10.Notes) -join '; ')
+    # Story 10 review: the pairing by order and B's READY gate the verdict.
+    $b = D10Exec 9 15 'Watcher' 'AnimSeq_Paired_H2H_EyeGouge_Vic_Montage'
+    Logs ($a.H + $b.H + $hEnd) (@($vReady | Where-Object { $_ -notmatch 'READY' }) + $a.V + $b.V + $vEnd)
+    $r = Get-DpD10Report
+    Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'never got READY')) 'd10: B without READY -> INCONCLUSIVE, not NOT-STUCK' (($r.D10.Notes) -join '; ')
+    Logs ($b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
+    $r = Get-DpD10Report
+    Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'host saw 1, B saw 2')) 'd10: the host missed a grab on B (mispaired rows) -> INCONCLUSIVE' (($r.D10.Notes) -join '; ')
+    $x = D10Exec 20 30 'Meek' 'AM_StabAndDump' -free 5 -samples 6
+    Logs ($a.H + $b.H + $x.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
+    $r = Get-DpD10Report
+    Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'host saw 3, B saw 2')) 'd10: B missed a grab the host saw -> INCONCLUSIVE' (($r.D10.Notes) -join '; ')
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

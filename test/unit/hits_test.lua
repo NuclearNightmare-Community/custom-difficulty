@@ -1546,6 +1546,68 @@ do -- story 10: the pawn gone or another world by the readback: one line, the ha
     eq(count("^RECOVER hp=40 "), 1, "readback before the check: the check still acts")
     eq(T.freed, f1 + 1, "readback before the check: the check frees the handle")
 end
+do -- story 10 review: a newer grab between the recovery and its readback: "superseded", not that grab's state
+    setup{ knobs = nil, diff = 1 }
+    T.me._hp = 40
+    eq(meekGrab(T.me), "e", "superseded: first an execution")
+    runDelayed(hits.RECOVER_DELAY)
+    local f0 = T.freed
+    T.me._hp = 100
+    eq(meekGrab(T.me), "s", "superseded: then a newer (survivable) grab")
+    runDelayed(READBACK_AT)
+    eq(count("^RECOVER readback superseded$"), 1, "superseded: one line", dump())
+    eq(count("^RECOVER readback playing="), 0, "superseded: no state logged")
+    eq(T.freed, f0 + 1, "superseded: the handle freed once")
+end
+do -- story 10 review: the delay failure branches of noteGrab
+    local E, L = ExecuteInGameThreadWithDelay, LoopInGameThreadWithDelay
+    -- (1) ExecuteInGameThreadWithDelay errors: the LoopInGameThreadWithDelay fallback carries both
+    setup{ knobs = nil, diff = 0 }
+    E, L = ExecuteInGameThreadWithDelay, LoopInGameThreadWithDelay
+    ExecuteInGameThreadWithDelay = function() error("no delay here") end
+    meekGrab(T.me)
+    ExecuteInGameThreadWithDelay = E
+    T.me._hp = 40
+    local f0 = T.freed
+    eq(runDelayed(hits.RECOVER_DELAY), 1, "fallback: the check scheduled by the loop")
+    eq(count("^RECOVER hp=40 "), 1, "fallback: RECOVER", dump())
+    eq(runDelayed(READBACK_AT), 1, "fallback: the readback scheduled by the loop")
+    eq(count("^RECOVER readback playing=false movement=1 "), 1, "fallback: readback", dump())
+    eq(T.freed, f0 + 1, "fallback: the handle freed once")
+    -- (2) both fail: no RECOVER, the handle freed once at once
+    setup{ knobs = nil, diff = 0 }
+    E, L = ExecuteInGameThreadWithDelay, LoopInGameThreadWithDelay
+    ExecuteInGameThreadWithDelay = function() error("no delay here") end
+    LoopInGameThreadWithDelay = function() error("no loop here") end
+    local f1 = T.freed
+    meekGrab(T.me)
+    ExecuteInGameThreadWithDelay, LoopInGameThreadWithDelay = E, L
+    eq(T.freed, f1 + 1, "no delay: the handle freed once")
+    T.me._hp = 40
+    runDelayed(hits.RECOVER_DELAY)
+    runDelayed(READBACK_AT)
+    eq(count("^RECOVER"), 0, "no delay: no RECOVER", dump())
+    eq(T.freed, f1 + 1, "no delay: still freed once")
+    -- (3) only the 6500 ms schedule fails: the check logs RECOVER and frees the handle, no readback
+    -- (the fakes are installed per setup: take them after it)
+    setup{ knobs = nil, diff = 0 }
+    E, L = ExecuteInGameThreadWithDelay, LoopInGameThreadWithDelay
+    ExecuteInGameThreadWithDelay = function(ms, fn) if ms == READBACK_AT then error("no delay here") end return E(ms, fn) end
+    LoopInGameThreadWithDelay = function(ms, fn) if ms == READBACK_AT then error("no loop here") end return L(ms, fn) end
+    local f2 = T.freed
+    meekGrab(T.me)
+    ExecuteInGameThreadWithDelay, LoopInGameThreadWithDelay = E, L
+    T.me._hp = 40
+    runDelayed(hits.RECOVER_DELAY)
+    eq(count("^RECOVER hp=40 "), 1, "no readback slot: RECOVER", dump())
+    eq(T.freed, f2 + 1, "no readback slot: the check frees the handle once")
+    eq(runDelayed(READBACK_AT), 0, "no readback slot: nothing at 6.5 s")
+    eq(count("^RECOVER readback"), 0, "no readback slot: no readback line")
+    -- a non-number delay is not scheduled
+    setup{ knobs = nil, diff = 0 }
+    eq(T.H:delay(nil, function() end, "test"), false, "delay(nil): not scheduled")
+    eq(count("^WARN no game%-thread delay available %(ms is not a number"), 1, "delay(nil): one WARN", dump())
+end
 do -- not fired if a newer grab began (even a survivable one), nor when dead, nor for a survivable grab
     setup{ knobs = nil, diff = 1 }
     T.me._hp = 40

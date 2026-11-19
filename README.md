@@ -186,12 +186,13 @@ runtime refuse core 0.3.0.
   this machine, if the player is alive and no other grab on it began since, `StopAnimMontage(<current montage>)`
   (none playing: no call), `PlayingMontage = false`, `SetMovementMode(1)` and one `RECOVER hp= montage=<yes|none>
   stop=<true|false|skip> playing= movement=` line; a failed call adds ` err=<call>: <error text>`. 0.5 s later one
-  `RECOVER readback playing= movement=<mode> montage=<name|none> hp=` line: what the pawn reads then. Story 10 measured
-  it in game (`d10-measure`, below): an execution that doesn't kill a client frees it by itself, on both machines
-  (the Meek's at 5 s, the Watcher's EyeGouge at 8-9 s, when the Watcher's attack ends on the host); the client's
-  `SetMovementMode(1)` at 6 s doesn't stick while the host still holds it (readback `movement=0`), and the
-  `StopAnimMontage` only ends the local montage early. So nothing stays stuck, and the recovery stays a harmless
-  backstop.
+  `RECOVER readback playing= movement=<mode> montage=<name|none> hp=` line: what the pawn reads then (`RECOVER readback superseded` when a newer grab began). Story 10 measured
+  it in game (`d10-measure`, below): after an execution that doesn't kill a client, the host releases its movement by
+  itself (the Meek's at 5 s, the Watcher's EyeGouge at 8-9 s, when the Watcher's attack ends on the host); the
+  client's `SetMovementMode(1)` at 6 s doesn't stick while the host still holds it (readback `movement=0`). For the
+  Watcher, B's local montage and `PlayingMontage` were cleared by the recovery's own 6 s stop, so whether B clears
+  them alone wasn't measured; the stop ends B's local EyeGouge 2-3 s before the host's (cosmetic, not inspected).
+  Nothing stayed stuck.
 - **Core without Net** (`core.has` lacks `net.publish`, `net.read`, `net.presence`, `net.compatible` or
   `net.versionsCompatible`, or `mod.json` has no usable id): one `WARN Nucleus <v> has no <feature>: ...` line; the
   host spares only its own player and a client stays inactive.
@@ -580,10 +581,13 @@ grabbed the host while B was its `Target` (decided for the host, B untouched), a
   `OTHERPOS` after every grab on B in every scenario), B walking backwards from +1 s (`WALK`, with a 3 s baseline walk
   before the match). Verdict `NOT-STUCK` when every judged execution shows B free (no montage playing, walking) on
   both machines and moving at least 10 cm on the host's screen within its 16 s, a Watcher EyeGouge and another
-  enemy's included; `STUCK` when a full window never does; `INCONCLUSIVE` otherwise (`ScenarioReport.D10`). Run
-  2026-11-19 (`d10-measure-20261119-045102`): `NOT-STUCK`. B was free on both machines 5 s after each Meek
-  execution and 8-9 s after each Watcher EyeGouge, and walked on the host's screen (the driver's input walks about
-  18 cm/s, the baseline too).
+  enemy's included; `STUCK` when a full window never does; `INCONCLUSIVE` otherwise, and always when B never logged
+  `READY`, the host ran Difficulty or the two machines saw a different number of grabs on B (rows are paired by
+  order) (`ScenarioReport.D10`). In measure mode no hit leaves B below 1 HP. Run 2026-11-19
+  (`d10-measure-20261119-045102`): `NOT-STUCK`. The host released B's movement 5 s after each Meek execution and
+  8-9 s after each Watcher EyeGouge, and B walked on the host's screen (the driver's input walks about 18 cm/s, the
+  baseline too). For the EyeGouge, B's own montage and `PlayingMontage` were already cleared by the recovery at 6 s.
+  That run's Meek readbacks logged the next grab's state; the readback now logs `superseded` after a newer grab.
 The verdict is in `dumps/<copy>/pair/<label>.json` (`ScenarioReport.Verdict`, misses in `ScenarioReport.D5.Misses`).
 The host copy must have no Nucleus or Difficulty of its own installed (`pair.ps1` refuses mods it didn't put there):
 run their `deploy.ps1 -Remove` first. All three passed on V8.2.3 on 2026-11-17 with story 11's harness (Outcome and

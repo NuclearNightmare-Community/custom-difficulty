@@ -456,7 +456,8 @@ function Get-DpD10Rows([string[]] $HostLines, [string[]] $VMLines) {
     $rows
 }
 
-# Result NOT-STUCK: every judged execution on B moved again by 16 s, with at least one Watcher EyeGouge and one
+# Result (only with B READY, no Difficulty on the host and the same grab count on both machines, else INCONCLUSIVE):
+# NOT-STUCK: every judged execution on B moved again by 16 s, with at least one Watcher EyeGouge and one
 # execution by another enemy judged. STUCK: a judged execution didn't. INCONCLUSIVE: not enough judged (cut, missing),
 # or the host ran Difficulty. The result is the scenario's Verdict.
 function Get-DpD10Report {
@@ -474,12 +475,17 @@ function Get-DpD10Report {
     $eyeGouge = @($judged | Where-Object { $_.Enemy -eq 'Watcher' -and $_.Montage -match 'EyeGouge' })
     $otherEx = @($judged | Where-Object { $_.Enemy -ne 'Watcher' })
     if ($hd.Count) { $notes.Add("host: $($hd.Count) $DpName lines (the host must run no Difficulty here)") }
-    if (-not ($vd | Where-Object { $_ -match '^READY ' })) { $notes.Add("B: $DpName never got READY") }
+    $ready = [bool]($vd | Where-Object { $_ -match '^READY ' })
+    if (-not $ready) { $notes.Add("B: $DpName never got READY") }
     $unpaired = @($rows | Where-Object { $null -eq $_.HostSeq })
     if ($unpaired.Count) { $notes.Add("$($unpaired.Count) grab(s) on B seen by B but not by the host") }
+    # Rows pair B's grabs with the host's by order: the same count on both machines, or the pairing can't be trusted.
+    $hostOnB = @($hp | Where-Object { $_ -match '^GRAB #\d+ \S+ \S+ victim=other ' }).Count
+    $paired = $hostOnB -eq $rows.Count -and -not $unpaired.Count
+    if ($hostOnB -ne $rows.Count) { $notes.Add("grabs on B: host saw $hostOnB, B saw $($rows.Count) (rows are paired by order)") }
     if (-not $eyeGouge.Count) { $notes.Add('no judged Watcher EyeGouge execution on B') }
     if (-not $otherEx.Count) { $notes.Add('no judged execution on B by another enemy') }
-    $result10 = if ($stuck.Count) { 'STUCK' } elseif ($eyeGouge.Count -and $otherEx.Count -and -not $hd.Count) { 'NOT-STUCK' } else { 'INCONCLUSIVE' }
+    $result10 = if (-not $paired -or -not $ready -or $hd.Count) { 'INCONCLUSIVE' } elseif ($stuck.Count) { 'STUCK' } elseif ($eyeGouge.Count -and $otherEx.Count) { 'NOT-STUCK' } else { 'INCONCLUSIVE' }
     $r.D10 = [ordered]@{
         Result = $result10; Notes = @($notes)
         Executions = @($ex | ForEach-Object { "#$($_.Index) $($_.Enemy) $($_.Montage) (host $($_.HostMontage)): $($_.State); free on the host at t=$($_.HostFreeAt) s, on B at t=$($_.BFreeAt) s; B covered $($_.HostMovedCm) cm on the hosts screen after that ($($_.HostSamples) host samples); $($_.Walk)" })
@@ -494,7 +500,7 @@ function Get-DpD10Report {
     $r
 }
 $DpPairScenarios['d10-measure'] = @{
-    Summary = "Difficulty story 10: the host runs no Difficulty (each enemy hit costs 25 HP), B runs $DpCoreName and Difficulty (inactive, so its 6 s recovery and readback run); a Meek and a Watcher execute B at full Health without killing it; B's state at 5, 6, 12 and 16 s on both machines, the host's view once a second, B walking from +6 s: does B move again by 16 s?"
+    Summary = "Difficulty story 10: the host runs no Difficulty (each enemy hit costs 25 HP), B runs $DpCoreName and Difficulty (inactive, so its 6 s recovery and readback run); a Meek and a Watcher execute B at full Health without killing it; B's state at 5, 6, 12 and 16 s on both machines, the host's view once a second, B walking from +1 s: does B move again by 16 s?"
     Prereq = $DpD5Prereq
     HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '0' }   # Nightmare: every stock grab at 100 HP executes
     HostModPaths = { @(Get-DpStage -Role 'host-spawn' -Measure) }

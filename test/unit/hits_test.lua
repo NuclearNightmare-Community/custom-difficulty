@@ -104,7 +104,9 @@ local function setup(opts)
         rawset(ch, "stops", 0)
         rawset(ch, "GetCurrentMontage", function(c) return rawget(c, "montage") end)
         rawset(ch, "StopAnimMontage", function(c, m)
-            if rawget(c, "stopFails") then error("bad argument #1 to StopAnimMontage") end
+            local f = rawget(c, "stopFails")
+            if type(f) == "string" then error(f, 0) end
+            if f then error("bad argument #1 to StopAnimMontage") end
             rawset(c, "stops", rawget(c, "stops") + 1)
             rawset(c, "stoppedWith", m)
         end)
@@ -1489,6 +1491,15 @@ do -- story 10: no current montage: no stop call, stop=skip; the readback still 
     runDelayed(READBACK_AT)
     eq(count("^RECOVER readback playing=false movement=1 montage=none hp=40$"), 1, "no montage: readback", dump())
 end
+do -- story 10 follow-up review: a long error text is cut to 200 characters plus "..."
+    setup{ knobs = nil, diff = 0 }
+    meekGrab(T.me)
+    T.me._hp = 40
+    rawset(T.me, "stopFails", string.rep("x", 300))
+    runDelayed(hits.RECOVER_DELAY)
+    eq(count("^RECOVER hp=40 montage=yes stop=false playing=true movement=true err=stop: " .. string.rep("x", 200) .. "%.%.%.$"), 1,
+       "long error: cut to 200 characters", dump())
+end
 do -- story 10: a failed call logs its error text (one line); the readback shows the server's correction
     setup{ knobs = nil, diff = 0 }
     meekGrab(T.me)
@@ -1560,7 +1571,7 @@ do -- story 10 review: a newer grab between the recovery and its readback: "supe
     eq(T.freed, f0 + 1, "superseded: the handle freed once")
 end
 do -- story 10 review: the delay failure branches of noteGrab
-    local E, L = ExecuteInGameThreadWithDelay, LoopInGameThreadWithDelay
+    local E, L
     -- (1) ExecuteInGameThreadWithDelay errors: the LoopInGameThreadWithDelay fallback carries both
     setup{ knobs = nil, diff = 0 }
     E, L = ExecuteInGameThreadWithDelay, LoopInGameThreadWithDelay

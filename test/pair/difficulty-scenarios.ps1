@@ -485,10 +485,14 @@ function Get-DpD10Report {
     if ($hostOnB -ne $rows.Count) { $notes.Add("grabs on B: host saw $hostOnB, B saw $($rows.Count) (rows are paired by order)") }
     if (-not $eyeGouge.Count) { $notes.Add('no judged Watcher EyeGouge execution on B') }
     if (-not $otherEx.Count) { $notes.Add('no judged execution on B by another enemy') }
-    $result10 = if (-not $paired -or -not $ready -or $hd.Count) { 'INCONCLUSIVE' } elseif ($stuck.Count) { 'STUCK' } elseif ($eyeGouge.Count -and $otherEx.Count) { 'NOT-STUCK' } else { 'INCONCLUSIVE' }
+    # A driver that failed or didn't end, or a session that didn't hold, can't back a verdict.
+    $healthy = $r.Verdict -ne 'FAIL' -and $result.Outcome -eq 'PASS'
+    if ($r.Verdict -eq 'FAIL') { $notes.Add("a driver failed or didn't end (host: $($r.HostEnd); B: $($r.VMEnd))") }
+    if ($result.Outcome -ne 'PASS') { $notes.Add("session: $($result.Outcome)") }
+    $result10 = if (-not $healthy -or -not $paired -or -not $ready -or $hd.Count) { 'INCONCLUSIVE' } elseif ($stuck.Count) { 'STUCK' } elseif ($eyeGouge.Count -and $otherEx.Count) { 'NOT-STUCK' } else { 'INCONCLUSIVE' }
     $r.D10 = [ordered]@{
         Result = $result10; Notes = @($notes)
-        Executions = @($ex | ForEach-Object { "#$($_.Index) $($_.Enemy) $($_.Montage) (host $($_.HostMontage)): $($_.State); free on the host at t=$($_.HostFreeAt) s, on B at t=$($_.BFreeAt) s; B covered $($_.HostMovedCm) cm on the hosts screen after that ($($_.HostSamples) host samples); $($_.Walk)" })
+        Executions = @($ex | ForEach-Object { "#$($_.Index) $($_.Enemy) $($_.Montage) (host $($_.HostMontage)): $($_.State); free on the host at t=$($_.HostFreeAt) s, on B at t=$($_.BFreeAt) s; B covered $($_.HostMovedCm) cm on the host's screen after that ($($_.HostSamples) host samples); $($_.Walk)" })
         Rows = @($rows)
         Recover = @($vd | Where-Object { $_ -match '^RECOVER ' })
         VMInactive = @($vd | Where-Object { $_ -match 'inactive' })

@@ -332,6 +332,17 @@ try {
     Logs ($a.H + $b.H + $x.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
     $r = Get-DpD10Report
     Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'host saw 3, B saw 2')) 'd10: B missed a grab the host saw -> INCONCLUSIVE' (($r.D10.Notes) -join '; ')
+    # Story 10 follow-up review: a failed driver or a session that didn't hold gates the verdict.
+    Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + '[DifficultyPair] FAIL CASE Watcher: at least one grab on B (0)' + $vEnd)
+    $r = Get-DpD10Report
+    Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'a driver failed')) 'd10: a driver FAIL -> INCONCLUSIVE, not NOT-STUCK' (($r.D10.Notes) -join '; ')
+    Logs ($a.H + $b.H) ($vReady + $a.V + $b.V + $vEnd)
+    Ok ((Get-DpD10Report).Verdict -eq 'INCONCLUSIVE') 'd10: no host END -> INCONCLUSIVE'
+    $result.Outcome = 'FAIL: players dropped'
+    Logs ($a.H + $b.H + $hEnd) ($vReady + $a.V + $b.V + $vEnd)
+    $r = Get-DpD10Report
+    $result.Outcome = 'PASS'
+    Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'session: FAIL')) 'd10: a session that dropped -> INCONCLUSIVE' (($r.D10.Notes) -join '; ')
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

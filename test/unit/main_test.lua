@@ -358,10 +358,10 @@ do
     local core = newCore()
     local U = core.ui
     ready(core)
-    eq(#U.order, 19, "ready: 19 rows declared")
+    eq(#U.order, 21, "ready: 21 rows declared")
     eq(#U.watchers, 1, "ready: one createServer watcher")
     eq(U.watchers[1] and U.watchers[1].host, "createServer", "the watcher is on createServer")
-    eq(count("^%[Difficulty%] ROWS declared 19$"), 1, "one ROWS declared line")
+    eq(count("^%[Difficulty%] ROWS declared 21$"), 1, "one ROWS declared line")
     local S = F.screen(W, {})
     S:open()
     U.open(F.tree({ "Overlay_28", "Overlay_738" }))

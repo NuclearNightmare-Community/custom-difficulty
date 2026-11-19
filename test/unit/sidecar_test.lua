@@ -18,6 +18,10 @@ do
     eq(knobs.encode({ bogus = 1, cold = "x" }), "", "encode: unknown keys and non-numbers are skipped")
     local v = knobs.parse(knobs.encode({ cold = 50, spread = 20, revives = 0 }))
     ok(v.cold == 50 and v.spread == 20 and v.revives == 0, "encode then parse round-trips")
+    -- Story 12: a sidecar written before the two new keys reads them as Default; one written with them reads them.
+    local e = sc.parse(HDR .. "0\tOld\trevives=2;cold=50\n1\tNew\trevives=2;classifiedTokens=2;classifiedTokensMax=3\n")
+    ok(e[1] and e[1].values.classifiedTokens == nil and e[1].values.revives == 2, "an old entry: the new keys Default")
+    ok(e[2] and e[2].values.classifiedTokens == 2 and e[2].values.classifiedTokensMax == 3, "a new entry: both keys read")
 end
 
 -- ---------------------------------------------------------------- name encoding

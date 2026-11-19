@@ -23,7 +23,7 @@ local Actor = {}
 -- Story 4's properties: kept in a._f, every write counted in a._w[key] (a._ro[key]: the write fails).
 local PROPS = { Temperature = true, CanTakeTemperature = true, InsideEnoughToStopFreezing = true, Infected = true,
                 ["IsMimic?"] = true, TimesUsedReinforcements = true, ["Classified Minium"] = true,
-                ["Disable Reinforcement"] = true, GameMode = true }
+                ["Disable Reinforcement"] = true, GameMode = true, ClassifiedDynamicValue = true }
 local function actor(class, path, fields)
     local a = { _class = class, _path = path, _hp = fields and fields.hp, _loc = fields and fields.loc or { X = 0, Y = 0, Z = 0 }, writes = 0,
                 _f = {}, _w = {}, _ro = {} }
@@ -75,7 +75,8 @@ local function setup(opts)
     T.stalker = actor("Stalker_AI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.Stalker_AI_C_1", { loc = { X = 200, Y = 0, Z = 0 } })
     T.apex = actor("ApexPredatorAI_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.ApexPredatorAI_C_1")
     T.gs = actor("BP_FirstPersonGameState_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.BP_FirstPersonGameState_C_1", { Diffculty = opts.diff or 1,
-        TimesUsedReinforcements = 0, ["Classified Minium"] = opts.cm or 2, ["Disable Reinforcement"] = opts.disabled == true, GameMode = opts.gamemode or 0 })
+        TimesUsedReinforcements = 0, ["Classified Minium"] = opts.cm or 2, ["Disable Reinforcement"] = opts.disabled == true, GameMode = opts.gamemode or 0,
+        ClassifiedDynamicValue = opts.classified or 0 })
     T.radio = actor("BP_Radio_C", "/Game/Maps/SmallMap.SmallMap:PersistentLevel.BP_Radio_C_1")
     T.locked = {} -- attacker path -> victim
     local ctx = actor("NNEnemyAttackContext", "/Script/NuclearNightmare.Default__NNEnemyAttackContext")
@@ -1031,6 +1032,102 @@ do -- a failed token write: one ERROR, every knob off
     T.locked[T.meek._path] = T.me
     lockedHit(T.meek, 50)
     eq(T.me._hp, 50, "token write fault: enemy damage backed off too")
+end
+
+-- ---------------------------------------------------------------- story 12: tokens per classified objective
+-- The game's UpdateClassifieds on the host: the value + 1, then (unless noHook) its callback.
+local function classified(opts)
+    opts = opts or {}
+    T.gs._f.ClassifiedDynamicValue = T.gs._f.ClassifiedDynamicValue + (opts.by or 1)
+    if not opts.noHook then return W.fire(GSC .. ":UpdateClassifieds", W.p(T.gs), W.p(T.gs._f.ClassifiedDynamicValue)) end
+end
+do -- the hook is registered with the game state's; Default and 0 do nothing
+    setup{ knobs = "enemyDamage=17", cm = 3 }
+    eq(W.count(GSC .. ":UpdateClassifieds"), 1, "classified: UpdateClassifieds registered on a host world")
+    classified() T.poll()
+    eq(next(T.gs._w), nil, "classified Default: nothing written")
+    eq(count("^TOKENS"), 0, "classified Default: no TOKENS line")
+    setup{ knobs = "classifiedTokens=0;classifiedTokensMax=3", cm = 3 }
+    classified() T.poll()
+    eq(next(T.gs._w), nil, "classified 0: nothing written")
+    eq(count("^TOKENS"), 0, "classified 0: no TOKENS line (the cap alone does nothing)")
+    eq(T.H.st.tok, nil, "classified 0: no token state")
+    -- revives alone: the story 4 lines, byte for byte, and no bonus.
+    setup{ knobs = "revives=2", cm = 3 }
+    classified() T.poll()
+    eq(table.concat(T.lines, "|"):match("TOKENS[^|]*"), "TOKENS start limit=8 N=2 count=6", "revives only: the start line unchanged")
+    eq(count("^TOKENS"), 1, "revives only: no new TOKENS line", dump())
+    eq(T.gs._f.TimesUsedReinforcements, 6, "revives only: the objective changes nothing")
+end
+do -- stock tokens through the adapter: revives Default, CM 3, k 2, used 3, one objective
+    setup{ knobs = "classifiedTokens=2", cm = 3, start = false }
+    T.gs._f.TimesUsedReinforcements = 3
+    W.fire(GSC .. ":UpdateFriendlyFire", W.p(T.gs))
+    ok(T.H.st.tok ~= nil and T.H.st.gsRef ~= nil, "stock: token state and the game state's handle without revives")
+    eq(T.gs._w.TimesUsedReinforcements, nil, "stock: no write at the start")
+    eq(classified(), 1, "stock: the UpdateClassifieds callback ran")
+    eq(T.gs._f.TimesUsedReinforcements, 1, "stock: count 3 -> 1 (the computer shows 7)")
+    eq(count("^TOKENS bonus classified=1 %+2 count=1 left=stock via=UpdateClassifieds$"), 1, "stock: the bonus line", dump())
+    T.poll()
+    eq(count("^TOKENS bonus "), 1, "stock: the poll after the hook awards nothing more")
+    eq(T.gs._w["Disable Reinforcement"], nil, "stock: Disable never written")
+end
+do -- the poll alone (no callback from UE4SS): awarded within one poll; two objectives in one poll, one line
+    setup{ knobs = "revives=2;classifiedTokens=2", cm = 3 }
+    classified{ noHook = true, by = 2 }
+    T.poll()
+    eq(T.gs._f.TimesUsedReinforcements, 2, "poll: 6 -> 2 (+4)")
+    eq(count("^TOKENS bonus classified=2 %+4 count=2 left=6 via=poll$"), 1, "poll: one line +4", dump())
+    T.poll()
+    eq(count("^TOKENS bonus "), 1, "poll: not awarded again")
+end
+do -- the scenario's path: N 2, k 2, cap 3: both tokens used -> Disable; +2 reopens; +1 capped; closes at used 5
+    setup{ knobs = "revives=2;classifiedTokens=2;classifiedTokensMax=3", cm = 3 }
+    eq(count("^TOKENS classified k=2 cap=3 baseline=0$"), 1, "scenario: the classified line", dump())
+    radio("ReinforceSpecficPlayer") radio("ReinforceSpecficPlayer")
+    eq(T.gs._f["Disable Reinforcement"], true, "scenario: Disable at used 2")
+    classified()
+    eq(T.gs._f["Disable Reinforcement"], false, "scenario: Disable cleared by the bonus")
+    eq(8 - T.gs._f.TimesUsedReinforcements, 2, "scenario: the computer shows 2")
+    classified()
+    eq(8 - T.gs._f.TimesUsedReinforcements, 3, "scenario: the computer shows 3 (capped)")
+    eq(count("^TOKENS bonus classified=2 %+1 .* capped at 3$"), 1, "scenario: +1 capped", dump())
+    for i = 1, 3 do radio("ReinforceSpecficPlayer") end
+    eq(count("^TOKENS disabled at used=5 N=5 via=ReinforceSpecficPlayer$"), 1, "scenario: closes at used 5", dump())
+end
+do -- client, before start, imposter, lobby Disable: nothing acts
+    setup{ knobs = "classifiedTokens=2", cm = 3, host = false }
+    classified() T.poll()
+    eq(next(T.gs._w), nil, "classified, client: nothing written")
+    eq(W.count(GSC .. ":UpdateClassifieds"), 0, "classified, client: no hook")
+    setup{ knobs = "classifiedTokens=2", cm = 3, start = false }
+    classified() T.poll()
+    eq(next(T.gs._w), nil, "classified, before start: nothing written")
+    setup{ knobs = "classifiedTokens=2", cm = 3, gamemode = 1 }
+    classified() T.poll()
+    eq(next(T.gs._w), nil, "classified, imposter: nothing written")
+    eq(count("^TOKENS imposter mode"), 1, "classified, imposter: one info line")
+    setup{ knobs = "classifiedTokens=2", cm = 3, disabled = true }
+    classified() T.poll()
+    eq(next(T.gs._w), nil, "classified, lobby Disable: nothing written")
+    eq(count("^TOKENS the lobby disabled reinforcements: untouched$"), 1, "classified, lobby Disable: one info line")
+end
+do -- a back-off stops awarding and puts the count back to stock
+    setup{ knobs = "revives=2;classifiedTokens=2;enemyDamage=17", cm = 3 }
+    classified()
+    eq(T.gs._f.TimesUsedReinforcements, 4, "back-off: 6 -> 4 before")
+    T.locked[T.meek._path] = T.me
+    lockedHit(T.meek, 50, { inner = function() T.me._hp = T.me._hp + 5 end }) -- a clash
+    eq(T.gs._f.TimesUsedReinforcements, 0, "back-off: the count back to stock (used 0)")
+    classified() T.poll()
+    eq(T.gs._f.TimesUsedReinforcements, 0, "back-off: no award after it")
+    eq(count("^TOKENS bonus "), 1, "back-off: no bonus line after it")
+end
+do -- a failed award write: one ERROR, every knob off
+    setup{ knobs = "classifiedTokens=2;enemyDamage=17", cm = 3 }
+    T.gs._ro.TimesUsedReinforcements = true
+    classified()
+    eq(count("^ERROR UpdateClassifieds hook failed: .*could not write TimesUsedReinforcements.*; every knob off until the next match$"), 1, "award write fault: one ERROR", dump())
 end
 
 -- ---------------------------------------------------------------- story 5: survivable grabs on modded clients

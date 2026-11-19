@@ -95,5 +95,18 @@ do
     local v = { cold = 50, spread = 20, revives = 0, frostbite = 0.5, ["dmg.apex"] = 0 }
     eq(knobs.describe((knobs.parse(knobs.encode(v)))), knobs.describe(v), "encode then parse round-trips")
 end
+do -- story 12: Tokens per Classified (0..4) and Max Classified Tokens (0..40), right after revives
+    local v, p = knobs.parse("classifiedTokensMax=3;classifiedTokens=2;revives=2;cold=50")
+    ok(v.classifiedTokens == 2 and v.classifiedTokensMax == 3 and #p == 0, "the two keys parse")
+    eq(knobs.encode(v), "revives=2;classifiedTokens=2;classifiedTokensMax=3;cold=50", "encode: right after revives, in KNOBS order")
+    v, p = knobs.parse("classifiedTokens=5;classifiedTokensMax=41")
+    ok(v.classifiedTokens == nil and v.classifiedTokensMax == nil and #p == 2, "out of range: Default, one problem each")
+    v = knobs.parse("classifiedTokens=1.4;classifiedTokensMax=0")
+    ok(v.classifiedTokens == 1 and v.classifiedTokensMax == 0, "rounded to the step; 0 kept")
+    local all = {}
+    for _, k in ipairs(knobs.KNOBS) do all[k.key] = k.max end
+    ok(#knobs.KNOBS == 21 and #knobs.KNOBS <= knobs.MAX_ENTRIES, "21 knobs fit MAX_ENTRIES")
+    ok(#knobs.encode(all) + 128 * 3 + 8 <= knobs.MAX_TEXT, "every knob at its max and a 128-byte encoded name fit a sidecar line", #knobs.encode(all))
+end
 
 H.done()

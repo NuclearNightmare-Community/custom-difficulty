@@ -29,6 +29,11 @@
 --   tokens-more     Classified Minium 0 (limit 2), N 4: the computer's text shows 4; four reinforcements accepted,
 --                   then Disable Reinforcement set (and not before).
 --   tokens-fewer    Classified Minium 3 (limit 8), N 2: after two, Disable set and the text shows 0.
+--   tokens-classified  (story 12) Classified Minium 3, N 2, Tokens per Classified 2, Max Classified Tokens 3: two
+--                   reinforcements, Disable set; a classified objective completed on the host (a real intel pickup's
+--                   PrimaryInteraction, else the game state's UpdateClassifieds(value + 1); CLASSIFIED says which):
+--                   count 6, Disable cleared, the text 2; a second one: +1 only (capped), the text 3; three more
+--                   reinforcements, then Disable at used 5 and the text 0.
 --   A reinforcement goes through V8.2's native terminal first (RadioTerminal:OpenTerminal(radio, pawn), then
 --   OnReinforcement(), closed with CloseTerminal() whenever it is open at the end). check.ps1 requires only that the
 --   terminal opened (TERMINAL open active=true). A living solo host has nobody queued, so OnReinforcement() moves
@@ -48,8 +53,8 @@
 --                   deletes B. After each step it reads Difficulty's sidecar: the DT6 entries by index and name, all
 --                   Default, the baseline entries unchanged. A handler that can't be driven is NOTSHOWN.
 -- Story 7 (menu only, no match; VM only: real clicks, a drag and typing through run.ps1 -Target vm):
---   screen          ten opens of the create-world screen by real clicks on START GAME and Back: the 19 rows in
---                   VerticalBox_202 (knob rows at children 2-6 after Overlay_28, per-enemy rows right after
+--   screen          ten opens of the create-world screen by real clicks on START GAME and Back: the 21 rows in
+--                   VerticalBox_202 (knob rows at children 2-8 after Overlay_28, per-enemy rows right after
 --                   Overlay_738, the game rows in the order read at Construct, one widget each), and on each open the
 --                   Difficulty picker's arrows clicked for real (next, then back); an eleventh open with CONFIGURE: a
 --                   drag on Enemy Damage, 57 / 999 / empty typed, Cold 150, Frostbite 2.3 (2.5), Nightmare through the
@@ -120,6 +125,8 @@ local SCENARIOS = {
     ["frostbite-zero"] = { diff = 2, special = "frost", want = 0, tol = 0.05, cases = {} },
     ["tokens-more"] = { diff = 2, special = "tokens", cm = 0, limit = 2, n = 4, cases = {} },
     ["tokens-fewer"] = { diff = 2, special = "tokens", cm = 3, limit = 8, n = 2, cases = {} },
+    -- Story 12: revives=2 classifiedTokens=2 classifiedTokensMax=3 (deploy.ps1): two objectives give +2, then +1 (capped).
+    ["tokens-classified"] = { diff = 2, special = "tokens", cm = 3, limit = 8, n = 2, classified = { adds = { 2, 1 } }, cases = {} },
     -- Story 6: the main menu only (no match, no WHITEOUT line).
     ["presets"] = { diff = 2, special = "presets", cases = {} },
     -- Story 7: the rows on the create-world screen (the main menu only; real input, VM only).
@@ -756,7 +763,8 @@ elseif SC.special == "tokens" then
             say("NOTSHOWN terminal: OpenTerminal didn't activate the native terminal on the local pawn; the fallbacks run")
         end
     end)
-    for i = 1, SC.n do
+    -- One reinforcement's steps; nAt: the reinforcement at which Disable must be set (the effective N).
+    local function addReinforce(i, nAt)
         step("terminal ready #" .. i, function() -- a reinforcement can replace the pawn, and with it the terminal
             if P.abort or S.dead or P.noTerminal then return end
             return openTerminal("#" .. i)
@@ -853,7 +861,7 @@ elseif SC.special == "tokens" then
                 if m then pcall(function() m.Temperature = 0 end) end -- a lowering (cold is Default): no frost while waiting
                 keepClear(P)
                 local _, dis = reinf()
-                if i == SC.n then
+                if i == nAt then
                     if dis == true or os.clock() - t0 > 5 then
                         check(dis == true, "%s Disable Reinforcement set after reinforcement #%d = N (got %s)", SCENARIO, i, tostring(dis))
                         return true
@@ -861,10 +869,117 @@ elseif SC.special == "tokens" then
                     return false
                 end
                 if os.clock() - t0 < 4 then return false end
-                check(dis == false, "%s Disable Reinforcement still false after reinforcement #%d of %d (got %s)", SCENARIO, i, SC.n, tostring(dis))
+                check(dis == false, "%s Disable Reinforcement still false after reinforcement #%d of %d (got %s)", SCENARIO, i, nAt, tostring(dis))
                 return true
             end, 10, "after reinforcement #" .. i
         end)
+    end
+    for i = 1, SC.n do addReinforce(i, SC.n) end
+    -- Story 12 (tokens-classified): after the N tokens are used, each classified objective completed on the host gives
+    -- k back (capped): Disable cleared, the count lowered, the computer's text up; then the bonus tokens are used and
+    -- Disable comes back at N + bonus. An objective is completed through a real intel actor's host-side interaction
+    -- (BP_ClassifiedMaterial_C:PrimaryInteraction on the host: its authority branch calls the game state's
+    -- UpdateClassifieds(value + 1)); if the counter doesn't rise, through the game state's UpdateClassifieds(value + 1).
+    if SC.classified then
+        local CM_CLASSES = { "BP_ClassifiedMaterial_C", "BP_CM_V1_C", "BP_CM_V2_C", "BP_CM_V3_C", "BP_CM_V4_C", "BP_CM_V5_C",
+                             "BP_CM_V6_C", "BP_CM_V7_C", "BP_CM_V8_C", "BP_CM_V9_C" }
+        local function classifiedValue()
+            local g = gameState()
+            if not g then return nil end
+            local ok, v = pcall(function() return num(g.ClassifiedDynamicValue) end)
+            return ok and v or nil
+        end
+        -- An intel pickup not used yet in this run (path), or nil.
+        local function intel()
+            for _, cls in ipairs(CM_CLASSES) do
+                for _, a in ipairs(FindAllOf(cls) or {}) do
+                    if notDefault(a) and alive(a) then
+                        local p = pathOf(a)
+                        local picked = readBool(a, "PickedUp")
+                        if p and not P.usedIntel[p] and picked ~= true then return a, p, cls end
+                    end
+                end
+            end
+            return nil
+        end
+        P.usedIntel = {}
+        local bonus = 0
+        for j, add in ipairs(SC.classified.adds) do
+            bonus = bonus + add
+            local total = bonus -- this objective's running bonus (the closures below run later)
+            local left = total -- every one of the N tokens is used by now: the computer shows the bonus
+            step("classified #" .. j, function()
+                if P.abort or S.dead then return end
+                local before = classifiedValue()
+                local t0, tries, via = os.clock(), 0, nil
+                local function tryIntel()
+                    local a, p, cls = intel()
+                    if not a then return false end
+                    P.usedIntel[p] = true
+                    tries = tries + 1
+                    local okI, eI = pcall(function() a:PrimaryInteraction(me()) end)
+                    say("CLASSIFIED #%d intel %s %s PrimaryInteraction ok=%s %s", j, cls, p, tostring(okI), okI and "" or tostring(eI))
+                    via = "intel"
+                    return true
+                end
+                local function direct()
+                    local g, v = gameState(), classifiedValue()
+                    local okU, eU = pcall(function() g:UpdateClassifieds(v + 1) end)
+                    say("CLASSIFIED #%d UpdateClassifieds(%s) ok=%s %s", j, tostring(v and v + 1), tostring(okU), okU and "" or tostring(eU))
+                    via, t0 = "UpdateClassifieds", os.clock()
+                end
+                say("CLASSIFIED #%d before value=%s", j, tostring(before))
+                if not tryIntel() then say("CLASSIFIED #%d no unused intel pickup on this map; the game state's UpdateClassifieds", j) direct() end
+                return function()
+                    keepClear(P)
+                    local now = classifiedValue()
+                    if now and before and now > before then
+                        say("CLASSIFIED #%d done via=%s value %d -> %d", j, via, before, now)
+                        if now ~= before + 1 then
+                            S.notShown = S.notShown + 1
+                            P.abort = true
+                            say("NOTSHOWN classified #%d: the value jumped %d -> %d (two objectives at once)", j, before, now)
+                        end
+                        return true
+                    end
+                    if via == "intel" and os.clock() - t0 > 5 then
+                        -- A second try on another pickup (the first call may only have initialized its DoOnce), then direct.
+                        if tries < 2 and tryIntel() then t0 = os.clock() return false end
+                        say("CLASSIFIED #%d the intel interaction didn't raise the value in 5 s; the game state's UpdateClassifieds", j)
+                        direct()
+                        return false
+                    end
+                    if via == "UpdateClassifieds" and os.clock() - t0 > 5 then
+                        S.notShown = S.notShown + 1
+                        P.abort = true
+                        say("NOTSHOWN classified #%d: ClassifiedDynamicValue didn't rise (%s)", j, tostring(now))
+                        return true
+                    end
+                    return false
+                end, 30, "classified objective #" .. j
+            end)
+            -- Difficulty's callback or poll (<= 250 ms) awards it: Disable cleared, the count down by the award.
+            step("after classified #" .. j, function()
+                if P.abort or S.dead then return end
+                local t0 = os.clock()
+                local want = SC.limit - total -- limit - (N + bonus) + used, with used = N
+                return function()
+                    keepClear(P)
+                    local cnt, dis = reinf()
+                    if (cnt == want and dis == false) or os.clock() - t0 > 5 then
+                        say("REINF classified #%d count=%s disable=%s", j, tostring(cnt), tostring(dis))
+                        check(cnt == want, "%s count after classified objective #%d is %d (+%d given back; got %s)", SCENARIO, j, want, add, tostring(cnt))
+                        check(dis == false, "%s Disable Reinforcement cleared after classified objective #%d (got %s)", SCENARIO, j, tostring(dis))
+                        textCheck(left, "after classified objective #" .. j)
+                        return true
+                    end
+                    return false
+                end, 10, "after classified objective #" .. j
+            end)
+        end
+        -- The bonus tokens, then Disable again at N + bonus.
+        for i = SC.n + 1, SC.n + bonus do addReinforce(i, SC.n + bonus) end
+        P.total = SC.n + bonus
     end
     step("terminal close", function()
         local t = terminal(me())
@@ -879,6 +994,7 @@ elseif SC.special == "tokens" then
         say("REINF end count=%s disable=%s via=%s", tostring(cnt), tostring(dis), P.via)
         check(cnt == SC.limit, "%s count after N reinforcements is the limit %d (got %s)", SCENARIO, SC.limit, tostring(cnt))
         textCheck(0, "after N reinforcements")
+        if SC.classified then check(dis == true, "%s Disable Reinforcement set after N + bonus = %d (got %s)", SCENARIO, P.total or -1, tostring(dis)) end
     end)
 end
 
@@ -1470,8 +1586,10 @@ end
 
 -- ---------------------------------------------------------------- story 7: the rows on the screen (menu only, VM)
 -- Real input through run.ps1 -Target vm (tools/vm/vm-sp.ps1: click, drag, type, key, shot). Ten opens by real clicks on
--- START GAME and Back: the 19 rows in VerticalBox_202 in the wanted order against the game's own order (read in a
--- Construct hook, before core attaches anything): the knob rows at children 2-6 right after Overlay_28, the per-enemy
+-- START GAME and Back: the 21 rows in VerticalBox_202 in the wanted order against the game's own order (read in a
+-- Construct hook, before core attaches anything): the knob rows at children 2-8 right after Overlay_28 (story 12's
+-- Tokens per Classified and Max Classified Tokens 4th and 5th, right after Reinforcement Tokens; their Default boxes
+-- empty with the hints 0 and "no cap", SCNEWROWS), the per-enemy
 -- rows right after Overlay_738, the game rows in their stock order, one widget per row; then CONFIGURE and real clicks
 -- on the Difficulty picker's next and previous arrows (the value changes and comes back), CONFIRM and Back. An eleventh
 -- open: CONFIGURE, a screenshot, a drag on Enemy Damage, 57 / 999 / empty typed into its box, a custom Cold, 2.3 typed
@@ -1496,7 +1614,8 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
     local H_DELETE = "BndEvt__CreateServer_Create_4_K2Node_ComponentBoundEvent_35_OnButtonClickedEvent__DelegateSignature"
     local H_TEXT = "BndEvt__CreateServer_EditableText_K2Node_ComponentBoundEvent_32_OnEditableTextChangedEvent__DelegateSignature"
     local H_DIFF = "BndEvt__CreateServer_MultipleSelectBox_6_K2Node_ComponentBoundEvent_5_OnSelectionChanged__DelegateSignature"
-    local KNOBS = { "enemyDamage", "spread", "revives", "cold", "frostbite" }
+    local KNOBS = { "enemyDamage", "spread", "revives", "classifiedTokens", "classifiedTokensMax", "cold", "frostbite" }
+    local NROWS = #KNOBS + 14 -- the knob rows and the fourteen per-enemy rows (21)
     local ENEMY = { "meek", "mimic", "psycho", "husk", "watcher", "stalker", "slugQueen", "apex", "worm", "leech", "bat",
                     "infectedDog", "infectedPlayer", "monster" }
     local Z = { snap = nil, snaps = 0, snapOurs = nil, paths = {}, abort = false, allOk = true }
@@ -1672,7 +1791,7 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
     local function openOnce(n)
         click("START GAME " .. n, function() return prop(liveOf(MENU_SHORT), START) end)
         sstep("sc: rows attached " .. n, function()
-            return function() local vb = vbOf() return vb ~= nil and ours(vb) >= 19 end, 12, "open " .. n .. ": the 19 rows attached"
+            return function() local vb = vbOf() return vb ~= nil and ours(vb) >= NROWS end, 12, "open " .. n .. ": the " .. NROWS .. " rows attached"
         end)
         sstep("sc: settle attach " .. n, function() return after(1), 4 end) -- the insert pass runs on the opened tick
         sstep("sc: order " .. n, function()
@@ -1689,16 +1808,24 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
             for i, e in ipairs(l) do if e.name == "r-enemyDamage" then kIdx = i - 1 break end end
             local stock = #games > 0 and table.concat(games, ",") == table.concat(Z.snap or {}, ",") and Z.snapOurs == 0
             local okOrder = got == want and kIdx == 2
-            check(okOrder, "SCORDER open %d: the knob rows at children 2-6 after Overlay_28, the per-enemy rows right after Overlay_738 (enemyDamage at %s)%s",
+            check(okOrder, "SCORDER open %d: the knob rows at children 2-8 after Overlay_28, the per-enemy rows right after Overlay_738 (enemyDamage at %s)%s",
                 n, tostring(kIdx), okOrder and "" or (": got " .. got .. " want " .. want))
             check(stock, "SCSTOCK open %d: the %d game rows in their stock order (as read at Construct, none of ours there yet)", n, #games)
-            check(one, "SCONE open %d: one widget per row (19 ids)", n)
+            check(one, "SCONE open %d: one widget per row (%d ids)", n, NROWS)
             local w = rowW("enemyDamage")
             local p = w and pathOf(w)
             local new = p ~= nil and not Z.paths[p]
             if p then Z.paths[p] = true end
             local _, box, hint = sstate("enemyDamage")
             check(new and box == "" and hint == "25", "SCNEW open %d: a new row widget, Enemy Damage empty with the hint 25 (box '%s', hint %s)", n, tostring(box), tostring(hint))
+            if n == 1 then
+                -- Story 12: the two new rows start Default: Tokens per Classified at 0, Max Classified Tokens at 40 ("no cap").
+                local cv, cb, ch = sstate("classifiedTokens")
+                local mv, mb, mh = sstate("classifiedTokensMax")
+                check(cb == "" and ch == "0" and near(cv, 0) and mb == "" and mh == "no cap" and near(mv, 40),
+                    "SCNEWROWS Tokens per Classified Default (box '%s', hint %s, bar %s; want empty, 0, 0) and Max Classified Tokens Default (box '%s', hint %s, bar %s; want empty, no cap, 40)",
+                    tostring(cb), tostring(ch), fmtv(cv), tostring(mb), tostring(mh), fmtv(mv))
+            end
             if n == 1 or not okOrder then say("SCROWS open %d: %s", n, got) end
             Z.allOk = Z.allOk and okOrder and stock and one and new
         end)

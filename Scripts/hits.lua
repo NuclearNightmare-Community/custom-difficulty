@@ -3,7 +3,8 @@
 -- compensation, the grab flip and its restore, the guards against other mods; the math is damage.lua's). Story 4:
 -- frostbite in the CallFrostbiteDamageEvent pre-hook (V8.2's native), cold in the host poll (env.lua), reinforcement
 -- tokens at the match start, in the radio's server-event callbacks and in the poll (tokens.lua). Story 5: survivable
--- grabs on modded clients. The host publishes the grab inputs through core.net at the match start (net.lua) and spares
+-- grabs on modded clients (story 12: the classified bonus, tokens.classified, in the game state's UpdateClassifieds
+-- callback and the poll). The host publishes the grab inputs through core.net at the match start (net.lua) and spares
 -- a client victim only when core's presence says its machine runs a compatible Difficulty; a modded client flips only
 -- its own player's grab from the host's values (HasPerk(0x27) for the five AI grabs, the BeginStalkerPresentation
 -- pre-hook for the Stalker); every machine runs the 6 s recovery for its own player after an execution began.
@@ -820,7 +821,9 @@ function A:onStart(gsParam)
     st.started = true
     self.o.say("info", "MATCH start knobs=%s", knobs.describe(values))
     self:publish(values)
-    local gs0 = (values.cold ~= nil or values.revives ~= nil) and self:gameState(get(gsParam)) or nil
+    -- Story 12: Tokens per Classified acts only above 0 (0 is the game's behaviour, like Default).
+    local cls = M.classifiedOpts(values)
+    local gs0 = (values.cold ~= nil or values.revives ~= nil or cls ~= nil) and self:gameState(get(gsParam)) or nil
     -- The poll re-finds this game state through a weak handle each tick (no scan, no UObject kept).
     if self.o.ref and gs0 then
         local okR, h = false, nil
@@ -831,10 +834,12 @@ function A:onStart(gsParam)
     -- Grab classes and the radio loaded by now are hooked before their first use.
     for _, g in ipairs(M.GRABS) do self:installClass(g.class) end
     self:installClass(RADIO)
-    -- Tokens: the offset count (and Disable at N = 0) now; re-checked in the radio callbacks and the poll.
-    if values.revives ~= nil then
+    -- Tokens: the offset count (and Disable at N = 0) now; re-checked in the radio callbacks and the poll. The
+    -- classified bonus (story 12) shares the token state: its baseline is read now, its rises in the
+    -- UpdateClassifieds callback and the poll.
+    if values.revives ~= nil or cls ~= nil then
         local gs = gs0
-        if gs then st.tok = tokens.start(gs, values.revives, self.o)
+        if gs then st.tok = tokens.start(gs, values.revives, self.o, cls)
         else self.o.warnOnce("tokens:gs", "TOKENS no game state at the match start; tokens stay stock") end
     end
 end
@@ -862,6 +867,26 @@ function A:publish(values)
         self.st.published = #list > 0 and #names == #list
     end)
     if not ok then o.say("warn", "NET publish failed: %s; modded clients keep the game's grab decisions this match", tostring(err)) end
+end
+
+-- classifiedOpts(values) -> { k, cap } for tokens.start, or nil while Tokens per Classified is Default or 0 (then
+-- Max Classified Tokens does nothing either).
+function M.classifiedOpts(values)
+    local k = values and values.classifiedTokens
+    if type(k) ~= "number" or k <= 0 then return nil end
+    return { k = k, cap = values.classifiedTokensMax }
+end
+
+-- The game state's UpdateClassifieds callback (story 12; host only): a classified objective completed. The poll
+-- runs the same award (deduplicated by the value seen last), so a callback UE4SS doesn't run only delays it.
+function A:onClassified()
+    local t = self.st.tok
+    if not t or not t.k or not self:active() then return end
+    local gs = self:pollGameState(true) -- the match's handle; a FindAllOf only without core's handles
+    if gs then
+        tokens.classified(t, gs, "UpdateClassifieds", self.o)
+        tokens.check(t, gs, "UpdateClassifieds", self.o)
+    end
 end
 
 -- The radio's server-event callbacks (host only; they run after the body, so the count already moved).
@@ -990,7 +1015,10 @@ function A:onPoll()
         local d = gs and self:difficulty(nil, gs) or nil
         if d then st.cold:tick(chars, cold, d) end
     end
-    if st.tok and gs then tokens.check(st.tok, gs, "poll", self.o) end
+    if st.tok and gs then
+        tokens.classified(st.tok, gs, "poll", self.o) -- story 12; nothing unless Tokens per Classified acts
+        tokens.check(st.tok, gs, "poll", self.o)
+    end
     if cold ~= nil then
         st.cold:cost(self:now() - t0, tFind - t0, discovered)
         st.cold:summary(clockName)
@@ -1075,6 +1103,7 @@ function A:classDefs(classPath)
         defs[#defs + 1] = { FPC .. ":PlayDamageEvent", self:guard("PlayDamageEvent hook", function(s, ...) s:onGrabMulticast(0, ...) end) }
     elseif classPath == GAMESTATE then
         defs[#defs + 1] = { GAMESTATE .. ":UpdateFriendlyFire", self:guard("UpdateFriendlyFire hook", A.onStart) }
+        defs[#defs + 1] = { GAMESTATE .. ":UpdateClassifieds", self:guard("UpdateClassifieds hook", A.onClassified) }
     elseif classPath == RADIO then
         for _, ev in ipairs(M.RADIO_EVENTS) do
             defs[#defs + 1] = { RADIO .. ":" .. ev, self:guard(ev .. " hook", function(s) s:onRadio(ev) end) }

@@ -47,7 +47,7 @@ Eq (Get-ModsTxtState -Lines $stock -Name 'Nucleus') 'absent' 'state: absent'
 
 # ---------------------------------------------------------------- mod.json and main.lua agree
 $m = Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json
-Ok ($m.id -eq 'nuclearnightmare-community.custom-difficulty' -and $m.name -eq 'CustomDifficulty' -and $m.version -eq '0.2.0' -and $m.displayName -eq 'Custom Difficulty' -and $m.license -eq 'MIT' -and $m.scope -eq 'all') 'mod.json: id, name, displayName, version, license, scope'
+Ok ($m.id -eq 'nuclearnightmare-community.custom-difficulty' -and $m.name -eq 'CustomDifficulty' -and $m.version -eq '0.2.0' -and $m.displayName -eq 'Custom Difficulty' -and $m.license -eq 'MIT' -and $m.scope -eq 'host-plus') 'mod.json: id, name, displayName, version, license, scope'
 Ok ($m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '^0.15.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus ^0.15.0'
 Ok ($m.ue4ss -eq 'v3.0.1-1181-g83330635' -and $m.game.version -eq 'V8.2.3' -and $m.game.build -eq '26601774') 'mod.json: ue4ss and game build'
 $mainLua = Get-Content (Join-Path $repo 'Scripts\main.lua') -Raw

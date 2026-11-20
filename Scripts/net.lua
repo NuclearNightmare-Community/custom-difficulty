@@ -15,7 +15,7 @@ M.VER_MAX = 999999999 -- 999.999.999
 M.MAX_PART = 999
 M.MAX_MANIFEST = 65536 -- bytes of mod.json read at most
 
--- The grab-relevant knobs (mod.json scope "all"): net key -> knob key.
+-- The grab-relevant knobs (mod.json setting scope "both"): net key -> knob key.
 M.KNOBS = {
     { net = "enemyDamage", knob = "enemyDamage" },
     { net = "dmg_meek", knob = "dmg.meek" },

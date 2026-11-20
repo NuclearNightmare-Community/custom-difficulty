@@ -9,7 +9,8 @@ values with the game's own world presets in a sidecar file (below, "World preset
 values in 21 rows on the create-world screen (below, "Rows"); story 12 gives reinforcement tokens back per completed
 classified objective (below, "Tokens per Classified"). A row left empty is Default, so a host who never
 touches the rows plays the stock game, except the soft-lock recovery (story 5, every machine with the mod, own player
-only). Targets V8.2.3 (build 26601774) with the pinned UE4SS
+only). Scope `host-plus`: the host needs it; clients who have it get the full experience (survivable grabs, the
+soft-lock recovery), and unmodded clients can still join and play with less. Targets V8.2.3 (build 26601774) with the pinned UE4SS
 `v3.0.1-1181-g83330635`, and needs Nucleus `^0.15.0` (story 7: core's game-style rows and sliders on the
 create-world screen; story 5: `core.net`): Nucleus 0.15.0 or later (core reads the caret as a minimum).
 
@@ -642,6 +643,6 @@ presets }`. `null` is Default (follow Difficulty; Tokens per Classified 0, Max C
 eight Insta-kill boxes (`kill.<enemy>`, each right after its enemy's row) are `{ type bool, default false, label
 "Insta-kill: <Enemy>", scope, changeable menu, source presets }` (core's schema type `bool`); in the knob syntax a
 ticked box is `kill.<enemy>=1`, and 0 or Default is unticked. Their values come from the game's world presets (stories 6 and 7),
-not from core's settings service, so nothing is generated from them. `scope` is `all` for the inputs of the
-survivable-grab decision (`enemyDamage`, the six grabbing enemies and their boxes) and `host` for the rest (the two
+not from core's settings service, so nothing is generated from them. `scope` is `both` (until distribution story 14:
+`all`) for the inputs of the survivable-grab decision (`enemyDamage`, the six grabbing enemies and their boxes) and `host` for the rest (the two
 bosses' boxes included).

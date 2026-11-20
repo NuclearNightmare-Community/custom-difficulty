@@ -14,13 +14,13 @@ do
     eq(table.concat(net.KEYS, ","), "ver,compat,enemyDamage,dmg_meek,dmg_mimic,dmg_psycho,dmg_husk,dmg_watcher,dmg_stalker,kills", "keys: the 10 published names (story 14: kills)")
     ok(#net.KEYS <= 16, "keys: within core's 16 per mod")
     for _, k in ipairs(net.KEYS) do ok(k:match("^[A-Za-z0-9_]+$") and #k <= 32, "key " .. k .. ": core's name rule") end
-    -- The published knobs are exactly mod.json's scope "all" settings.
+    -- The published knobs are exactly mod.json's scope "both" settings.
     local f = assert(io.open(ROOT .. "/mod.json", "r"))
     local text = f:read("a")
     f:close()
     local all = {}
     for key, body in text:gmatch('\n%s*"([%w%.]+)"%s*:%s*({[^\n]*})') do -- one setting per line
-        if body:find('"scope"%s*:%s*"all"') then all[#all + 1] = key end
+        if body:find('"scope"%s*:%s*"both"') then all[#all + 1] = key end
     end
     table.sort(all)
     local ours = {}
@@ -28,7 +28,7 @@ do
     -- Story 14: the six grab boxes travel together as the kills bitmask.
     for _, r in ipairs(knobs.GRAB_ROWS) do ours[#ours + 1] = "kill." .. r ok(knobs.BY_KEY["kill." .. r] ~= nil, "kill." .. r .. " is in knobs.BY_KEY") end
     table.sort(ours)
-    eq(table.concat(ours, ","), table.concat(all, ","), "keys: exactly mod.json's scope \"all\" knobs")
+    eq(table.concat(ours, ","), table.concat(all, ","), "keys: exactly mod.json's scope \"both\" knobs")
 end
 
 -- ---------------------------------------------------------------- version codes

@@ -23,6 +23,12 @@ param(
     [int] $RestoreMemoryGB = 0     # 0 = whatever NNB had before
 )
 $ErrorActionPreference = 'Stop'
+# `pwsh -File run-pair.ps1 -Scenarios a,b` passes 'a,b' as one string (-File doesn't parse arrays): split on commas.
+function ConvertTo-ScenarioList([string[]] $Names) {
+    @($Names | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+$Scenarios = ConvertTo-ScenarioList $Scenarios
+if (-not $Scenarios) { throw 'No scenarios given.' }
 $ws = (Resolve-Path $Workspace).Path
 $pair = Join-Path $ws 'tools\vm\pair.ps1'
 $scenarioFile = Join-Path $PSScriptRoot 'pair\custom-difficulty-scenarios.ps1'

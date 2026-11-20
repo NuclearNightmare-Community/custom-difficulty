@@ -524,6 +524,18 @@ try {
     $r = Get-DpD10Report
     $result.Outcome = 'PASS'
     Ok ($r.Verdict -eq 'INCONCLUSIVE' -and (($r.D10.Notes -join ';') -match 'session: FAIL')) 'd10: a session that dropped -> INCONCLUSIVE' (($r.D10.Notes) -join '; ')
+
+    # Story 18: `pwsh -File run-pair.ps1 -Scenarios a,b` hands over 'a,b' as one string; run-pair splits it.
+    $rpAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'test\run-pair.ps1'), [ref]$null, [ref]$null)
+    $rpFn = $rpAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'ConvertTo-ScenarioList' }, $true)
+    Ok ($null -ne $rpFn) 'run-pair: ConvertTo-ScenarioList defined'
+    if ($rpFn) {
+        . ([scriptblock]::Create($rpFn.Extent.Text))
+        Ok ((ConvertTo-ScenarioList @('d17-frost,dp-revive')) -join '|' -eq 'd17-frost|dp-revive') 'run-pair: -File comma string splits'
+        Ok ((ConvertTo-ScenarioList @('d17-frost', 'dp-revive')) -join '|' -eq 'd17-frost|dp-revive') 'run-pair: an array stays as it is'
+        Ok ((ConvertTo-ScenarioList @(' dp-grab , ,dp-revive,')) -join '|' -eq 'dp-grab|dp-revive') 'run-pair: blanks and spaces dropped'
+        Ok (@(ConvertTo-ScenarioList @('dp-revive')).Count -eq 1) 'run-pair: one name stays one'
+    }
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

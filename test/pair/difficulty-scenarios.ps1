@@ -10,7 +10,10 @@
     dp-grab          host-grab + client-grab: B's Temperature held from the host (item 5); grabs on B flipped on
                      both machines, the host's own grab watched by B, one execution on B whose recovery is observed (item 6).
     dp-grab-vanilla  host-grab-vanilla + client-observe: the same enemies, no flip for B anywhere (an unmodded B).
-    dp-revive        host-revive + client-revive: the reinforcement steps (item 4).
+    dp-revive        host-revive + client-revive: the reinforcement steps (item 4). Story 17 (DW-42): its Check is a
+                     report (ScenarioReport.Revive) that misses on: no B "REQUEST terminal result host before=... now=<non-empty>
+                     moved=true", a B "REQUEST fallback" line, no B or no host "OK REVIVE past the limit", any driver
+                     FAIL, either END not PASS. Verdict PASS or FAIL.
   Story 5 (survivable grabs on modded clients; the real Nucleus from mods/Nucleus/build/package and the real
   Difficulty, staged with dev.lua knobs enemyDamage=25 on the host; DifficultyPair host-spawn + client-watch, which
   never flip). Each Check FAILs on any listed miss (ScenarioReport.D5.Misses):
@@ -52,6 +55,14 @@
                      needs the host's one "TOKENS disabled at used=2 N=2", B's terminal offer shown in rounds 1 and 2 and
                      gone in the last (B's OFFER checks), no write of the count or Disable Reinforcement by the driver
                      (no SET line), both drivers' END PASS and the session held.
+  Story 17 (DW-40, frostbite on a remote character; the host runs core and Difficulty with dev.lua frostbite=3, lobby
+  difficulty.txt 2 as the solo frostbite case; B runs UE4SS and DifficultyPair only):
+    d17-frost        host-frost + client-frost: the host holds B's Temperature at 1.5 and counts the native's frostbite
+                     ticks on B for 20 s. Misses (ScenarioReport.D17): no host "MATCH start knobs=frostbite=3", fewer
+                     than 15 Difficulty "HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3 applied=3", a
+                     Difficulty "WARN clash", no host "OK FROSTRUN" or B "OK FROSTB" (60 +- 6 lost on both machines),
+                     any driver FAIL, either END not PASS, any Difficulty line on B. PASS only with no miss and the
+                     session's Outcome PASS. Run it first after an NNB boot: it also shows the first join works (DW-39).
   The host copy must have no Nucleus or Difficulty of its own installed (pair.ps1 refuses mods it didn't put there):
   run their deploy.ps1 -Remove first.
   The drivers coordinate only through files: each logs "SIGNAL <name>", and AfterJoin's relay writes <name>.txt next
@@ -68,14 +79,14 @@
 
 $script:DpDriver = Join-Path (Split-Path $PSScriptRoot) 'DifficultyPair'
 $script:DpSignals = @('bready', 'temp-start', 'temp-end', 'done', 's1', 's2', 's3', 's3done', 'kill-b', 's4done',
-    'b-s1', 'b-s2', 'b-s3', 'b-s3done', 'b-s4done', 't1', 't2', 'tfinal', 'b-t1', 'b-t2', 'b-tfinal')
+    'b-s1', 'b-s2', 'b-s3', 'b-s3done', 'b-s4done', 't1', 't2', 'tfinal', 'b-t1', 'b-t2', 'b-tfinal', 'fz-start', 'fz-end')
 
 # A copy of DifficultyPair with Scripts\role.txt, in its own folder per role (host and VM copies differ).
 # -WatcherNear (host-spawn, story 11): also Scripts\watcher-near.txt, so the Watcher case keeps the host within 2 m of B
 # instead of 2500 cm away (two players in the Watcher's reach; it guards the Watcher's victim rule).
 # -Measure (host-spawn, client-watch; story 10): also Scripts\measure.txt, the grab-recovery measurement (d10-measure).
 # -Boss (host-spawn, client-watch; story 15): also Scripts\boss.txt, the two boss cases and B's boss watching (d15-boss-pair).
-function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive', 'host-spawn', 'client-watch', 'host-tokens', 'client-tokens')] [string] $Role, [switch] $WatcherNear, [switch] $Measure, [switch] $Boss) {
+function Get-DpStage([Parameter(Mandatory)] [ValidateSet('host-grab', 'host-grab-vanilla', 'client-grab', 'client-observe', 'host-revive', 'client-revive', 'host-spawn', 'client-watch', 'host-tokens', 'client-tokens', 'host-frost', 'client-frost')] [string] $Role, [switch] $WatcherNear, [switch] $Measure, [switch] $Boss) {
     $stage = Join-Path ([IO.Path]::GetTempPath()) "nn-dp-stage-$Role$(if ($WatcherNear) { '-near' })$(if ($Measure) { '-measure' })$(if ($Boss) { '-boss' })"
     Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     $dst = Join-Path $stage 'DifficultyPair'
@@ -176,7 +187,7 @@ function Invoke-DpRelay([int] $TimeoutMin = 40) {
 
 # Both drivers' verdicts and observation lines, for the result JSON; read them to judge.
 function Get-DpReport {
-    $pick = '\[DifficultyPair\] (OK|FAIL|END|GRAB|MARK|RESTORE|AFTERGRAB|TEMP|COMP|REFILL|CASE|PANEL|REINF|RADIO|REQUEST|REVIVE|COUNT|COMPUTER|KILL|SUMMARY|FINAL|OTHERHP|MYHP|SPAWN|TIMEOUT|MATCH|BOSS[A-Z]*|NOTSHOWN) '
+    $pick = '\[DifficultyPair\] (OK|FAIL|END|GRAB|MARK|RESTORE|AFTERGRAB|TEMP|COMP|REFILL|CASE|PANEL|REINF|RADIO|REQUEST|REVIVE|COUNT|COMPUTER|KILL|SUMMARY|FINAL|OTHERHP|MYHP|SPAWN|TIMEOUT|MATCH|BOSS[A-Z]*|FROST[A-Z]*|NOTSHOWN) '
     $hostLog = Join-Path $outDir "$Label.host.UE4SS.log"
     $h = if (Test-Path $hostLog) { @(Select-String -Path $hostLog -Pattern $pick | ForEach-Object { $_.Line -replace '^.*\[DifficultyPair\] ', '' }) } else { @() }
     $v = if ($vmLogPath -and (Test-Path $vmLogPath)) { @(Select-String -Path $vmLogPath -Pattern $pick | ForEach-Object { $_.Line -replace '^.*\[DifficultyPair\] ', '' }) } else { @() }
@@ -212,6 +223,35 @@ $script:DpPairScenarios = @{
     'dp-grab-vanilla' = New-DpScenario 'Difficulty: the same enemies, no flip for B (unmodded B''s decision stands); executions on B kept alive by compensation (recovery observed)' 'host-grab-vanilla' 'client-observe'
     'dp-revive' = New-DpScenario 'Difficulty: reinforcements: B''s panel with Disable Reinforcement set from host Lua, B''s request past the limit, counts on the host, the revived and the unrevived machine' 'host-revive' 'client-revive'
 }
+
+# Story 17 (DW-42): dp-revive's Check, a report. B's terminal must revive the host past the limit by itself (no
+# fallback), and both drivers must check it.
+function Get-DpReviveReport {
+    $r = Get-DpReport
+    $hostLog = Join-Path $outDir "$Label.host.UE4SS.log"
+    $hp = Get-DpTagged $hostLog 'DifficultyPair'
+    $vp = Get-DpTagged $vmLogPath 'DifficultyPair'
+    $miss = [Collections.Generic.List[string]]::new()
+    if (-not ($vp | Where-Object { $_ -match '^REQUEST terminal result host before=\S* now=\S+ moved=true\s*$' })) { $miss.Add("B: no 'REQUEST terminal result host before=... now=<non-empty> moved=true'") }
+    $fb = @($vp | Where-Object { $_ -match '^REQUEST fallback ' })
+    if ($fb.Count) { $miss.Add("B: the fallback ran ($($fb[0]))") }
+    if (-not ($vp | Where-Object { $_ -match '^OK REVIVE past the limit' })) { $miss.Add('B: no OK REVIVE past the limit') }
+    if (-not ($hp | Where-Object { $_ -match '^OK REVIVE past the limit' })) { $miss.Add('host: no OK REVIVE past the limit') }
+    foreach ($f in $r.HostFailures) { $miss.Add("host driver: $f") }
+    foreach ($f in $r.VMFailures) { $miss.Add("B's driver: $f") }
+    # "$(...)": a missing END is an empty pipeline result, which -notmatch would filter to nothing (no miss).
+    if ("$($r.HostEnd)" -notmatch 'result=PASS') { $miss.Add("host driver END: $($r.HostEnd)") }
+    if ("$($r.VMEnd)" -notmatch 'result=PASS') { $miss.Add("B's driver END: $($r.VMEnd)") }
+    $r.Revive = [ordered]@{
+        Misses = @($miss)
+        Request = @($vp | Where-Object { $_ -match '^(REQUEST|OK REVIVE|FAIL REVIVE) ' })
+        HostRevive = @($hp | Where-Object { $_ -match '^(OK|FAIL) (REVIVE|COUNT) ' })
+    }
+    foreach ($m in $miss) { Write-Host "FAIL $m" }
+    $r.Verdict = if ($miss.Count) { 'FAIL' } else { 'PASS' }
+    $r
+}
+$DpPairScenarios['dp-revive'].Check = { Get-DpReviveReport }
 
 # ------------------------------------------------------------------------------------------------ story 5
 # Survivable grabs on modded clients: the real Nucleus (its build/package) and the real Difficulty on the machines
@@ -719,6 +759,53 @@ $DpPairScenarios['d8-tokens'] = @{
     AfterJoin = { Invoke-DpRelay }
     PlaySec = 20
     Check = { Get-DpD8Report }
+}
+
+# ------------------------------------------------------------------------------------------------ story 17
+# d17-frost (DW-40): frostbite on a remote character, decided by Difficulty on the host. B is unmodded.
+$script:DpFrostKnobs = 'frostbite=3'
+$script:DpFrostHits = 15   # of the 20 ticks in 20 s; fewer means the host didn't scale B's frostbite
+function Get-DpD17FrostReport {
+    $r = Get-DpReport
+    $hostLog = Join-Path $outDir "$Label.host.UE4SS.log"
+    $hd = Get-DpTagged $hostLog $DpName
+    $vd = Get-DpTagged $vmLogPath $DpName
+    $hp = Get-DpTagged $hostLog 'DifficultyPair'
+    $vp = Get-DpTagged $vmLogPath 'DifficultyPair'
+    $miss = [Collections.Generic.List[string]]::new()
+    if (-not ($hd | Where-Object { $_ -match "^MATCH start knobs=$([regex]::Escape($DpFrostKnobs))\s*$" })) { $miss.Add("host: no MATCH start knobs=$DpFrostKnobs") }
+    $hits = @($hd | Where-Object { $_ -match '^HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3 applied=3 ' })
+    if ($hits.Count -lt $DpFrostHits) { $miss.Add("host: $($hits.Count) Difficulty 'HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3 applied=3' lines, want at least $DpFrostHits") }
+    $clash = @($hd | Where-Object { $_ -match '^WARN clash' })
+    if ($clash.Count) { $miss.Add("host: $($clash[0])") }
+    if (-not ($hp | Where-Object { $_ -match '^OK FROSTRUN ' })) { $miss.Add('host: no OK FROSTRUN (B''s loss on the host)') }
+    if (-not ($vp | Where-Object { $_ -match '^OK FROSTB ' })) { $miss.Add('B: no OK FROSTB (B''s loss on its own screen)') }
+    foreach ($f in $r.HostFailures) { $miss.Add("host driver: $f") }
+    foreach ($f in $r.VMFailures) { $miss.Add("B's driver: $f") }
+    if ("$($r.HostEnd)" -notmatch 'result=PASS') { $miss.Add("host driver END: $($r.HostEnd)") }
+    if ("$($r.VMEnd)" -notmatch 'result=PASS') { $miss.Add("B's driver END: $($r.VMEnd)") }
+    if ($vd.Count) { $miss.Add("B: $($vd.Count) $DpName lines on a machine without $DpName") }
+    $r.D17 = [ordered]@{
+        Misses = @($miss)
+        Hits = $hits.Count
+        Frost = @(@($hp | Where-Object { $_ -match '^(OK |FAIL )?FROST|^NOTSHOWN ' } | ForEach-Object { "host: $_" }) + @($vp | Where-Object { $_ -match '^(OK |FAIL )?FROST' } | ForEach-Object { "B: $_" }))
+        Match = @($hd | Where-Object { $_ -match '^MATCH ' })
+        Session = $result.Outcome
+    }
+    foreach ($m in $miss) { Write-Host "FAIL $m" }
+    $r.Verdict = if ($miss.Count -or $result.Outcome -ne 'PASS') { 'FAIL' } else { 'PASS' }
+    $r
+}
+$DpPairScenarios['d17-frost'] = @{
+    Summary = "Difficulty story 17 (DW-40): the host runs $DpCoreName and Difficulty with Frostbite 3, B runs no Difficulty; the host holds B's Temperature at 1.5 for 20 s and Difficulty scales the frostbite ticks on B's character: B loses 60 +- 6 on both machines"
+    Prereq = $DpD5Prereq
+    HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '2' }   # as the solo frostbite case
+    HostModPaths = { @($DpCorePackage, (Get-DpModStage -Side host -Knobs $DpFrostKnobs), (Get-DpStage -Role 'host-frost')) }
+    VMSetup = { Restore-VMBaseline; Invoke-VMDeploy -Remove -Path (Get-DpRemovePaths); Invoke-VMDeploy -UE4SS On; Invoke-VMDeploy -Path (Get-DpStage -Role 'client-frost') }
+    VMRestore = { Invoke-VMDeploy -Remove -Path (Get-DpRemovePaths); Restore-VMBaseline }
+    AfterJoin = { Invoke-DpRelay }
+    PlaySec = 20
+    Check = { Get-DpD17FrostReport }
 }
 
 if ($script:PairScenarios -is [hashtable]) { foreach ($k in $DpPairScenarios.Keys) { $script:PairScenarios[$k] = $DpPairScenarios[$k] } }

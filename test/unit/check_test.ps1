@@ -298,12 +298,16 @@ $presets = @((D 'CONNECT ok Nucleus 0.15.1 (pong 0.15.1 boot=1)'), $menu, (D 'RE
     (D 'PRESETS save index=1 name=DT6-A knobs=all Default'), (DR 'OK 2 save A: DT6 entries 1:DT6-A:Default (want 1:DT6-A:Default)'),
     (D 'PRESETS save index=2 name=DT6-B knobs=all Default'),
     (DR 'DRIVE tick Meek''s Insta-kill box'), (D 'ROWS change kill.meek=1 rows=kill.meek=1'),
+    (DR 'OK KILLBOX meek ticked=true after=click (want true)'),
     (D 'PRESETS save index=3 name=DT6-K knobs=kill.meek=1'),
     (DR 'DRIVE untick Meek''s Insta-kill box'), (D 'ROWS change kill.meek=default rows='),
-    (D 'PRESETS select index=1 name=DT6-A knobs=all Default'), (D 'PRESETS update index=1 name=DT6-A knobs=all Default'),
+    (DR 'OK KILLBOX meek ticked=false after=click (want false)'),
+    (D 'PRESETS select index=1 name=DT6-A knobs=all Default'), (DR 'OK KILLBOX meek ticked=false after=select (want false)'),
+    (D 'PRESETS update index=1 name=DT6-A knobs=all Default'),
     (D 'PRESETS select none (rows unchanged)'), (D 'PRESETS select index=1 name=DT6-A knobs=all Default'), (D 'PRESETS delete index=1 name=DT6-A'),
     (DR 'STALE appended 99 DT6-gone cold=50 (test only)'), (D 'PRESETS open presets=3 entries=4 changed=true'),
-    (D 'PRESETS select index=2 name=DT6-K knobs=kill.meek=1'),
+    (DR 'OK KILLBOX meek ticked=false after=reopen (want false)'),
+    (D 'PRESETS select index=2 name=DT6-K knobs=kill.meek=1'), (DR 'OK KILLBOX meek ticked=true after=select (want true)'),
     (D 'PRESETS select index=1 name=DT6-B knobs=all Default'), (D 'PRESETS delete index=1 name=DT6-B'),
     (D 'PRESETS select index=1 name=DT6-K knobs=kill.meek=1'), (D 'PRESETS delete index=1 name=DT6-K'),
     (DR 'END result=PASS checks=30 failures=0 notshown=0 dead=false'))
@@ -329,7 +333,13 @@ Expect ($presets -replace 'PRESETS delete index=1 name=DT6-B', 'PRESETS delete i
 $preOnly = @($presets | ForEach-Object { if ($_ -match 'select index=1 name=DT6-A knobs=all Default') { $_ -replace 'knobs=all Default', 'knobs=cold=50' } elseif ($_ -match 'select none') { $null } else { $_ } } | Where-Object { $_ })
 $preOnly = @($preOnly[0..4]) + @((D 'PRESETS select index=1 name=DT6-A knobs=all Default'), (D 'PRESETS select none (rows unchanged)')) + @($preOnly[5..($preOnly.Count - 1)])
 Expect $preOnly 'presets' 1 'presets: the DT6-A and None selects only before BASELINE -> fails' 'after BASELINE'
-$presetsNs = @(Without $presets 'END result|PRESETS (save|update|delete|select)|STALE') + @((DR 'NOTSHOWN save DT6-A: the game''s preset count didn''t grow'), (DR 'END result=NOTSHOWN checks=3 failures=0 notshown=1 dead=false'))
+# Story 17 (DW-120): each KILLBOX read-back is required; a missing one or a FAIL fails.
+foreach ($kb in 'ticked=true after=click', 'ticked=false after=click', 'ticked=false after=select', 'ticked=false after=reopen', 'ticked=true after=select') {
+    Expect (Without $presets "OK KILLBOX meek $kb ") 'presets' 1 "presets: no KILLBOX $kb -> fails" "KILLBOX meek $kb"
+}
+Expect ($presets -replace 'OK KILLBOX meek ticked=false after=reopen \(want false\)', 'FAIL KILLBOX meek ticked=true after=reopen (want false)') 'presets' 1 'presets: the box still ticked after the reopen -> fails' 'FAIL'
+Expect ($presets -replace 'OK KILLBOX meek ticked=true after=select \(want true\)', 'FAIL KILLBOX meek ticked=unknown after=select (want true)') 'presets' 1 'presets: an unknown brush -> fails' 'FAIL'
+$presetsNs = @(Without $presets 'END result|PRESETS (save|update|delete|select)|STALE|KILLBOX') + @((DR 'NOTSHOWN save DT6-A: the game''s preset count didn''t grow'), (DR 'END result=NOTSHOWN checks=3 failures=0 notshown=1 dead=false'))
 Expect $presetsNs 'presets' 2 'presets: a handler not driven -> not shown' 'NOT SHOWN'
 
 # ---------------------------------------------------------------- story 7: screen (menu only, VM)
@@ -352,7 +362,9 @@ $screen = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROW
     (DR 'OK SCCLASS a real click on the Classified Minimum picker''s arrow: Minium Classified 1, shown Hard (want 1, Hard)'),
     (DR 'OK SCCLASS the Default Reinforcement Tokens row follows: hint 4, slider at 4, box '''' (want 4)'),
     (DR 'OK SCBOXES an Insta-kill box in the eight kill rows only (Meek .. Apex Predator; none for Worm, Leech, Bat, Infected Dog, Infected Player, Playable Monster)'),
+    (DR 'OK KILLBOX meek ticked=false after=open (want false)'),
     (D 'ROWS change kill.meek=1 rows=cold=150;frostbite=2.5;kill.meek=1'),
+    (DR 'OK KILLBOX meek ticked=true after=click (want true)'),
     (D 'ROWS change cold=default rows=frostbite=2.5;kill.meek=1'),
     (D 'ROWS change enemyDamage=17 rows=enemyDamage=17;frostbite=2.5;kill.meek=1'),
     (D 'PRESETS save index=1 name=DT7-A knobs=enemyDamage=17 frostbite=2.5 kill.meek=1'),
@@ -364,14 +376,21 @@ $screen = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROW
     (D 'ROWS follow difficulty=1 classified=1 enemyDamage=50 cold=133 revives=4'),
     (DR 'OK SCPRESET DT7-A shows Enemy Damage 17: box ''17'' bar 17'),
     (DR 'OK SCPRESETDIFF the Default rows follow DT7-A''s Hard: Diffculty 1, Cold box '''' hint 133 slider 133 (want 1, empty, 133)'),
+    (DR 'OK KILLBOX meek ticked=true after=select (want true)'),
     (D 'PRESETS select index=1 name=DT7-A knobs=enemyDamage=17 frostbite=2.5 kill.meek=1'),
     (D 'PRESETS delete index=1 name=DT7-A'),
     (D 'PRESETS open presets=1 entries=1 changed=false'), (D 'ROWS follow difficulty=2 classified=2 enemyDamage=25 cold=100 revives=6'),
     (DR 'OK SCREOPEN a new open starts Default on Normal: Enemy Damage box '''' hint 25, Cold box '''' hint 100 (want empty 25, empty 100)'),
+    (DR 'OK KILLBOX meek ticked=false after=reopen (want false)'),
     (DR 'END result=PASS checks=60 failures=0 notshown=0 dead=false'))
 Expect $screen 'screen' 0 'screen: passes as written (no WHITEOUT, no match)' 'All checks passed'
 # Story 14: the boxes, the real click on Meek's, DT7-A with it.
 Expect (Without $screen 'SCBOXES') 'screen' 1 'screen: the boxes not checked -> fails' 'SCBOXES'
+# Story 17 (DW-120): each KILLBOX read-back is required; a missing one or a FAIL fails.
+foreach ($kb in 'ticked=false after=open', 'ticked=true after=click', 'ticked=true after=select', 'ticked=false after=reopen') {
+    Expect (Without $screen "OK KILLBOX meek $kb ") 'screen' 1 "screen: no KILLBOX $kb -> fails" "KILLBOX meek $kb"
+}
+Expect ($screen -replace 'OK KILLBOX meek ticked=true after=click \(want true\)', 'FAIL KILLBOX meek ticked=false after=click (want true)') 'screen' 1 'screen: the click didn''t tick the box -> fails' 'FAIL'
 Expect (Without $screen 'ROWS change kill.meek=1') 'screen' 1 'screen: Meek''s box never clicked -> fails' 'kill\\.meek=1'
 Expect ($screen + @(D 'ROWS change kill.meek=1 rows=kill.meek=1')) 'screen' 1 'screen: two clicks ticking it -> fails' '#1'
 Expect ($screen -replace 'knobs=enemyDamage=17 frostbite=2.5 kill.meek=1', 'knobs=enemyDamage=17 frostbite=2.5') 'screen' 1 'screen: DT7-A saved without the box -> fails' 'kill\\.meek=1'

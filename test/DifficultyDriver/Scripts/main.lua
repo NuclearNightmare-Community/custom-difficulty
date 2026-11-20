@@ -574,6 +574,22 @@ local STOCK_COOL_SLOW, STOCK_COOL_FAST = 600, 310 -- s per full meter on Nightma
 local STORM_PHASE, STORM_WAIT = 2, 180 -- ENNBlizzardPhase::Blizzard; s to wait for it after RequestBlizzard
 local NUKE_UI = "/Game/Graphics/Computer/NukeComputer_UI.NukeComputer_UI_C"
 local function readBool(o, k) local ok, v = pcall(function() return o[k] end) if ok then return v end return nil end
+-- Story 17 (DW-120): a core checkbox's ticked state, read from its button widget's Icon brush (core's SetIcon): the
+-- game's checkbox_ticked / checkbox_unticked textures, or core's T_CheckboxOn / T_CheckboxOff fallback. nil: unknown.
+local function boxTicked(w)
+    local ok, n = pcall(function() return w.Icon.Brush.ResourceObject:GetFName():ToString() end)
+    if not ok or type(n) ~= "string" then return nil, "none" end
+    if n == "checkbox_ticked" or n == "T_CheckboxOn" then return true, n end
+    if n == "checkbox_unticked" or n == "T_CheckboxOff" then return false, n end
+    return nil, n
+end
+-- KILLBOX meek ticked=<true|false|unknown> after=<click|select|open|reopen> (want <v>); check.ps1 requires each one.
+local function killBoxCheck(w, when, want)
+    local t, n = nil, "no widget"
+    if w then t, n = boxTicked(w) end
+    if t == nil then say("KILLBOX meek brush=%s after=%s", n, when) end
+    check(t == want, "KILLBOX meek ticked=%s after=%s (want %s)", t == nil and "unknown" or tostring(t), when, tostring(want))
+end
 local function temperatureOf(ch) local ok, t = pcall(function() return num(ch.Temperature) end) return ok and t or nil end
 -- Natural enemies are cleared every 2 s during a phase (no enemy case runs in story 4).
 local function keepClear(st) if os.clock() - (st.clearAt or 0) >= 2 then st.clearAt = os.clock() clearOthers(nil) end end
@@ -1652,13 +1668,20 @@ if SC.special == "presets" then
     pstep("2 save A", function() if save(PREFIX .. "A") then judge("2 save A:", { PREFIX .. "A" }) end return after(1), 3 end)
     pstep("2 save B", function() if save(PREFIX .. "B") then judge("2 save B:", { PREFIX .. "A", PREFIX .. "B" }) end return after(1), 3 end)
     -- Story 14: K saved with Meek's box ticked, then the box unticked again (the later steps stay Default).
+    -- Story 17 (DW-120): the box's own ticked state after each click, select and reopen.
+    local function boxRead(name, when, want)
+        pstep(name, function() local cs = screen() killBoxCheck(cs and tagged(cs, BOX_TAG), when, want) end)
+    end
     pstep("2 tick Meek's box", function() clickBox("tick Meek's Insta-kill box") return after(1), 3 end)
+    boxRead("2 box after tick", "click", true)
     pstep("2 save K", function() if save(KPRESET[1]) then judge("2 save K:", { PREFIX .. "A", PREFIX .. "B", KPRESET }) end return after(1), 3 end)
     pstep("2 untick Meek's box", function() clickBox("untick Meek's Insta-kill box") return after(1), 3 end)
+    boxRead("2 box after untick", "click", false)
     pstep("3 select A", function()
         if selectName("select " .. PREFIX .. "A", PREFIX .. "A") then judge("3 select A:", { PREFIX .. "A", PREFIX .. "B", KPRESET }) end
         return after(1), 3
     end)
+    boxRead("3 box after select A", "select", false)
     pstep("4 update A", function()
         if drive("update " .. PREFIX .. "A", function(cs) cs[H_UPDATE](cs) end) then judge("4 update A:", { PREFIX .. "A", PREFIX .. "B", KPRESET }) end
         return after(1), 3
@@ -1685,11 +1708,13 @@ if SC.special == "presets" then
         return after(2), 4
     end)
     pstep("5 after reopen", function() judge("5 reopen:", { PREFIX .. "B", KPRESET }) end)
+    boxRead("5 box after reopen", "reopen", false)
     -- Story 14: K read back after the reopen (Difficulty's PRESETS select line carries kill.meek=1: check.ps1).
     pstep("5 select K", function()
         if selectName("select " .. KPRESET[1], KPRESET[1]) then judge("5 select K:", { PREFIX .. "B", KPRESET }) end
         return after(1), 3
     end)
+    boxRead("5 box after select K", "select", true)
     pstep("6 delete B", function() if deleteName(PREFIX .. "B") then judge("6 delete B:", { KPRESET }) end return after(1), 3 end)
     pstep("6 delete K", function() if deleteName(KPRESET[1]) then judge("6 delete K:", {}) end return after(1), 3 end)
     step("6 close", function()
@@ -2124,6 +2149,7 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
         end
         check(#bad == 0, "SCBOXES an Insta-kill box in the eight kill rows only (Meek .. Apex Predator; none for Worm, Leech, Bat, Infected Dog, Infected Player, Playable Monster)%s",
             #bad > 0 and (": " .. table.concat(bad, ", ")) or "")
+        killBoxCheck(boxW("meek"), "open", false) -- story 17 (DW-120)
     end)
     sstep("sc: scroll to Meek", function()
         local s = screen()
@@ -2133,6 +2159,7 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
         return after(1), 3
     end)
     click("Meek Insta-kill box", function() return boxW("meek") end)
+    sstep("sc: box after the click", function() killBoxCheck(boxW("meek"), "click", true) end)
     shot("screen-kill")
     sstep("sc: scroll back", function()
         local s = screen()
@@ -2197,6 +2224,7 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
         local cv, cb, ch = sstate("cold")
         check(d == 1 and cb == "" and ch == "133" and near(cv, 133), "SCPRESETDIFF the Default rows follow DT7-A's Hard: Diffculty %s, Cold box '%s' hint %s slider %s (want 1, empty, 133)",
             tostring(d), tostring(cb), tostring(ch), fmtv(cv))
+        killBoxCheck(boxW("meek"), "select", true) -- DT7-A was saved with Meek's box ticked
     end)
     shot("screen-preset")
     sstep("sc: delete A", function()
@@ -2211,6 +2239,7 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
         local _, cb, ch = sstate("cold")
         check(eb == "" and eh == "25" and cb == "" and ch == "100", "SCREOPEN a new open starts Default on Normal: Enemy Damage box '%s' hint %s, Cold box '%s' hint %s (want empty 25, empty 100)",
             tostring(eb), tostring(eh), tostring(cb), tostring(ch))
+        killBoxCheck(boxW("meek"), "reopen", false)
     end)
     click("Back reopen", function() return prop(screen(), "Back") end)
     step("sc: close", function()

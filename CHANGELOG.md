@@ -49,6 +49,11 @@ Not released yet. Earlier work is described in `README.md`.
 - Story 15 (tests only, no change to the mod): pair scenario `d15-boss-pair`, the Slug Queen's and the Apex
   Predator's finisher grabs on a remote client at Enemy Damage 25 (`boss.txt` for `host-spawn` and `client-watch`):
   the host's `CommitLethalDamage` on B, and B's state 0, 6 and 12 s after it on both machines.
+- Story 17 (tests only, no change to the mod): pair scenario `d17-frost` (Frostbite 3 on an unmodded client's
+  character, decided by Difficulty on the host); `dp-revive` judged by a report (B's terminal must revive the host by
+  itself; B's driver now checks it, and its own revive); the solo probe checks V8.2's `CallFrostbiteDamageEvent`;
+  `presets` and `screen` read Meek's Insta-kill box back from its widget (`KILLBOX`); the unit tests' fake core
+  applies core's minimum-version rule.
 
 ### Changed
 

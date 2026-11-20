@@ -152,7 +152,7 @@ $lines1 = if ($Scenario -eq 'signal') { @(Get-Content $FirstLog) } else { @() }
 Write-Host "--- $name lines ($Scenario) ---"
 @($lines1) + @($lines) | Where-Object {
     ($_ -match "\[$C\]" -and $_ -notmatch "\[$C\] (DEBUG )?hud ") -or
-    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM|DRIVE|BASELINE|STALE|CLEANUP|SIDECAR|NAME|SETHP|SPREAD|SPREADMODE|SPREADRUN|DEVLUA|SIGHOST|SIGSESSION|SIGCREATE|SIGBACK|SIGCLEAN|SIGDRAG|MENU|INFECTCLEAR|BOSS\w*|TEMP|CLASSIFIED|INSTAKILL) ") -or
+    ($_ -match "\[${C}Driver\] (OK|FAIL|NOTSHOWN|END|SCENARIO|STARTED|GRABSEEN|CLASH|REFILL|DEATH|HOOKERR|COLDRUN|FROSTRUN|REVIVE|TEXT|REINF|WHITEOUT|TERMINAL|STORM|DRIVE|BASELINE|STALE|CLEANUP|SIDECAR|NAME|SETHP|SPREAD|SPREADMODE|SPREADRUN|DEVLUA|SIGHOST|SIGSESSION|SIGCREATE|SIGBACK|SIGCLEAN|SIGDRAG|MENU|INFECTCLEAR|BOSS\w*|TEMP|CLASSIFIED|INSTAKILL|KILLBOX) ") -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -294,6 +294,12 @@ $expect['presets'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ 
     "\[$C\] ROWS change kill\.meek=1 rows=\S*kill\.meek=1\S*\s*$"
     "\[$C\] ROWS change kill\.meek=default rows=\S*\s*$"
     "#1|\[$C\] PRESETS save index=\d+ name=DT6-K knobs=kill\.meek=1\s*$"
+    # Story 17 (DW-120): the box's own ticked state (its Icon brush) after each click, select and reopen.
+    "\[$D\] OK KILLBOX meek ticked=true after=click \(want true\)\s*$"
+    "\[$D\] OK KILLBOX meek ticked=false after=click \(want false\)\s*$"
+    "\[$D\] OK KILLBOX meek ticked=false after=select \(want false\)\s*$"
+    "\[$D\] OK KILLBOX meek ticked=false after=reopen \(want false\)\s*$"
+    "\[$D\] OK KILLBOX meek ticked=true after=select \(want true\)\s*$"
 ) })
 # Story 7: menu only, VM; the rows declared once, the model lines judged below.
 $screenNotShown = ($Scenario -eq 'screen') -and @($lines | Where-Object { $_ -match "\[$D\] END result=NOTSHOWN " }).Count -gt 0 -and
@@ -328,6 +334,12 @@ $expect['screen'] = $running + @($menuWorld) + @($driverOk | Where-Object { $_ -
     "#1|\[$C\] ROWS change kill\.meek=1 rows=\S*kill\.meek=1\S*\s*$"
     "\[$C\] PRESETS save index=\d+ name=DT7-A knobs=enemyDamage=17 (\S+ )*kill\.meek=1\s*$"
     "\[$C\] PRESETS select index=\d+ name=DT7-A knobs=enemyDamage=17 (\S+ )*kill\.meek=1\s*$"
+    # Story 17 (DW-120): the box's own ticked state (its Icon brush) at the first open, after the click, DT7-A's select
+    # and the reopen.
+    "\[$D\] OK KILLBOX meek ticked=false after=open \(want false\)\s*$"
+    "\[$D\] OK KILLBOX meek ticked=true after=click \(want true\)\s*$"
+    "\[$D\] OK KILLBOX meek ticked=true after=select \(want true\)\s*$"
+    "\[$D\] OK KILLBOX meek ticked=false after=reopen \(want false\)\s*$"
 ) })
 
 # Each launch's not-shown comes from its own log: a launch 2 NOTSHOWN never excuses launch 1's required lines.

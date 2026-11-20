@@ -2,6 +2,8 @@
   "id": "nuclearnightmare-community.custom-difficulty",
   "name": "CustomDifficulty",
   "displayName": "Custom Difficulty",
+  "description": "Separate difficulty options.",
+  "categories": ["gameplay"],
   "version": "0.2.0",
   "scope": "host-plus",
   "game": { "version": "V8.2.3", "build": "26601774" },

@@ -9,7 +9,12 @@
 --                                that were active (ctx) when it ran; post-hooks log "END #<seq> hp=..".
 --   GRAB #<seq> <enemy> <fn> hp=.. flip=.. -> montage=..  each grab multicast and the montage it picked.
 --   ATTR <enemy> ...             how a Bat or Infected Dog hit could be attributed (nearest bat, dog support state).
---   FROST #<seq> amount=.. rule=true|false (...)    each CallDamageEvent during the cold phase, with the rule's inputs.
+--   FROSTBITE #<id> amount=.. hp=.. T=.. can=.. inside=..   each CallFrostbiteDamageEvent during the cold phase (V8.2's
+--                                frostbite native; story 17, DW-41), its "FROSTBITE END #<id> delta=.." the Health it took.
+--                                The cold phase checks FROST calls=<n> ticks=<n> (n > 0, every call 1 or 2 HP) and that
+--                                each call's Health delta equals its amount.
+--   FROST #<seq> amount=.. rule=true|false (...)    each CallDamageEvent during the cold phase, with the V8.1 rule's
+--                                inputs; since V8.2 an observation only (FROSTCDE line), no check.
 --   RECOVER ...                  the enemy-died recovery run after an execution the probe kept the player alive in.
 -- Damage is compensated the way the mod will (Health raised before the native call so the hit costs PROBE_HIT), which
 -- also checks that compensation works; a guard refills Health below 30 so the player survives the whole run.
@@ -310,6 +315,30 @@ local function installNatives()
         table.insert(S.ctx, "Boss:" .. enemyName(b))
         say("CTX + CommitLethalDamage boss=%s victim=%s hp=%s", enemyName(b), valid(v) and nameOf(v) or "none", fmt1(hpOf(v)))
     end, function() table.remove(S.ctx) say("CTX - CommitLethalDamage") end)
+    -- V8.2's frostbite native (story 17, DW-41): amount, Health and the gates before, the Health it took after.
+    local fbStack = {}
+    hook("/Script/NuclearNightmare.NuclearNightmareCharacter:CallFrostbiteDamageEvent", function(self, amount)
+        local v, n = get(self), num(get(amount))
+        if not (S.frost and isMe(v)) then fbStack[#fbStack + 1] = false return end
+        S.fbSeq = (S.fbSeq or 0) + 1
+        local hp = hpOf(v)
+        local t, can, inside
+        pcall(function() t = num(v.Temperature) end)
+        pcall(function() can = v.CanTakeTemperature end)
+        pcall(function() inside = v.InsideEnoughToStopFreezing end)
+        say("FROSTBITE #%d amount=%s hp=%s T=%s can=%s inside=%s", S.fbSeq, fmt1(n), fmt1(hp), fmt1(t), tostring(can), tostring(inside))
+        S.fbCalls = (S.fbCalls or 0) + 1
+        if n == 1 or n == 2 then S.fbTicks = (S.fbTicks or 0) + 1 end
+        fbStack[#fbStack + 1] = { id = S.fbSeq, n = n, hp = hp }
+    end, function(self)
+        local c = table.remove(fbStack)
+        if not c then return end
+        local hpAfter = hpOf(get(self))
+        local delta = (c.hp and hpAfter) and (c.hp - hpAfter) or nil
+        local match = delta ~= nil and c.n ~= nil and math.abs(delta - c.n) < 0.01
+        if match then S.fbMatch = (S.fbMatch or 0) + 1 end
+        say("FROSTBITE END #%d delta=%s amount=%s hp=%s match=%s", c.id, fmt1(delta), fmt1(c.n), fmt1(hpAfter), tostring(match))
+    end)
     local cdeIds = {}
     hook("/Script/NuclearNightmare.NuclearNightmareCharacter:CallDamageEvent", function(self, amount)
         local v, n = get(self), num(get(amount))
@@ -508,7 +537,8 @@ end)
 local function runCase(c)
     if c.frost then
         step("frostbite", function()
-            S.frost, S.frostN, S.frostRule = true, 0, 0
+            S.frost, S.frostN, S.frostRule, S.frostFalse = true, 0, 0, 0
+            S.fbCalls, S.fbTicks, S.fbMatch = 0, 0, 0
             say("PHASE frostbite: Temperature held at 1.5 for 75 s")
             local t = os.clock()
             return function()
@@ -529,8 +559,10 @@ local function runCase(c)
                 if os.clock() - t < 75 then return false end
                 S.frost = false
                 pcall(function() p.Temperature = 0 end)
-                check(S.frostN > 0, "FROST calls=%d matching the rule=%d", S.frostN, S.frostRule)
-                check(S.frostN == S.frostRule and (S.frostFalse or 0) == 0, "FROST every 1-2 HP cold-phase call matched the rule (%d of %d), other amounts matching: %d", S.frostRule, S.frostN, S.frostFalse or 0)
+                -- V8.2 (story 17, DW-41): frostbite is CallFrostbiteDamageEvent; the V8.1 CallDamageEvent rule is only observed.
+                say("FROSTCDE 1-2 HP CallDamageEvent calls=%d matching the V8.1 rule=%d, other amounts matching=%d (observation only)", S.frostN, S.frostRule, S.frostFalse or 0)
+                check(S.fbCalls > 0 and S.fbTicks == S.fbCalls, "FROST calls=%d ticks=%d (CallFrostbiteDamageEvent on the player; every call 1 or 2 HP)", S.fbCalls, S.fbTicks)
+                check(S.fbCalls > 0 and S.fbMatch == S.fbCalls, "FROST every call's Health delta equals its amount (%d of %d)", S.fbMatch, S.fbCalls)
                 return true
             end, 90, "frostbite phase"
         end)

@@ -485,6 +485,11 @@ The `screen` scenario also checks that only the eight kill rows have a box (`SCB
 (`ROWS change kill.meek=1`, screenshot `screen-kill`), and DT7-A is then saved and selected with `kill.meek=1`. The
 `presets` scenario clicks Meek's box through its button's click function, saves DT6-K (sidecar entry `kill.meek=1`),
 unticks it, and after the reopen selects DT6-K (`PRESETS select ... name=DT6-K knobs=kill.meek=1`).
+Since story 17 both also read Meek's box back from its widget (the `Icon` brush core's checkbox sets:
+`checkbox_ticked`/`T_CheckboxOn` is ticked, `checkbox_unticked`/`T_CheckboxOff` unticked, anything else unknown) and
+`check.ps1` requires each `OK KILLBOX meek ticked=<v> after=<click|select|open|reopen> (want <v>)` line: `presets`
+after the tick (true), the untick (false), selecting DT6-A (false), the reopen (false) and selecting DT6-K (true);
+`screen` at the first open (false), after the click (true), after selecting DT7-A (true) and after the reopen (false).
 
 ## The user's check (the epic's success signal, by hand)
 
@@ -532,8 +537,25 @@ replaces neither.
   `test/DifficultyPair`) through the workspace's `tools/vm/pair.ps1`, under `dumps\vm.lock`, with NNB's memory set
   for the run and restored afterwards. On V8.2 (story 9, 2026-11-09) all three ended Outcome PASS,
   Verdict REVIEW: no FAIL line, and the panel and counts were read by hand (`knob-mechanics.md`, Reinforcement
-  tokens). The first scenario after each VM boot failed to join (the VM's Steam wasn't ready yet); run that one
-  again, or list it twice.
+  tokens). The first scenario after each VM boot failed to join (the VM's Steam wasn't ready yet); since story 17
+  `tools/vm` waits until the VM's Steam has been logged on for 60 s before B launches (DW-39).
+- `dp-revive` (story 17): B's driver checks its own terminal's revive of the host past the limit in s3 (`OK REVIVE past
+  the limit: B's terminal revived the host (before=... now=...)`; a refusal is that check's FAIL, then the radio
+  fallback runs) and its own revive by the host's radio in s4 (`REVIVE s4`). The Check is a report
+  (`ScenarioReport.Revive.Misses`): it fails without B's `REQUEST terminal result host before=... now=<non-empty>
+  moved=true`, with a B `REQUEST fallback` line, without `OK REVIVE past the limit` on either machine, on any driver
+  FAIL or on an END that isn't PASS.
+- `d17-frost` (story 17, DW-40): the host runs core and Difficulty with `dev.lua` `frostbite=3` in a Hard lobby (as
+  the solo `frostbite` case); B runs UE4SS and `DifficultyPair` only (`client-frost`). The host (`host-frost`) holds
+  its own Temperature at 0 and clears natural enemies throughout, holds B's at 1.5 every tick, and after a 3 s lead
+  sets B's Health to 100, signals `fz-start` and counts `CallFrostbiteDamageEvent` calls on B (amount 1 or 2) for
+  20 s; then B's Temperature goes to 0, `fz-end`, `FROSTRUN pair end ...` and a check that B lost 60 +- 6 with at
+  least one call (none is `NOTSHOWN frostbite on B` and a FAIL). B checks its own Health 3 s after `fz-end`
+  (`FROSTB me hp=<v> loss=<v>`, 60 +- 6). Misses (`ScenarioReport.D17.Misses`): no host `MATCH start
+  knobs=frostbite=3`, fewer than 15 Difficulty `HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3
+  applied=3`, a Difficulty `WARN clash`, no host `OK FROSTRUN` or B `OK FROSTB`, any driver FAIL, an END not PASS,
+  any Difficulty line on B. Verdict PASS needs no miss and the session's Outcome PASS. Run it first after an NNB boot
+  (`-Scenarios d17-frost,dp-revive`): it also shows the first join works.
 
 ### Story 5 pair scenarios
 

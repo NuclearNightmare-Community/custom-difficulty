@@ -339,6 +339,103 @@ try {
     Ok ((Get-DpD15Report).Verdict -eq 'FAIL') 'd15-boss-pair: a failed session fails'
     $result.Outcome = 'PASS'
 
+    # ---------------------------------------------------------------- story 17: d17-frost (DW-40)
+    $sc17 = $PairScenarios['d17-frost']
+    Ok ($null -ne $sc17) 'd17-frost is registered with pair.ps1'
+    foreach ($key in 'Summary', 'Prereq', 'HostModPaths', 'VMSetup', 'VMRestore', 'AfterJoin', 'Check', 'HostFiles') { Ok ($null -ne $sc17[$key]) "d17-frost has $key" }
+    Ok ($sc17.HostFiles['PairDriver\Scripts\difficulty.txt'] -eq '2') 'd17-frost: lobby difficulty.txt 2 (as the solo frostbite case)'
+    $p17 = @(& $sc17.HostModPaths)
+    Ok ($p17.Count -eq 3 -and $p17[0] -like '*Nucleus\build\package' -and (Split-Path $p17[1] -Leaf) -eq 'Difficulty' -and (Split-Path $p17[2] -Leaf) -eq 'DifficultyPair') 'd17-frost: host mods core, Difficulty, DifficultyPair' ($p17 -join ' | ')
+    Ok ((Get-Content (Join-Path $p17[1] 'Scripts\dev.lua') -Raw) -match 'return \{ debug = true, knobs = "frostbite=3" \}') 'd17-frost: the host''s Difficulty has frostbite=3 (dev.lua)'
+    Ok ((Get-Content (Join-Path $p17[2] 'Scripts\role.txt') -Raw) -eq 'host-frost') 'd17-frost: host role host-frost'
+    Ok (-not (Test-Path (Join-Path $p17[2] 'Scripts\boss.txt')) -and -not (Test-Path (Join-Path $p17[2] 'Scripts\measure.txt')) -and -not (Test-Path (Join-Path $p17[2] 'Scripts\watcher-near.txt'))) 'd17-frost: no extra switch files'
+    Ok ($sc17.VMSetup.ToString() -match "client-frost" -and $sc17.VMSetup.ToString() -notmatch 'Modded|DpCorePackage|Get-DpModStage') 'd17-frost: B gets only the client-frost driver (no core, no Difficulty)'
+    Ok ((Get-Content (Join-Path (Get-DpStage -Role 'client-frost') 'Scripts\role.txt') -Raw) -eq 'client-frost') 'client-frost stages'
+    foreach ($sig in 'fz-start', 'fz-end', 'bready', 'done') { Ok ($DpSignals -contains $sig) "d17-frost: the relay passes $sig" }
+    $drv17 = Get-Content (Join-Path $repo 'test\DifficultyPair\Scripts\main.lua') -Raw
+    Ok ($drv17 -match '\["host-frost"\] = true, \["client-frost"\] = true' -and $drv17 -match '"fz-start", "fz-end"') 'd17-frost: the driver knows both roles and clears the stale signals'
+    $h17End = '[DifficultyPair] END result=PASS checks=1 failures=0 role=host-frost'
+    $v17End = '[DifficultyPair] END result=PASS checks=1 failures=0 role=client-frost'
+    $h17 = @('[Difficulty] READY version=0.1.0 Nucleus=0.15.0 need=0.15.0', '[Difficulty] MATCH start knobs=frostbite=3')
+    foreach ($i in 1..20) { $h17 += "[Difficulty] HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3 applied=3 hp=$(100 - 3 * ($i - 1)) kind=hit" }
+    $h17 += '[DifficultyPair] FROSTRUN pair end seconds=20.0 calls=20 hp 100.00 -> 40.00 loss=60.00 outside_gates=0 pawn_changed=false'
+    $h17 += '[DifficultyPair] OK FROSTRUN pair B lost 60.00 HP in 20 s while frozen (want 60 +- 6; 20 ticks)'
+    $v17 = @('[DifficultyPair] FROSTB start hp=100.00', '[DifficultyPair] OK FROSTB me hp=40.00 loss=60.00 (want 60 +- 6)')
+    Logs ($h17 + $h17End) ($v17 + $v17End)
+    $r = Get-DpD17FrostReport
+    Ok ($r.Verdict -eq 'PASS' -and $r.D17.Misses.Count -eq 0 -and $r.D17.Hits -eq 20) 'd17-frost: a clean run passes' (($r.D17.Misses) -join '; ')
+    Ok (@($r.Host | Where-Object { $_ -match '^FROSTRUN ' }).Count -eq 1 -and @($r.VM | Where-Object { $_ -match '^FROSTB ' }).Count -eq 1) 'd17-frost: Get-DpReport keeps the FROST lines' (($r.Host + $r.VM) -join '; ')
+    $cases17 = @(
+        @{ What = 'no MATCH start knobs'; H = { $h17 | Where-Object { $_ -notmatch 'MATCH start' } }; Want = 'host: no MATCH start knobs=frostbite=3' }
+        @{ What = 'other knobs'; H = { $h17 -replace 'knobs=frostbite=3', 'knobs=frostbite=3 enemyDamage=25' }; Want = 'host: no MATCH start knobs=frostbite=3' }
+        @{ What = '14 HIT lines'; H = { $h17 | Select-Object -SkipLast 8 | ForEach-Object { $_ }; $h17 | Select-Object -Last 2 }; Want = 'host: 14 Difficulty' }
+        @{ What = 'unscaled HIT lines'; H = { $h17 -replace 'scaled=3 rolled=3 applied=3', 'scaled=1 rolled=1 applied=1' }; Want = 'host: 0 Difficulty' }
+        @{ What = 'a clash'; H = { $h17 + '[Difficulty] WARN clash: after the hit enemy=frostbite via=frostbite Health is 50, planned 47 (another mod changed it)' }; Want = 'host: WARN clash' }
+        @{ What = 'no OK FROSTRUN'; H = { $h17 | Where-Object { $_ -notmatch 'OK FROSTRUN' } }; Want = 'host: no OK FROSTRUN' }
+        @{ What = 'no OK FROSTB'; V = { $v17 | Where-Object { $_ -notmatch 'OK FROSTB' } }; Want = 'B: no OK FROSTB' }
+        @{ What = 'a NOTSHOWN (host FAIL)'; H = { ($h17 | Where-Object { $_ -notmatch 'OK FROSTRUN' }) + '[DifficultyPair] NOTSHOWN frostbite on B: no CallFrostbiteDamageEvent tick on B in 20 s' + '[DifficultyPair] FAIL FROSTRUN pair B lost 0.00 HP in 20 s while frozen (want 60 +- 6; 0 ticks)' }; Want = 'host driver: FAIL FROSTRUN pair' }
+        @{ What = 'a B driver FAIL'; V = { $v17 -replace 'OK FROSTB me hp=40.00 loss=60.00', 'FAIL FROSTB me hp=100.00 loss=0.00' }; Want = "B's driver: FAIL FROSTB" }
+        @{ What = 'a host END FAIL'; HEnd = '[DifficultyPair] END result=FAIL checks=1 failures=1 role=host-frost'; Want = 'host driver END: END result=FAIL' }
+        @{ What = 'no B END'; VEnd = $null; Want = "B's driver END: " }
+        @{ What = 'Difficulty on B'; V = { $v17 + '[Difficulty] READY version=0.1.0 Nucleus=0.15.0 need=0.15.0' }; Want = 'B: 1 Difficulty lines' }
+    )
+    foreach ($c in $cases17) {
+        $hh = if ($c.H) { @(& $c.H) } else { $h17 }
+        $vv = if ($c.V) { @(& $c.V) } else { $v17 }
+        $he = if ($c.ContainsKey('HEnd')) { @($c.HEnd | Where-Object { $_ }) } else { @($h17End) }
+        $ve = if ($c.ContainsKey('VEnd')) { @($c.VEnd | Where-Object { $_ }) } else { @($v17End) }
+        Logs ($hh + $he) ($vv + $ve)
+        $r = Get-DpD17FrostReport
+        $joined = $r.D17.Misses -join ';'
+        Ok ($r.Verdict -eq 'FAIL' -and $joined.Contains($c.Want)) "d17-frost: $($c.What) -> FAIL" $joined
+    }
+    $result.Outcome = 'FAIL: players dropped'
+    Logs ($h17 + $h17End) ($v17 + $v17End)
+    Ok ((Get-DpD17FrostReport).Verdict -eq 'FAIL') 'd17-frost: a failed session fails'
+    $result.Outcome = 'PASS'
+
+    # ---------------------------------------------------------------- story 17: dp-revive's report (DW-42, DW-38)
+    Ok ($PairScenarios['dp-revive'].Check.ToString() -match 'Get-DpReviveReport') 'dp-revive: Check is Get-DpReviveReport'
+    $hRvEnd = '[DifficultyPair] END result=PASS checks=3 failures=0 role=host-revive'
+    $vRvEnd = '[DifficultyPair] END result=PASS checks=2 failures=0 role=client-revive'
+    $hRv = @('[DifficultyPair] REINF s3 host revived count=7 disable=false classifiedMin=2 limit=6 qued=0 spectators=0 gamemode=0',
+             '[DifficultyPair] OK REVIVE past the limit: B''s request revived the host (count 7, limit 6)',
+             '[DifficultyPair] OK COUNT host after two revives past the limit: 8 (want 8)')
+    $vRv = @('[DifficultyPair] REQUEST terminal OnReinforcement past the limit active=true ok=true ',
+             '[DifficultyPair] REQUEST terminal result host before=/Game/Maps/X.X:PersistentLevel.BP_FirstPersonCharacter_C_1 now=/Game/Maps/X.X:PersistentLevel.BP_FirstPersonCharacter_C_2 moved=true',
+             '[DifficultyPair] OK REVIVE past the limit: B''s terminal revived the host (before=a now=b)',
+             '[DifficultyPair] OK REVIVE s4 B revived by the host''s radio (count 8)')
+    Logs ($hRv + $hRvEnd) ($vRv + $vRvEnd)
+    $r = Get-DpReviveReport
+    Ok ($r.Verdict -eq 'PASS' -and $r.Revive.Misses.Count -eq 0) 'dp-revive: a clean run passes' (($r.Revive.Misses) -join '; ')
+    $refused = @('[DifficultyPair] REQUEST terminal result host before= now= moved=false',
+                 '[DifficultyPair] FAIL REVIVE past the limit: B''s terminal revived the host (before= now=): the native terminal refused past the limit (moved=false)',
+                 '[DifficultyPair] REQUEST fallback radio:SpawnReinforcementMethod2(0) from the client ok=true ')
+    $casesRv = @(
+        @{ What = 'no moved=true'; V = { $vRv -replace 'moved=true', 'moved=false' }; Want = "B: no 'REQUEST terminal result" }
+        @{ What = 'an empty now'; V = { $vRv -replace 'now=\S+ moved=true', 'now= moved=true' }; Want = "B: no 'REQUEST terminal result" }
+        @{ What = 'the fallback ran'; V = { $vRv + '[DifficultyPair] REQUEST fallback radio:SpawnReinforcementMethod2(0) from the client ok=true ' }; Want = 'B: the fallback ran' }
+        @{ What = 'a refusal'; V = { @($vRv | Where-Object { $_ -notmatch 'result host|OK REVIVE past' }) + $refused }; VEnd = '[DifficultyPair] END result=FAIL checks=2 failures=1 role=client-revive'; Want = 'B: no OK REVIVE past the limit' }
+        @{ What = 'no host OK REVIVE'; H = { $hRv | Where-Object { $_ -notmatch 'OK REVIVE past' } }; Want = 'host: no OK REVIVE past the limit' }
+        @{ What = 'a host FAIL'; H = { $hRv -replace 'OK COUNT', 'FAIL COUNT' }; Want = 'host driver: FAIL COUNT' }
+        @{ What = 'B not revived in s4'; V = { $vRv -replace 'OK REVIVE s4', 'FAIL REVIVE s4' }; Want = "B's driver: FAIL REVIVE s4" }
+        @{ What = 'B END FAIL (the old observe-only END)'; VEnd = '[DifficultyPair] END result=FAIL checks=0 failures=0 role=client-revive'; Want = "B's driver END: END result=FAIL" }
+        @{ What = 'no host END'; HEnd = $null; Want = 'host driver END: ' }
+    )
+    foreach ($c in $casesRv) {
+        $hh = if ($c.H) { @(& $c.H) } else { $hRv }
+        $vv = if ($c.V) { @(& $c.V) } else { $vRv }
+        $he = if ($c.ContainsKey('HEnd')) { @($c.HEnd | Where-Object { $_ }) } else { @($hRvEnd) }
+        $ve = if ($c.ContainsKey('VEnd')) { @($c.VEnd | Where-Object { $_ }) } else { @($vRvEnd) }
+        Logs ($hh + $he) ($vv + $ve)
+        $r = Get-DpReviveReport
+        $joined = $r.Revive.Misses -join ';'
+        Ok ($r.Verdict -eq 'FAIL' -and $joined.Contains($c.Want)) "dp-revive: $($c.What) -> FAIL" $joined
+    }
+    # The driver: s3's check replaces the refusal-only check(false); s4 checks B's revive.
+    Ok ($drv17 -match 'check\(revived, "REVIVE past the limit: B''s terminal revived the host' -and $drv17 -notmatch 'check\(false, "dp-revive the native terminal refused') 'client-revive: s3 checks the revive (no refusal-only check(false))'
+    Ok ($drv17 -match 'check\(me\(\) ~= nil, "REVIVE s4 B revived by the host''s radio') 'client-revive: s4 checks B''s revive'
+
     # Story 10: d10-measure (host: the driver only, with measure.txt; B: core, Difficulty, client-watch with measure.txt).
     $sc = $PairScenarios['d10-measure']
     Ok ($null -ne $sc) 'd10-measure is registered with pair.ps1'

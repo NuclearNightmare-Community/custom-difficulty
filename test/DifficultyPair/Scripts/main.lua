@@ -61,6 +61,14 @@
 --                      time revived by B's terminal, then once more; never writes the count or Disable Reinforcement.
 --   client-tokens      (B, VM; story 8) no Difficulty: each round opens its own terminal and checks the offer (shown
 --                      before the 2nd reinforcement, gone after it), asks for the host's revive, closes the terminal.
+--   host-frost         (A, host; story 17, d17-frost) the real Difficulty with Frostbite 3 (dev.lua): holds its own
+--                      Temperature at 0 and clears natural enemies throughout; holds B's Temperature at 1.5 every tick;
+--                      after a 3 s lead sets B's Health to 100, signals fz-start, counts CallFrostbiteDamageEvent calls
+--                      on B (amount 1 or 2) for 20 s, sets B's Temperature to 0, signals fz-end and checks B's loss
+--                      (FROSTRUN pair end ...; 60 +- 6 with at least one call, else NOTSHOWN frostbite on B).
+--   client-frost       (B, VM; story 17) no Difficulty: 3 s after fz-end checks its own Health lost 60 +- 6 (FROSTB).
+--   Story 17 (DW-38): client-revive checks that B's terminal revived the host in s3 (REVIVE past the limit; a refusal
+--   is that check's FAIL, then the fallback runs) and that the host's radio revived B in s4 (REVIVE s4).
 -- The two machines coordinate only through files: a driver logs "SIGNAL <name>", the scenario script
 -- (test/pair/difficulty-scenarios.ps1) writes <name>.txt next to the other machine's copy of this file.
 -- Never keeps a UObject across steps: paths only, re-found each step.
@@ -75,7 +83,7 @@ do
 end
 local ROLES = { ["host-grab"] = true, ["host-grab-vanilla"] = true, ["client-grab"] = true, ["client-observe"] = true,
                 ["host-revive"] = true, ["client-revive"] = true, ["host-spawn"] = true, ["client-watch"] = true,
-                ["host-tokens"] = true, ["client-tokens"] = true }
+                ["host-tokens"] = true, ["client-tokens"] = true, ["host-frost"] = true, ["client-frost"] = true }
 if not ROLES[ROLE] then say("END result=FAIL reason=no role (role.txt: %s)", tostring(ROLE)) return end
 local IS_HOST = ROLE:sub(1, 4) == "host"
 -- Story 11: Scripts\watcher-near.txt (staged by d5-grab-modded) keeps the host next to B in host-spawn's Watcher case.
@@ -103,7 +111,8 @@ do
 end
 -- Stale signal files from an earlier run.
 for _, n in ipairs({ "bready", "temp-start", "temp-end", "done", "s1", "s2", "s3", "s3done", "kill-b", "s4done",
-                     "b-s1", "b-s2", "b-s3", "b-s3done", "b-s4done", "t1", "t2", "tfinal", "b-t1", "b-t2", "b-tfinal" }) do os.remove(scriptDir .. "\\" .. n .. ".txt") end
+                     "b-s1", "b-s2", "b-s3", "b-s3done", "b-s4done", "t1", "t2", "tfinal", "b-t1", "b-t2", "b-tfinal",
+                     "fz-start", "fz-end" }) do os.remove(scriptDir .. "\\" .. n .. ".txt") end
 
 local FP = "BP_FirstPersonCharacter_C"
 local FPC_PATH = "/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter.BP_FirstPersonCharacter_C"
@@ -1554,9 +1563,10 @@ local function buildClientRevive()
     step("s3 fallback", function()
         local now = other() and pathOf(other()) or ""
         say("REQUEST terminal result host before=%s now=%s moved=%s", S.hostBefore, now, tostring(now ~= S.hostBefore))
-        if now ~= S.hostBefore then return end
-        -- The story's blocking condition: the verdict counts this FAIL line.
-        check(false, "dp-revive the native terminal refused past the limit (moved=false)")
+        -- Story 17 (DW-38): B's own check. A refusal is its FAIL line (the verdict counts it), then the fallback runs.
+        local revived = now ~= "" and now ~= S.hostBefore
+        if check(revived, "REVIVE past the limit: B's terminal revived the host (before=%s now=%s)%s",
+            S.hostBefore, now, revived and "" or ": the native terminal refused past the limit (moved=false)") then return end
         local r = radio()
         local ok, err = pcall(function() r:SpawnReinforcementMethod2(0) end)
         say("REQUEST fallback radio:SpawnReinforcementMethod2(0) from the client ok=%s %s", tostring(ok), ok and "" or tostring(err))
@@ -1577,6 +1587,7 @@ local function buildClientRevive()
     step("s4 count", function()
         local cnt = reinfState("s4 client, revived")
         say("SUMMARY revived me=%s", tostring(me() ~= nil))
+        check(me() ~= nil, "REVIVE s4 B revived by the host's radio (count %s)", tostring(cnt))
         signal("b-s4done")
     end)
 end
@@ -1684,12 +1695,102 @@ local function buildClientTokens()
     waitFile("done", 300)
 end
 
+-- Story 17 (d17-frost, DW-40): Difficulty on the host decides frostbite for B's character too (only the host simulates
+-- Temperature). The host holds B cold (Temperature 1.5) and counts the native's ticks on B; B, unmodded, reads its own
+-- replicated Health. Frostbite 3 on the solo frostbite case's lobby: 20 s of ticks cost 60 HP.
+local FROST_LEAD, FROST_SECONDS, FROST_WANT, FROST_TOL = 3, 20, 60, 6
+local function boolOf(o, k) local ok, v = pcall(function() return o[k] end) if ok then return v end return nil end
+local function buildHostFrost()
+    waitMatch()
+    step("other present", function() return function() return other() ~= nil end, 600, "the other player's character" end)
+    waitFile("bready", 600)
+    -- Difficulty publishes its knobs at match start (after the lobby countdown).
+    step("match started", function()
+        return function()
+            local ok, st = pcall(function() return gameState()["StartedGame?"] end)
+            return ok and st == true
+        end, 600, "StartedGame?"
+    end)
+    wait("after the start", 8)
+    step("hooks", function()
+        hook("/Script/NuclearNightmare.NuclearNightmareCharacter:CallFrostbiteDamageEvent", function(selfp, amount)
+            local v, n = get(selfp), num(get(amount))
+            if S.frostOn and (n == 1 or n == 2) and isOther(v) then S.frostCalls = (S.frostCalls or 0) + 1 end
+        end)
+        -- The monitor clears natural enemies (S.guard); this role holds both Temperatures itself (S.tempHold).
+        S.tempHold, S.guard = true, true
+    end)
+    local P = {}
+    step("frostbite on B", function()
+        local o = other()
+        if not o then check(false, "FROSTRUN pair: no B character") return end
+        P.t0, P.path, P.phase = os.clock(), pathOf(o), "lead"
+        say("FROSTRUN pair B's Temperature held at 1.5 by the host (test only), %d s lead, then %d s", FROST_LEAD, FROST_SECONDS)
+        return function()
+            local m, b = me(), other()
+            if m then pcall(function() m.Temperature = 0 end) end
+            if not b then return false end
+            pcall(function() b.Temperature = 1.5 end)
+            if pathOf(b) ~= P.path then P.changed = true end
+            if P.phase == "window" and (boolOf(b, "InsideEnoughToStopFreezing") == true or boolOf(b, "CanTakeTemperature") ~= true) then P.outside = (P.outside or 0) + 1 end
+            if P.phase == "lead" and os.clock() - P.t0 >= FROST_LEAD then
+                pcall(function() b.Health = 100 end)
+                P.phase, P.t1, P.hp0 = "window", os.clock(), hpOf(b)
+                S.frostOn, S.frostCalls = true, 0
+                signal("fz-start")
+                return false
+            end
+            if P.phase == "window" and os.clock() - P.t1 >= FROST_SECONDS then
+                S.frostOn = false
+                P.hp1, P.secs = hpOf(b), os.clock() - P.t1
+                return true
+            end
+            return false
+        end, FROST_LEAD + FROST_SECONDS + 15, "frostbite on B"
+    end)
+    step("frostbite verdict", function()
+        S.frostOn = false
+        local b = other()
+        if b then pcall(function() b.Temperature = 0 end) end -- a lowering: the frost ends (test only)
+        S.tempHold = false
+        signal("fz-end")
+        if not P.t0 then return end
+        local calls = S.frostCalls or 0
+        local loss = (P.hp0 and P.hp1) and (P.hp0 - P.hp1) or nil
+        say("FROSTRUN pair end seconds=%.1f calls=%d hp %s -> %s loss=%s outside_gates=%d pawn_changed=%s", P.secs or 0, calls,
+            fmt1(P.hp0), fmt1(P.hp1), fmt1(loss), P.outside or 0, tostring(P.changed == true))
+        if calls == 0 then say("NOTSHOWN frostbite on B: no CallFrostbiteDamageEvent tick on B in %d s", FROST_SECONDS) end
+        check(calls > 0 and loss ~= nil and math.abs(loss - FROST_WANT) <= FROST_TOL, "FROSTRUN pair B lost %s HP in %.0f s while frozen (want %d +- %d; %d ticks)",
+            fmt1(loss), P.secs or 0, FROST_WANT, FROST_TOL, calls)
+    end)
+    step("done", function() signal("done") return after(8), 12 end)
+end
+
+-- B: unmodded; reads its own replicated Health once the host's window is over.
+local function buildClientFrost()
+    waitMatch()
+    step("ready", function() signal("bready") end)
+    waitFile("fz-start", 900)
+    step("frost start", function() local m = me() say("FROSTB start hp=%s", fmt1(m and hpOf(m))) end)
+    waitFile("fz-end", 120)
+    wait("frost settle", 3)
+    step("frost check", function()
+        local m = me()
+        local hp = m and hpOf(m)
+        local loss = hp and (100 - hp)
+        check(loss ~= nil and math.abs(loss - FROST_WANT) <= FROST_TOL, "FROSTB me hp=%s loss=%s (want %d +- %d)", fmt1(hp), fmt1(loss), FROST_WANT, FROST_TOL)
+    end)
+    waitFile("done", 120)
+end
+
 if ROLE == "host-grab" or ROLE == "host-grab-vanilla" then buildHostGrab()
 elseif ROLE == "host-spawn" then buildHostSpawn()
 elseif ROLE == "client-grab" or ROLE == "client-observe" or ROLE == "client-watch" then buildClientGrab()
 elseif ROLE == "host-revive" then buildHostRevive()
 elseif ROLE == "host-tokens" then buildHostTokens()
 elseif ROLE == "client-tokens" then buildClientTokens()
+elseif ROLE == "host-frost" then buildHostFrost()
+elseif ROLE == "client-frost" then buildClientFrost()
 else buildClientRevive() end
 
 -- ---------------------------------------------------------------- runner (game thread, every 250 ms)

@@ -22,16 +22,16 @@ local function newLog(tag)
 end
 
 -- Loads main.lua fresh. opts.client = false: core not installed; opts.connectThrows: connect raises.
--- The caret rule core's connect applies (nucleus.semver): 0.x needs the same minor, 1.x the same major; at least need.
-local function satisfies(have, need)
-    local a, b, c = tostring(have):match("^(%d+)%.(%d+)%.(%d+)$")
-    local x, y, z = tostring(need):match("^(%d+)%.(%d+)%.(%d+)$")
-    if not a or not x then return false end
-    a, b, c, x, y, z = tonumber(a), tonumber(b), tonumber(c), tonumber(x), tonumber(y), tonumber(z)
-    if a ~= x then return false end
-    if x == 0 then return b == y and c >= z end
-    if b ~= y then return b > y end
-    return c >= z
+-- Core's rule (Nucleus lua/pkg/semver.lua check, since 0.5.0): ">=X.Y.Z", "^X.Y.Z" or "X.Y.Z" is a minimum; the only
+-- version refusal is "core-too-old" (have < need). A need that doesn't parse is refused too ("bad-need").
+local function parseV(v) local a, b, c = tostring(v):match("^(%d+)%.(%d+)%.(%d+)$"); if a then return { tonumber(a), tonumber(b), tonumber(c) } end end
+local function check(have, need)
+    local body = tostring(need):match("^>=(.*)$") or tostring(need):match("^%^(.*)$") or tostring(need)
+    local n, h = parseV(body), parseV(have)
+    if not n then return false, "bad-need" end
+    if not h then return false, "bad-have" end
+    for i = 1, 3 do if h[i] ~= n[i] then if h[i] < n[i] then return false, "core-too-old" end return true end end
+    return true
 end
 
 local function boot(opts)
@@ -80,8 +80,10 @@ end
 -- As core's connect: onReady only when the core satisfies need; otherwise core's one ERROR line and onFail.
 local function ready(core)
     local c = S.connects[1]
-    if not satisfies(core.version, c.need) then
-        local msg = ("%s %s is not compatible; %s needs %s (^ rules). Update %s."):format(core.name, core.version, c.mod, c.need, core.name)
+    local okV, kind = check(core.version, c.need)
+    if not okV then
+        assert(kind == "core-too-old", "the fake connect only words core-too-old, got " .. tostring(kind))
+        local msg = ("%s %s is older than %s needs (%s). Update %s."):format(core.name, core.version, c.mod, c.need, core.name)
         print("[" .. c.mod .. "] ERROR " .. msg .. " " .. c.mod .. " will not run.\n")
         c.onFail(msg)
         return false
@@ -111,7 +113,7 @@ do
     eq(#W.printed, 0, "nothing printed during main.lua")
     eq(#W.loadMapHooks, 0, "no hook before connect succeeds")
     -- old core: connect logs the one ERROR line itself; onFail adds nothing and registers nothing.
-    c.onFail("Nucleus 0.3.0 is not compatible; Difficulty needs 0.15.0 (^ rules). Update Nucleus.")
+    c.onFail("Nucleus 0.3.0 is older than Difficulty needs (0.15.0). Update Nucleus.")
     eq(#W.printed, 0, "onFail adds no line (connect logged the cause)")
     eq(#W.loadMapHooks, 0, "onFail: no hook registered")
 end
@@ -258,16 +260,17 @@ do -- dev.lua without preCore (what deploy -Test -PreCore writes on core 0.4.x) 
     eq(count("running on"), 0, "dev.lua without preCore: no pre-core WARN")
     eq(count("READY version=0%.1%.0 Nucleus=0%.15%.0 need=0%.15%.0$"), 1, "dev.lua without preCore: READY need 0.15.0")
 end
-do -- preCore on core 0.15.0 would need 0.3.0, which 0.15.0 doesn't satisfy (0.x caret: same minor): the fake connect refuses.
+do -- preCore on core 0.15.0 needs 0.3.0, a minimum 0.15.0 meets (core's rule since 0.5.0): connect accepts (DW-86).
     boot{ dev = "return { debug = true, preCore = true }" }
-    ok(not ready(newCore("0.15.0")), "preCore on core 0.15.0: connect refuses")
-    eq(#W.loadMapHooks, 0, "preCore on core 0.15.0: no hook")
-    eq(ours(), 1, "preCore on core 0.15.0: exactly one line")
+    ok(ready(newCore("0.15.0")), "preCore on core 0.15.0: connect accepts")
+    eq(count("ERROR"), 0, "preCore on core 0.15.0: no ERROR line")
+    eq(count("READY version=0%.1%.0 Nucleus=0%.15%.0 need=0%.3%.0$"), 1, "preCore on core 0.15.0: READY names need 0.3.0")
+    eq(count("^%[Difficulty%] WARN running on Nucleus 0%.15%.0 before 0%.4%.0 %(dev only%): no UI$"), 1, "preCore on core 0.15.0: the pre-core WARN")
 end
 do -- normal need 0.15.0 on core 0.3.0: refused with core's line (the old-core scenario).
     boot()
     ok(not ready(newCore("0.3.0")), "core 0.3.0, need 0.15.0: refused")
-    eq(count("^%[Difficulty%] ERROR Nucleus 0%.3%.0 is not compatible; Difficulty needs 0%.15%.0 %(%^ rules%)%. Update Nucleus%. Difficulty will not run%.$"), 1, "old core: core's one line")
+    eq(count("^%[Difficulty%] ERROR Nucleus 0%.3%.0 is older than Difficulty needs %(0%.15%.0%)%. Update Nucleus%. Difficulty will not run%.$"), 1, "old core: core's one line")
     eq(ours(), 1, "old core: exactly one line")
     eq(#W.loadMapHooks, 0, "old core: no hook")
 end

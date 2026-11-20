@@ -760,12 +760,12 @@ end
 function A:clientGrab(v, vpath, attacker)
     local values = self:hostValues()
     if not values then self:noteGrab(v, vpath, nil) return end
-    local apath, row, short, aobj
+    local _, row, short, aobj -- _: the attacker's path, unused here
     if attacker ~= nil and self:alive(attacker) then
-        apath, short, aobj = pathOf(attacker), classOf(attacker), attacker
+        _, short, aobj = pathOf(attacker), classOf(attacker), attacker
         row = M.CLASS_ROW[short or ""]
     else
-        apath, row, short, aobj = self:grabAttacker(v, vpath, true)
+        _, row, short, aobj = self:grabAttacker(v, vpath, true)
     end
     if short then self:needClassHooks(short) end
     local hp = hpOf(v)
@@ -943,10 +943,11 @@ end
 -- delay(ms, fn, what) -> true when scheduled: fn once on the game thread ms later (called from the game thread: a
 -- hook body or a delayed callback).
 function A:delay(ms, fn, what)
-    local ok, h = false, "ms is not a number (" .. tostring(ms) .. ")"
+    local h = "ms is not a number (" .. tostring(ms) .. ")"
     if type(ms) == "number" then
         if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, ms, fn) then return true end
         local handle, done = nil, false
+        local ok
         ok, h = pcall(LoopInGameThreadWithDelay, ms, function()
             if not done then done = true fn() end
             if handle ~= nil then pcall(CancelDelayedAction, handle) end

@@ -295,7 +295,8 @@ function A:onUpdate(screen)
         return
     end
     local count = presetCount(screen)
-    local names, why = count and presetNames(screen, count)
+    -- why is always nil ('and' keeps only the first value); fixing it would change the log line, so lint ignores it.
+    local names, why = count and presetNames(screen, count) -- luacheck: ignore 221
     if not names then self:say("warn", "sidecar: %s; update not synced", tostring(why or "no preset count")) return end
     local e = self.entries[idx]
     e.values = sidecar.copy(self.rows)

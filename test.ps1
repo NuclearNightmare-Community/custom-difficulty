@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Runs Difficulty's unit tests, no game needed: the Lua tests (world.lua's isHost cache and game adapter, main.lua's
+  Runs CustomDifficulty's unit tests, no game needed: the Lua tests (world.lua's isHost cache and game adapter, main.lua's
   bootstrap paths against a fake core and fake UE4SS globals, mod.json's settings) and the PowerShell tests
   (deploy-lib.ps1 and deploy.ps1 against a fake instance, run.ps1's run guard, run.ps1 -Target vm against a stubbed
   tools/vm/vm-sp.ps1, check.ps1 against synthetic logs, story 5's pair checks against synthetic logs; net.lua). check.ps1 -Scenario unit

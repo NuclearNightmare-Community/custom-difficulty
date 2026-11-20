@@ -1,8 +1,8 @@
-# Difficulty
+# Custom Difficulty
 
 Separate difficulty options for Nuclear Nightmare. Spec: `_bmad-output/specs/spec-difficulty-v1/` in the workspace.
 
-Version 0.1.0: the skeleton (story 1) connects to Nucleus (core) and works out per world whether this machine hosts.
+Version 0.2.0 (MIT license, `LICENSE`): the skeleton (story 1) connects to Nucleus (core) and works out per world whether this machine hosts.
 Story 3 adds enemy damage on the host and survivable grabs for the host's own player; story 4 adds cold, frostbite and
 reinforcement tokens on the host; story 5 adds survivable grabs on modded clients (below); story 6 keeps the knob
 values with the game's own world presets in a sidecar file (below, "World presets"); story 7 shows and edits the
@@ -21,10 +21,10 @@ create-world screen; story 5: `core.net`): Nucleus 0.15.0 or later (core reads t
 
 `deploy.ps1` refuses (exit 1, one line naming the cause) when Nucleus is missing, disabled in `mods.txt`, isn't
 Nucleus (wrong `id`), or its version doesn't satisfy `dependsOn` (`^0.15.0`). Otherwise it installs
-`Mods/Difficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua, env.lua, tokens.lua, net.lua, presets.lua, sidecar.lua, rows.lua}` and
-puts `Difficulty : 1`
+`Mods/CustomDifficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua, env.lua, tokens.lua, net.lua, presets.lua, sidecar.lua, rows.lua}` and
+puts `CustomDifficulty : 1`
 right below Nucleus's line in `mods.txt`, above `Keybinds : 1`. `-Force` installs anyway with a warning (the failure scenarios); `-Remove`
-deletes `Mods/Difficulty` and its `mods.txt` line. Close the game first. From a worktree, pass the main checkout's
+deletes `Mods/CustomDifficulty` and its `mods.txt` line. Close the game first. From a worktree, pass the main checkout's
 instance path.
 
 ## Dev core mode (before Nucleus 0.4.0)
@@ -55,7 +55,7 @@ runtime refuse core 0.3.0.
 - **Survivable grabs** for the host's own player: at each grab's `HasPerk(0x27)` the expected hit decides
   (`Health - E > 0` is survivable). When that differs from the game's choice, `Health` is set to standard + 1 (or 0.01)
   for the grab's own test and put back in the grab's multicast hook (or on the next tick). A client victim is spared
-  the same way only when core's player presence says its machine runs a compatible Difficulty (below); any other
+  the same way only when core's player presence says its machine runs a compatible CustomDifficulty (below); any other
   victim keeps the game's choice. The GRAB line always names the attacker: its row, or `enemy=unknown(<class>)` (the
   nearest grab-class AI within 10 m, else `none`) with `why=<reason>` at the end of the line (`no-locked-victim`,
   `no-grab-ai-near`, `no-row`). On the host a Watcher's chase `Target` counts as its attacker link (after the
@@ -68,12 +68,12 @@ runtime refuse core 0.3.0.
   Enemy Damage, its row's % (0 % included) and the victim's Health: the grab decision is `e` (flipped to 0.01 only
   where the game's own test would pick the survivable animation) and the execution's hit applies at least `Health`.
   For the six grab enemies the spare rule still gates the decision: a client victim whose machine doesn't run a
-  compatible Difficulty keeps the game's decision (a survivable grab stays survivable and capped). A ticked boss has
+  compatible CustomDifficulty keeps the game's decision (a survivable grab stays survivable and capped). A ticked boss has
   no decision to flip: its `CommitLethalDamage` hit is host-side and applies at least `Health` (`kind=execution`) to
   every victim, modded or not, like the stock finisher. A dodge (Elusive Fighter) stays the game's. Hits outside a grab
   and other enemies are unchanged; unticked changes nothing at all (no line, no flip, no cap on boss grabs). The
   GRAB line ends with ` kill=yes` when the box is ticked. No box on the Worm, Leech, Bat, Infected Dog, Infected
-  Player or Playable Monster (no grab decision Difficulty sees).
+  Player or Playable Monster (no grab decision CustomDifficulty sees).
 - **The Watcher's victim** (story 11). The Watcher calls `HasPerk(0x27)` on its chase `Target`, but the game decides
   its grab from `AttackedPlayer`'s Health (`AttackMulti` sets `AttackedPlayer` to the grabbed player first). So before
   deciding, the HasPerk self v is resolved to the real victim, and only for the Watcher's own grab (guard, user
@@ -136,7 +136,7 @@ runtime refuse core 0.3.0.
   <cap>`). Tokens are added to the pool, so the computer can show more than N or more than the stock limit. With
   Reinforcement Tokens set, the bonus raises the effective N (the computer shows `N + bonus - used`, Disable closes at
   that total, a `Classified Minium` change re-writes with it), and a bonus that reopens tokens clears the
-  `Disable Reinforcement` Difficulty itself wrote (`TOKENS reopened ...`), never one the lobby or another writer set.
+  `Disable Reinforcement` CustomDifficulty itself wrote (`TOKENS reopened ...`), never one the lobby or another writer set.
   With Reinforcement Tokens Default only the count is lowered and the game's own gate closes the computer. Detected
   in two places that share one award, deduplicated by the last value seen: a callback on
   `BP_FirstPersonGameState_C:UpdateClassifieds` and the 250 ms poll, so a callback the pinned UE4SS doesn't run only
@@ -158,7 +158,7 @@ runtime refuse core 0.3.0.
 ## Modded clients (story 5)
 
 - **What the host publishes.** At the match start (`UpdateFriendlyFire`), through core's host replicated state
-  (`core.net.publish`, keys `<mod.json id>.<name>`; the knobs first, `ver` and `compat` last): `ver` and `compat` (Difficulty's own version and effective
+  (`core.net.publish`, keys `<mod.json id>.<name>`; the knobs first, `ver` and `compat` last): `ver` and `compat` (CustomDifficulty's own version and effective
   `netCompat` as `major*1000000 + minor*1000 + patch`; `mod.json` sets no `netCompat`, so core's default
   `0.<minor>.0` applies), then `enemyDamage` and `dmg_meek`, `dmg_mimic`, `dmg_psycho`, `dmg_husk`, `dmg_watcher`,
   `dmg_stalker`, only those that are set (an absent knob key is Default), and (story 14) `kills`, the six grab
@@ -179,7 +179,7 @@ runtime refuse core 0.3.0.
   next tick. Its attacker: the AI whose locked victim it is, else the nearest grab-class AI within 10 m, else none
   (enemy % 100). Damage, the roll, cold, frostbite and tokens stay host-only. Without `ver` (an unmodded host, no
   state yet, a core version mismatch) or with a host version that core's `versionsCompatible` rejects, it changes
-  nothing and logs `host has no Difficulty, inactive (<reason>)` once per world, at the first grab on its player. A
+  nothing and logs `host has no CustomDifficulty, inactive (<reason>)` once per world, at the first grab on its player. A
   value out of range: no change for that grab, one `WARN the host's <key> is outside this mod's bounds ...` per key
   per match.
 - **Recovery** (every machine with the mod, own player only, also after a back-off): 6 s after an execution began on
@@ -205,10 +205,10 @@ The knob values are saved, loaded, updated and deleted together with the game's 
 create-world screen (`CreateServer_C`). The game's preset struct can't hold them, so they live in a sidecar file
 next to the game's `WorldPresets_Sav.sav`:
 
-- **Where:** `<ProjectSavedDir>SaveGames/Difficulty_WorldPresets.txt`. The directory comes from the engine
+- **Where:** `<ProjectSavedDir>SaveGames/CustomDifficulty_WorldPresets.txt`. The directory comes from the engine
   (`BlueprintPathsLibrary:ProjectSavedDir()`), so a dev copy launched with `-userdir` keeps it under its own
   `_userdir/Saved/`, never under `%LOCALAPPDATA%`. If the directory can't be read: one WARN, no sync for that open.
-- **Format:** a header `# Difficulty world presets, format 2`, then one `<index>\t<name>\t<values>` line per preset:
+- **Format:** a header `# CustomDifficulty world presets, format 2`, then one `<index>\t<name>\t<values>` line per preset:
   the preset's 0-based position in the game's list, its name percent-encoded (`%`, tab, CR, LF and every byte below
   0x20), and the values in the knob syntax (only non-Default keys; empty when every knob is Default). Parsed with
   string patterns only (never executed), at most 256 KiB, 256 entries and 1024-byte lines. A bad line, an unknown
@@ -274,7 +274,7 @@ On the create-world screen (START GAME, then CONFIGURE) the mod adds 21 rows tha
 ```
 
 `-Knobs` (only with `-Test`) writes `knobs = "<text>"` into `Scripts/dev.lua`, in the sidecar's syntax
-(`key=value;...`, a value is a number or `default`). Difficulty parses it at every match start: at most 1024 bytes,
+(`key=value;...`, a value is a number or `default`). CustomDifficulty parses it at every match start: at most 1024 bytes,
 known keys only, numbers within the knob's range, rounded to its step; anything else leaves that knob Default with
 one `WARN knobs: ...`. They win over the preset values captured at `CreateSteamSession`. A deploy without `-Test`
 writes no `dev.lua`, so a release takes the knobs only from the presets.
@@ -282,12 +282,12 @@ writes no `dev.lua`, so a release takes the knobs only from the presets.
 ## What it logs
 
 - `CONNECT ok Nucleus <v> (...)` (from core's connect), then one `WORLD host=<bool> standalone=<bool> map=<short>` for
-  the world already loaded, then `READY version=0.1.0 Nucleus=<v> need=<need>`.
+  the world already loaded, then `READY version=0.2.0 Nucleus=<v> need=<need>`.
 - One `WORLD ...` line per world name (map path) loaded after that (the `LoadMap` post-hook); a reload of the same
   map with the same answer logs a DEBUG line. `isHost` is `KismetSystemLibrary:IsServer(world) and not
   IsStandalone(world)`, cached per world name. If a call
   fails: one `WARN isHost for <map>: ...` and `host=false` for that world.
-- Without a compatible core: exactly one `[Difficulty]` line naming the cause, and no hook registered.
+- Without a compatible core: exactly one `[CustomDifficulty]` line naming the cause, and no hook registered.
 - Story 3, on the host: `MATCH start knobs=<values|all Default>` at each match start;
   `HIT enemy=<row|?> via=<site> stock= scaled= rolled= applied= hp=<before> kind=<hit|execution|survivable>` per
   scaled hit; `GRAB enemy= hp= E= game=<s|e> decision=<s|e> flip=<value|none> victim=<local|client>
@@ -305,7 +305,7 @@ writes no `dev.lua`, so a release takes the knobs only from the presets.
   `PRESETS capture knobs=<values>`. WARN `sidecar ...` for a file with problems, a directory or presets that can't be
   read, a long name, or a failed write.
 - Story 5: `NET published ver= compat= ...` on the host at the match start; on a modded client `GRAB ... victim=local
-  spare=yes` and its `RESTORE`, or once per world `host has no Difficulty, inactive (<reason>)`; `RECOVER ...` on any
+  spare=yes` and its `RESTORE`, or once per world `host has no CustomDifficulty, inactive (<reason>)`; `RECOVER ...` on any
   machine when the recovery acted, and its `RECOVER readback ...` 0.5 s later (story 10).
 
 ## Scenarios (`check.ps1`)
@@ -316,18 +316,18 @@ Run the scenario, then `./check.ps1 -Instance <copy> -Scenario <s>` (or `-Log <f
 | Scenario | Set-up | Expected |
 |---|---|---|
 | `ready` | `deploy.ps1 -Test -PreCore` on core 0.3.0, launch to the main menu, quit | `CONNECT ok`, one pre-core WARN (none on core 0.12.x), `WORLD host=false standalone=true` for the menu, `READY` |
-| `old-core` | `run.ps1 -Scenario old-core -Target vm` (story 8): a core older than `dependsOn` from a package already on disk (`mods/Nucleus/build/package-*`, or `-OldCorePackage`; e.g. 0.2.0), `deploy.ps1 -Force`, the menu only | exactly one line: `ERROR Nucleus <old> is not compatible; Difficulty needs 0.15.0 (^ rules). Update Nucleus. Difficulty will not run.` No older package on disk: skipped (exit 3), not a failure |
-| `no-core` | `run.ps1 -Scenario no-core -Target vm` (story 8): no Nucleus in the VM copy for the run, `deploy.ps1 -Force`, the menu only | exactly one line: `Nucleus is not installed. Difficulty will not run.` |
+| `old-core` | `run.ps1 -Scenario old-core -Target vm` (story 8): a core older than `dependsOn` from a package already on disk (`mods/Nucleus/build/package-*`, or `-OldCorePackage`; e.g. 0.2.0), `deploy.ps1 -Force`, the menu only | exactly one line: `ERROR Nucleus <old> is not compatible; CustomDifficulty needs 0.15.0 (^ rules). Update Nucleus. CustomDifficulty will not run.` No older package on disk: skipped (exit 3), not a failure |
+| `no-core` | `run.ps1 -Scenario no-core -Target vm` (story 8): no Nucleus in the VM copy for the run, `deploy.ps1 -Force`, the menu only | exactly one line: `Nucleus is not installed. CustomDifficulty will not run.` |
 | `host` | as `ready`, then host a solo match | as `ready`, plus `WORLD host=true standalone=false map=<map>` |
 | `hand` | any run by hand | connected, `READY`, at least one `WORLD`, no error |
 | `unit` | none | runs `test.ps1` |
 
 ### Story 3 and 4 scenarios (`run.ps1`)
 
-`./run.ps1 -Instance <copy> -Scenario <s>` deploys with `-Test -PreCore -Scenario <s>` (Difficulty with the
-scenario's knobs, plus the test-only driver `test/DifficultyDriver` between Nucleus and Difficulty), launches through
+`./run.ps1 -Instance <copy> -Scenario <s>` deploys with `-Test -PreCore -Scenario <s>` (CustomDifficulty with the
+scenario's knobs, plus the test-only driver `test/CustomDifficultyDriver` between Nucleus and CustomDifficulty), launches through
 `tools/launch.ps1`, plays one solo hosted match, waits for the driver's `END`, deploys again without the driver,
-keeps the log as `dumps/<copy>/difficulty/<s>.log` and runs `check.ps1` on it. Exit 0 passed, 1 failed, 2 not shown
+keeps the log as `dumps/<copy>/custom-difficulty/<s>.log` and runs `check.ps1` on it. Exit 0 passed, 1 failed, 2 not shown
 (the driver couldn't make the case happen: an enemy didn't attack in time, the player wasn't outdoors, no frostbite
 tick, no reinforcement accepted; run it again, it never counts as passed). The driver refills Health to 100 between
 cases (test only, logged).
@@ -360,12 +360,12 @@ $inst = 'C:\...\nuclear-nightmare\game-instances\v8.2-build26512322'   # the hos
 
 - It runs in the VM's copy with the host copy's folder name (`C:\nn\v8.2-build26512322`, the test copy with the pinned
   UE4SS; never the testers' clean copy). That copy must be the same game build as the host's.
-- Nucleus comes from the host's `mods/Nucleus/build/package` (Nucleus's own `deploy.ps1 -Staged`); Difficulty and the
+- Nucleus comes from the host's `mods/Nucleus/build/package` (Nucleus's own `deploy.ps1 -Staged`); CustomDifficulty and the
   driver from this repo (`deploy.ps1 -Test -PreCore -Scenario <s> -Staged`). `-Staged` only skips the "game is running"
   check, because the stage is never launched. Nothing is built, and the host's game copy is never touched.
 - The run guard checks the VM copy's `mods.txt` before anything is installed there. After the run the VM copy is put
   back as it was, so there is no redeploy without the driver.
-- The log is kept as `dumps/<copy>/difficulty/<s>.vm.log` and judged by `check.ps1 -Target vm`. The VM's game shares
+- The log is kept as `dumps/<copy>/custom-difficulty/<s>.vm.log` and judged by `check.ps1 -Target vm`. The VM's game shares
   the CPU with the host, so the cold poll's `avg_ms` under 0.1 (`cold`, `cold-whiteout`) is only a soft check there.
   Exit codes are the same as on the host.
 - The time limit is the host's 900 s times 1.5 unless you pass `-TimeoutSec`.
@@ -432,15 +432,15 @@ the same day on Nucleus 0.15.0: PASS (36 checks).
 | `no-core`, `old-core` | VM only, the menu only (above, "Scenarios"); the driver waits for the menu world and 20 s | the existing one-line rules, plus the driver's `OK MENU` and `END result=PASS` (no driver `FAIL`) |
 
 `run.ps1` exit codes are unchanged (0 passed, 1 failed, 2 not shown), plus 3: `old-core` skipped (no older core package on
-disk). The kept logs: `dumps/<copy>/difficulty/<scenario>.vm.log`, and `signal-a.vm.log` / `signal-b.vm.log`.
+disk). The kept logs: `dumps/<copy>/custom-difficulty/<scenario>.vm.log`, and `signal-a.vm.log` / `signal-b.vm.log`.
 
-Pair (`test/run-pair.ps1 -Scenarios d8-tokens`): the host runs core and Difficulty with Reinforcement Tokens 2
-(`dev.lua` `revives=2`; PairDriver's Classified Minimum 2, stock limit 6), B (VM) runs no Difficulty, only the
+Pair (`test/run-pair.ps1 -Scenarios d8-tokens`): the host runs core and CustomDifficulty with Reinforcement Tokens 2
+(`dev.lua` `revives=2`; PairDriver's Classified Minimum 2, stock limit 6), B (VM) runs no CustomDifficulty, only the
 `client-tokens` driver. The host dies, B's own terminal revives it (`OnReinforcement`), twice; then the host dies once
 more. Verdict PASS needs exactly one host `TOKENS disabled at used=2 N=2`, B's `OK OFFER t1`/`t2` (the offer shown before
 N) and `OK OFFER gone` (after the 2nd: `Disable Reinforcement` replicated true and the panel's `ReinforcementBorder` not
 visible, or the terminal closed), B's `OK REVIVE` each round, no `SET` line from the driver (it never writes
-`TimesUsedReinforcements` or `Disable Reinforcement`), no Difficulty line on B, both drivers' PASS and the session held
+`TimesUsedReinforcements` or `Disable Reinforcement`), no CustomDifficulty line on B, both drivers' PASS and the session held
 (`ScenarioReport.D8.Misses`).
 
 Every match scenario sets `BP_GameInstance_C.DisableWhiteOuts` before the match and logs one
@@ -468,8 +468,8 @@ ran them only in the VM (`run.ps1 -Target vm`); Tower Island, Nightmare, solo.
 
 | Scenario | How | Expected |
 |---|---|---|
-| `boss` | `enemyDamage=25`. The driver spawns the Slug Queen, then the Apex Predator (Health refilled before each, `REFILL`), clears natural enemies every 2 s and holds `Temperature` at 0 (`TEMP`, test only). To make each boss grab: every 2 s the player is teleported about 100 uu in front of it and it is nudged (the Queen `SeePlayerServer(player)`, the Apex `HeardNoise(playerLocation, 1.0)`); after 20 s without `CommitLethalDamage`, the player teleported in front again and `AttackServer(player)`, every 5 s (each attempt `BOSSTRY <boss> route=near|attack`; none while the boss's grab is under way, `BOSSGRAB`). 60 s without one is `NOTSHOWN <boss>`, extended by up to 20 s while a grab is under way | per boss that grabbed: `BOSSCLD pre`/`post` (Health in and out, `ret=` the return or `?`), `BOSSHOOK StartWatching`/`WatchFinisherPresentation`/`AttackMulti`, `BOSSSTATE <boss> t=0` (with `ret=` and `presentation=yes|no`: an `AttackMulti` within 2 s), `t=6` and `t=12`; Difficulty's `HIT enemy=slugQueen` and `HIT enemy=apex via=CommitLethalDamage` (amounts not fixed: they are findings); the driver's OK "alive at 12 s with Health >= 1" and "moving at 12 s" (PlayingMontage false, movement 1). A boss that never grabbed: exit 2, its `BOSSTRY` lines logged; the other boss is still judged |
-| `boss-default` | no knobs (the control), the same steps | the stock grab kills: the driver's OK "the stock grab kills (alive=false at 12 s)" and `BOSSDEATH <boss> expected (stock)` (never the runner's `DEATH`); the run ends there, and `NOTSHOWN Apex: the control player is dead` is not a not-shown case; no Difficulty `HIT` line. A player who survives the stock grab is a driver FAIL |
+| `boss` | `enemyDamage=25`. The driver spawns the Slug Queen, then the Apex Predator (Health refilled before each, `REFILL`), clears natural enemies every 2 s and holds `Temperature` at 0 (`TEMP`, test only). To make each boss grab: every 2 s the player is teleported about 100 uu in front of it and it is nudged (the Queen `SeePlayerServer(player)`, the Apex `HeardNoise(playerLocation, 1.0)`); after 20 s without `CommitLethalDamage`, the player teleported in front again and `AttackServer(player)`, every 5 s (each attempt `BOSSTRY <boss> route=near|attack`; none while the boss's grab is under way, `BOSSGRAB`). 60 s without one is `NOTSHOWN <boss>`, extended by up to 20 s while a grab is under way | per boss that grabbed: `BOSSCLD pre`/`post` (Health in and out, `ret=` the return or `?`), `BOSSHOOK StartWatching`/`WatchFinisherPresentation`/`AttackMulti`, `BOSSSTATE <boss> t=0` (with `ret=` and `presentation=yes|no`: an `AttackMulti` within 2 s), `t=6` and `t=12`; CustomDifficulty's `HIT enemy=slugQueen` and `HIT enemy=apex via=CommitLethalDamage` (amounts not fixed: they are findings); the driver's OK "alive at 12 s with Health >= 1" and "moving at 12 s" (PlayingMontage false, movement 1). A boss that never grabbed: exit 2, its `BOSSTRY` lines logged; the other boss is still judged |
+| `boss-default` | no knobs (the control), the same steps | the stock grab kills: the driver's OK "the stock grab kills (alive=false at 12 s)" and `BOSSDEATH <boss> expected (stock)` (never the runner's `DEATH`); the run ends there, and `NOTSHOWN Apex: the control player is dead` is not a not-shown case; no CustomDifficulty `HIT` line. A player who survives the stock grab is a driver FAIL |
 
 ### Story 14 scenarios (the Insta-kill boxes)
 
@@ -493,7 +493,7 @@ after the tick (true), the untick (false), selecting DT6-A (false), the reopen (
 
 ## The user's check (the epic's success signal, by hand)
 
-On the dev copy, with Nucleus 0.15.0 or later and Difficulty deployed without `-Test` (so no `dev.lua`), launched
+On the dev copy, with Nucleus 0.15.0 or later and CustomDifficulty deployed without `-Test` (so no `dev.lua`), launched
 through `tools/launch.ps1`. About 15 minutes. `signal` automates the same steps in the VM; this check is yours and
 replaces neither.
 
@@ -507,7 +507,7 @@ replaces neither.
 4. Launch again, START GAME, CONFIGURE, pick `MY-SIGNAL` in the preset selector. Look: Difficulty Nightmare and all eight
    rows as you set them (an empty box would be Default).
 5. Pick **Friends-Only**, then create the world (solo). In `ue4ss/UE4SS.log` the line
-   `[Difficulty] MATCH start knobs=enemyDamage=25 spread=20 revives=8 classifiedTokens=2 classifiedTokensMax=3 cold=0 frostbite=0 dmg.stalker=200` must appear,
+   `[CustomDifficulty] MATCH start knobs=enemyDamage=25 spread=20 revives=8 classifiedTokens=2 classifiedTokensMax=3 cold=0 frostbite=0 dmg.stalker=200` must appear,
    with nothing else in it.
 6. Stand outside for a minute: the freeze meter doesn't rise (Cold Exposure 0), and you lose no Health to frostbite.
 7. Let a Meek grab you at full Health: you survive, losing about 25 (15 to 35). Heal to full, then let a Stalker grab you: it costs about 50 (30 to
@@ -533,7 +533,7 @@ replaces neither.
 ### Story 2 (test-only, never shipped)
 
 - `test/run-probe.ps1 -Instance <copy>`: the solo probe (`test/DifficultyProbe`) on the host or in the VM.
-- `test/run-pair.ps1 -Workspace <workspace>`: the pair scenarios (`test/pair/difficulty-scenarios.ps1`, driver
+- `test/run-pair.ps1 -Workspace <workspace>`: the pair scenarios (`test/pair/custom-difficulty-scenarios.ps1`, driver
   `test/DifficultyPair`) through the workspace's `tools/vm/pair.ps1`, under `dumps\vm.lock`, with NNB's memory set
   for the run and restored afterwards. On V8.2 (story 9, 2026-11-09) all three ended Outcome PASS,
   Verdict REVIEW: no FAIL line, and the panel and counts were read by hand (`knob-mechanics.md`, Reinforcement
@@ -545,22 +545,22 @@ replaces neither.
   (`ScenarioReport.Revive.Misses`): it fails without B's `REQUEST terminal result host before=... now=<non-empty>
   moved=true`, with a B `REQUEST fallback` line, without `OK REVIVE past the limit` on either machine, on any driver
   FAIL or on an END that isn't PASS.
-- `d17-frost` (story 17, DW-40): the host runs core and Difficulty with `dev.lua` `frostbite=3` in a Normal lobby
+- `d17-frost` (story 17, DW-40): the host runs core and CustomDifficulty with `dev.lua` `frostbite=3` in a Normal lobby
   (difficulty.txt 2, as the solo `frostbite` case); B runs UE4SS and `DifficultyPair` only (`client-frost`). The host (`host-frost`) holds
   its own Temperature at 0 and clears natural enemies throughout, holds B's at 1.5 every tick, and after a 3 s lead
   sets B's Health to 100, signals `fz-start` and counts `CallFrostbiteDamageEvent` calls on B (amount 1 or 2) for
   20 s; then B's Temperature goes to 0, `fz-end`, `FROSTRUN pair end ...` and a check that B lost 60 +- 6 with at
   least one call (none is `NOTSHOWN frostbite on B` and a FAIL). B checks its own Health 3 s after `fz-end`
   (`FROSTB me hp=<v> loss=<v>`, 60 +- 6). Misses (`ScenarioReport.D17.Misses`): no host `MATCH start
-  knobs=frostbite=3`, fewer than 15 Difficulty `HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3
-  applied=3`, a Difficulty `WARN clash`, no host `OK FROSTRUN` or B `OK FROSTB`, any driver FAIL, an END not PASS,
-  any Difficulty line on B. Verdict PASS needs no miss and the session's Outcome PASS. Run it first after an NNB boot
+  knobs=frostbite=3`, fewer than 15 CustomDifficulty `HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3
+  applied=3`, a CustomDifficulty `WARN clash`, no host `OK FROSTRUN` or B `OK FROSTB`, any driver FAIL, an END not PASS,
+  any CustomDifficulty line on B. Verdict PASS needs no miss and the session's Outcome PASS. Run it first after an NNB boot
   (`-Scenarios d17-frost,dp-revive`): it also shows the first join works.
 
 ### Story 5 pair scenarios
 
 `test/run-pair.ps1 -Workspace <workspace> -Scenarios d5-grab-modded,d5-grab-unmodded,d5-host-vanilla`: the real
-Nucleus (`mods/Nucleus/build/package`, which must satisfy `dependsOn`) and the real Difficulty (staged with a test
+Nucleus (`mods/Nucleus/build/package`, which must satisfy `dependsOn`) and the real CustomDifficulty (staged with a test
 `dev.lua`, host knobs `enemyDamage=25`) on the machines that run them, in a Nightmare friends-only lobby;
 `DifficultyPair` only spawns a Meek, Mimic, Psycho, Stalker and Watcher (last) in front of B (`host-spawn`, no Husk: a
 survivable Husk grab infects by design) and watches (`client-watch`), never flips. Since story 11 the harness keeps B
@@ -587,8 +587,8 @@ grabbed the host while B was its `Target` (decided for the host, B untouched), a
   B's driver sees the survivable montage and B is alive and moving 6 s later. `RECOVER` lines are reported.
 - `d5-grab-unmodded`: B has only UE4SS and the watcher. FAILs unless the host logs `spare=no(absent)` and the game's
   decision, B's montage matches it, B is revived after each death and the session keeps two players.
-- `d5-host-vanilla`: the host has neither core nor Difficulty, B is modded. FAILs unless B logs exactly one
-  `host has no Difficulty, inactive` line and no `GRAB`, `RESTORE` or `RECOVER`.
+- `d5-host-vanilla`: the host has neither core nor CustomDifficulty, B is modded. FAILs unless B logs exactly one
+  `host has no CustomDifficulty, inactive` line and no `GRAB`, `RESTORE` or `RECOVER`.
 - `d14-kill-modded` (story 14): both machines modded, host knobs `enemyDamage=25;kill.meek=1`. FAILs unless the
   Meek's grab on B logs `decision=e ... kill=yes` on both machines (host `victim=client spare=yes`, B
   `victim=local`), the host's Meek HIT is `kind=execution` applying at least Health, B's driver sees the execution
@@ -596,7 +596,7 @@ grabbed the host while B was its `Target` (decided for the host, B untouched), a
   enemy still spares B without `kill=yes`, B logs no inactive line and both drivers end PASS with the session held
   (misses in `ScenarioReport.D14.Misses`).
 - `d10-measure` (story 10, a measurement): the host runs only the driver (`host-spawn` with `measure.txt`: no core,
-  no Difficulty, each enemy hit costs 25 HP, only the Meek and the Watcher), B runs core, Difficulty (inactive, so its
+  no CustomDifficulty, each enemy hit costs 25 HP, only the Meek and the Watcher), B runs core, CustomDifficulty (inactive, so its
   recovery runs after the game's own execution) and `client-watch` with `measure.txt`. Both machines play the
   execution at full Health and B survives it; no enemy is despawned while it holds B and B isn't refilled within 17 s
   of a grab. B's state once a second for 16 s on both machines (`MYPOS` on B, `OTHERPOS` on the host, which logs
@@ -604,7 +604,7 @@ grabbed the host while B was its `Target` (decided for the host, B untouched), a
   before the match). Verdict `NOT-STUCK` when every judged execution shows B free (no montage playing, walking) on
   both machines and moving at least 10 cm on the host's screen within its 16 s, a Watcher EyeGouge and another
   enemy's included; `STUCK` when a full window never does; `INCONCLUSIVE` otherwise, and always when B never logged
-  `READY`, the host ran Difficulty or the two machines saw a different number of grabs on B (rows are paired by
+  `READY`, the host ran CustomDifficulty or the two machines saw a different number of grabs on B (rows are paired by
   order) (`ScenarioReport.D10`). In measure mode no hit leaves B below 1 HP. Run 2026-11-19
   (`d10-measure-20261119-045102`): `NOT-STUCK`. The host released B's movement 5 s after each Meek execution and
   8-9 s after each Watcher EyeGouge, and B walked on the host's screen (the driver's input walks about 18 cm/s, the
@@ -624,12 +624,12 @@ grabbed the host while B was its `Target` (decided for the host, B untouched), a
   70 <= Health <= 80, moving (`PlayingMontage` false, movement 1), no presentation. A B death is `BOSSDEATH <boss> on
   B` and a FAIL; B is revived and the next case runs. FAILs (misses in `ScenarioReport.D15.Misses`, per-boss rows in
   `ScenarioReport.D15.Rows`) without the host's `MATCH start knobs=enemyDamage=25`, per boss the host's
-  `BOSSCLD pre ... victim=other hp=100.00` and `BOSSCLD post`, Difficulty's `HIT enemy=<row> via=CommitLethalDamage
+  `BOSSCLD pre ... victim=other hp=100.00` and `BOSSCLD post`, CustomDifficulty's `HIT enemy=<row> via=CommitLethalDamage
   ... applied=25 hp=100 kind=hit`, every `BOSSSTATE` t=0/6/12 and all three `OK boss <b> ...` verdicts on both
   machines; on a `NOTSHOWN`, a `BOSSDEATH`, any driver FAIL, an END not PASS or an inactive line on B. Passed on
   V8.2.3 on 2026-11-19 (`d15-boss-pair-20261119-061727`; misses, none there, in `ScenarioReport.D15.Misses`).
 The verdict is in `dumps/<copy>/pair/<label>.json` (`ScenarioReport.Verdict`, misses in `ScenarioReport.D5.Misses`).
-The host copy must have no Nucleus or Difficulty of its own installed (`pair.ps1` refuses mods it didn't put there):
+The host copy must have no Nucleus or CustomDifficulty of its own installed (`pair.ps1` refuses mods it didn't put there):
 run their `deploy.ps1 -Remove` first. All three passed on V8.2.3 on 2026-11-17 with story 11's harness (Outcome and
 Verdict PASS, no miss, no driver FAIL; `docs/game-internals.md` in the workspace has the details).
 

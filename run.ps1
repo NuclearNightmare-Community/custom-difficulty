@@ -4,16 +4,16 @@
   driver), launch, serve key requests, wait, close, check.
 .DESCRIPTION
   Deploys with deploy.ps1 -Test -PreCore -Scenario <s> (the dev core mode: on a core that already satisfies
-  dependsOn, -PreCore changes nothing), so Difficulty gets the scenario's knobs in dev.lua and the driver
-  test/DifficultyDriver plays one solo hosted match (story 6's presets: the main menu only, no match). Launches only through the workspace's tools/launch.ps1 (which
+  dependsOn, -PreCore changes nothing), so CustomDifficulty gets the scenario's knobs in dev.lua and the driver
+  test/CustomDifficultyDriver plays one solo hosted match (story 6's presets: the main menu only, no match). Launches only through the workspace's tools/launch.ps1 (which
   passes -userdir). Stops when the driver logs its END line, the game exits (crash), or -TimeoutSec runs out (hang);
   then closes the game, force-killing it (and any crash reporter) after 15 s. Only ever stops the Shipping exe under
   this instance, never the real install or another copy.
   The driver writes "<seq> key ENTER" to its Scripts/request.txt for touchdown; this script posts the key to the
   game window's message queue (PostMessage WM_KEYDOWN/WM_KEYUP: no foreground change, no global input), then writes
   <seq> to done.txt.
-  Afterwards it deploys Difficulty again without the driver and dev.lua (a plain deploy.ps1 -Test -PreCore), keeps
-  the log as <workspace>/dumps/<copy>/difficulty/<scenario>.log (ignored by git) and runs check.ps1 on it. Exit code:
+  Afterwards it deploys CustomDifficulty again without the driver and dev.lua (a plain deploy.ps1 -Test -PreCore), keeps
+  the log as <workspace>/dumps/<copy>/custom-difficulty/<scenario>.log (ignored by git) and runs check.ps1 on it. Exit code:
   check.ps1's (0 passed, 1 failed, 2 not shown: the driver couldn't make the case happen, e.g. an enemy didn't attack
   in time, the player wasn't outdoors, no frostbite tick came).
   Refuses to start while another runner's test or driver mod is enabled in the copy (the workspace's tools/run-guard:
@@ -22,7 +22,7 @@
   it runs. No game runs on the host without asking the user first.
   -Target vm runs the scenario in the Hyper-V VM NNB instead (the workspace's tools/vm/vm-sp.ps1, tools/vm/README.md
   "Single-player tests in the VM"): Nucleus from the host's mods/Nucleus/build/package (its own deploy.ps1 -Staged),
-  then Difficulty and the driver (deploy.ps1 -Test -PreCore -Scenario <s> -Staged) go into the VM's copy of the same
+  then CustomDifficulty and the driver (deploy.ps1 -Test -PreCore -Scenario <s> -Staged) go into the VM's copy of the same
   build (C:\nn\<the instance's folder name>), the VM's game is launched, Enter is pressed there with
   tools/vm/vm-key.ps1, and the VM copy is put back as it was afterwards (so no redeploy without the driver is needed).
   It never builds and never touches the host's game copy or a host game, so it can run while someone plays on the
@@ -37,7 +37,7 @@
   then signal-b only after launch 1's PASS; the copy's saves are kept between them), neither with a dev.lua, judged
   once by check.ps1 -Scenario signal -Log <signal-b.vm.log> -FirstLog <signal-a.vm.log>. no-core stages no core;
   old-core stages an older core package already on disk (-OldCorePackage, else the first mods\Nucleus\build\package-*
-  whose version dependsOn refuses; none: "SKIPPED", exit 3, nothing run); both deploy Difficulty with -Force and the
+  whose version dependsOn refuses; none: "SKIPPED", exit 3, nothing run); both deploy CustomDifficulty with -Force and the
   driver only waits on the menu (host limit 300 s).
   Story 13: boss and boss-default (the bosses' finisher grabs at Enemy Damage 25, and the stock control) run like the
   story 3 scenarios (host limit 900 s); story 13 runs them only with -Target vm.
@@ -74,19 +74,21 @@ $hostTimeout = if ($hostTimeouts.ContainsKey($Scenario)) { $hostTimeouts[$Scenar
 if ($TimeoutSec -le 0 -and $Target -eq 'host') { $TimeoutSec = $hostTimeout }
 $CoreName = 'Nucleus'
 $here    = $PSScriptRoot
-$name    = (Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json).name
+$modJson = Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json
+$name    = $modJson.name
 $driver  = "${name}Driver"
 $inst    = (Resolve-Path $Instance).Path
 $root    = Split-Path (Split-Path $inst)
 . (Join-Path $root 'tools\run-guard\run-guard.ps1')
-$outDir  = Join-Path $root "dumps\$(Split-Path $inst -Leaf)\$($name.ToLowerInvariant())"
+# The dumps folder is the id's mod part (custom-difficulty), like the release file names.
+$outDir  = Join-Path $root "dumps\$(Split-Path $inst -Leaf)\$(($modJson.id -split '\.')[-1])"
 $ue4ss   = Join-Path $inst 'NuclearNightmare\Binaries\Win64\ue4ss'
 $log     = Join-Path $ue4ss 'UE4SS.log'
 $scripts = Join-Path $ue4ss "Mods\$driver\Scripts"
 $exeName = 'NuclearNightmare-Win64-Shipping'
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
-Add-Type -Namespace DifficultyRun -Name Win -MemberDefinition @'
+Add-Type -Namespace CustomDifficultyRun -Name Win -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool PostMessage(System.IntPtr h, uint msg, System.IntPtr w, System.IntPtr l);
 '@
 function Get-OurGame { Get-Process -Name $exeName -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($inst, [StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1 }
@@ -102,9 +104,9 @@ function Invoke-Request([string] $cmd) {
     $p = Get-OurGame
     $h = if ($p) { $p.MainWindowHandle } else { [IntPtr]::Zero }
     if ($h -eq [IntPtr]::Zero) { Write-Host '  key skipped: no game window'; return }
-    [void][DifficultyRun.Win]::PostMessage($h, 0x0100, [IntPtr]0x0D, [IntPtr]0x001C0001)            # WM_KEYDOWN, VK_RETURN
+    [void][CustomDifficultyRun.Win]::PostMessage($h, 0x0100, [IntPtr]0x0D, [IntPtr]0x001C0001)            # WM_KEYDOWN, VK_RETURN
     Start-Sleep -Milliseconds 80
-    [void][DifficultyRun.Win]::PostMessage($h, 0x0101, [IntPtr]0x0D, [IntPtr]([int64]0xC01C0001))   # WM_KEYUP
+    [void][CustomDifficultyRun.Win]::PostMessage($h, 0x0101, [IntPtr]0x0D, [IntPtr]([int64]0xC01C0001))   # WM_KEYUP
     Write-Host '  posted ENTER to the game window'
 }
 # deploy.ps1 ends with exit 1 when it refuses, so it always runs in its own pwsh. It deploys into $script:deployInst:
@@ -153,7 +155,7 @@ if ($Target -eq 'vm') {
             $run = Invoke-NNBSpRun -Instance $inst -TestMod $driver -Mods $CoreName, $driver, $name -Paks "$CoreName.pak" `
                 -EndPattern "\[$driver\] END result=" -TimeoutSec (Get-NNBSpTimeout $hostTimeout $TimeoutSec) -LogOut $kept -Prepare {
                     param($stage)
-                    $refusal = Get-RunGuardRefusal -Workspace $root -Instance $stage -Owner 'difficulty' -Bypass:$AllowOtherDrivers -Vm
+                    $refusal = Get-RunGuardRefusal -Workspace $root -Instance $stage -Owner 'custom-difficulty' -Bypass:$AllowOtherDrivers -Vm
                     if ($refusal) { throw $refusal }
                     if ($Scenario -eq 'old-core') {
                         # The older core, copied as its own deploy.ps1 would (its files, its pak, the first mods.txt line).
@@ -168,7 +170,7 @@ if ($Target -eq 'vm') {
                         if ($LASTEXITCODE -ne 0) { throw "$CoreName's deploy.ps1 failed in the stage (exit $LASTEXITCODE)" }
                     }
                     $script:deployInst = $stage
-                    # no-core, old-core: Difficulty's deploy.ps1 refuses without core or with too old a core; -Force installs anyway.
+                    # no-core, old-core: CustomDifficulty's deploy.ps1 refuses without core or with too old a core; -Force installs anyway.
                     $a = if ($Scenario -in 'no-core', 'old-core') { @('-Force', '-Test', '-Scenario', $Scenario) } else { @('-Test', '-PreCore', '-Scenario', $launch) }
                     Invoke-Deploy $a
                 }
@@ -199,7 +201,7 @@ if ($Target -eq 'vm') {
 }
 
 # A test mod another runner left enabled (or test/run-probe.ps1's probe) would fail this run in confusing ways.
-$refusal = Get-RunGuardRefusal -Workspace $root -Instance $inst -Owner 'difficulty' -Bypass:$AllowOtherDrivers
+$refusal = Get-RunGuardRefusal -Workspace $root -Instance $inst -Owner 'custom-difficulty' -Bypass:$AllowOtherDrivers
 if ($refusal) { Write-Host $refusal; exit 1 }
 if (Get-Process -Name 'NuclearNightmare*' -ErrorAction SilentlyContinue) { throw 'Nuclear Nightmare is already running (a dev copy or the real game); not launching.' }
 

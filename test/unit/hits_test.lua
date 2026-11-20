@@ -139,7 +139,7 @@ local function setup(opts)
         ref = (not opts.noRef) and function(o) T.refs = (T.refs or 0) + 1 T.handles[T.refs] = o return T.refs end or nil,
         deref = (not opts.noRef) and function(h) local o = T.handles[h] if o and not rawget(o, "_gone") then return o end return nil end or nil,
         free = (not opts.noRef) and function(h) T.handles[h] = nil T.freed = T.freed + 1 end or nil,
-        net = opts.net, modId = "nuclearnightmare-community.difficulty", version = opts.version or "0.1.0",
+        net = opts.net, modId = "nuclearnightmare-community.custom-difficulty", version = opts.version or "0.1.0",
         netCompat = opts.netCompat, netMissing = opts.netMissing,
     }
     local okI, why = T.H:install()
@@ -1143,7 +1143,7 @@ do -- a failed award write: one ERROR, every knob off
 end
 
 -- ---------------------------------------------------------------- story 5: survivable grabs on modded clients
-local NETID = "nuclearnightmare-community.difficulty."
+local NETID = "nuclearnightmare-community.custom-difficulty."
 local PRESENT = hits.PRESENT
 local function hv(t) local v = {} for k, x in pairs(t) do v[NETID .. k] = x end return v end
 local function present(victim, attacker) return W.fire(PRESENT, W.p(T.ctx), W.p(attacker), W.p(victim)) end
@@ -1182,7 +1182,7 @@ do
     W.fire(GSC .. ":UpdateFriendlyFire", W.p(T.gs))
     eq(#net.published, 4, "publish: once per match")
 end
-do -- all Default: ver and compat only, so a client tells Default apart from no Difficulty
+do -- all Default: ver and compat only, so a client tells Default apart from no CustomDifficulty
     local net = F.net()
     setup{ knobs = nil, net = net }
     eq(#net.published, 2, "publish all Default: ver and compat")
@@ -1246,7 +1246,7 @@ do -- the host backs off mid-match: compat republished as VER_MAX, so a client r
     clientSetup(state)
     eq(meekGrab(T.me), "e", "back-off: the client keeps the game's decision")
     eq(T.me.writes, 0, "back-off: the client writes nothing")
-    eq(count("^host has no Difficulty, inactive %(incompatible%)$"), 1, "back-off: the client is inactive (incompatible)", dump())
+    eq(count("^host has no CustomDifficulty, inactive %(incompatible%)$"), 1, "back-off: the client is inactive (incompatible)", dump())
 end
 do -- a guarded hook body raises mid-match: guard's back-off also republishes compat as VER_MAX
     local net = F.net()
@@ -1270,7 +1270,7 @@ do -- a compatible client: spared; the host applies at most 99 (here 25)
     eq(picked, "s", "modded client: the host's own test picks survivable")
     eq(T.other._hp, 100, "modded client: restored in the multicast hook")
     eq(count("^GRAB enemy=meek hp=100 E=25 game=e decision=s flip=101 victim=client spare=yes$"), 1, "modded client: GRAB line", dump())
-    eq(net.compatCalls[1], "nuclearnightmare-community.difficulty", "modded client: compatible asked with the mod's own id")
+    eq(net.compatCalls[1], "nuclearnightmare-community.custom-difficulty", "modded client: compatible asked with the mod's own id")
     lockedHit(T.meek, 100)
     eq(T.other._hp, 75, "modded client: the survivable hit (<= 99)")
     eq(count("kind=survivable$"), 1, "modded client: kind=survivable")
@@ -1352,7 +1352,7 @@ for _, case in ipairs({ { nil, nil, "absent" }, { "no-state", nil, "no-state" },
     eq(T.me.writes, 0, "client, " .. case[3] .. ": no write")
     T.now = T.now + 30
     meekGrab(T.me)
-    eq(count("^host has no Difficulty, inactive %(" .. (case[3]:gsub("%-", "%%-")) .. "%)$"), 1, "client, " .. case[3] .. ": one inactive line for two grabs", dump())
+    eq(count("^host has no CustomDifficulty, inactive %(" .. (case[3]:gsub("%-", "%%-")) .. "%)$"), 1, "client, " .. case[3] .. ": one inactive line for two grabs", dump())
     eq(count("^GRAB "), 0, "client, " .. case[3] .. ": no GRAB")
     eq(count("^RESTORE "), 0, "client, " .. case[3] .. ": no RESTORE")
     -- A new world: the line again (once per world).
@@ -1366,7 +1366,7 @@ do -- incompatible host version: no change, inactive (incompatible)
     clientSetup(hv{ ver = 2000, compat = 2000, enemyDamage = 25 })
     eq(meekGrab(T.me), "e", "incompatible host: the game's decision")
     eq(T.me.writes, 0, "incompatible host: no write")
-    eq(count("^host has no Difficulty, inactive %(incompatible%)$"), 1, "incompatible host: one inactive line", dump())
+    eq(count("^host has no CustomDifficulty, inactive %(incompatible%)$"), 1, "incompatible host: one inactive line", dump())
     -- A newer patch with an older netCompat on either side is compatible.
     clientSetup(hv{ ver = 1005, compat = 1000, enemyDamage = 25 })
     eq(meekGrab(T.me), "s", "host 0.1.5: compatible")
@@ -1955,7 +1955,7 @@ do -- client attacked with no usable host values: the inactive line, as today
     addWatcher()
     eq(watcherGrab(T.other, T.me, { noLock = true }), "e", "client attacked, no host values: the game's decision")
     eq(T.me.writes, 0, "client attacked, no host values: no write")
-    eq(count("^host has no Difficulty, inactive %(absent%)$"), 1, "client attacked, no host values: one inactive line", dump())
+    eq(count("^host has no CustomDifficulty, inactive %(absent%)$"), 1, "client attacked, no host values: one inactive line", dump())
     eq(count("^GRAB "), 0, "client attacked, no host values: no GRAB")
 end
 do -- another AI's grab on v: a Meek has v locked, the Watcher's stale AttackedPlayer is the other player: decided for v

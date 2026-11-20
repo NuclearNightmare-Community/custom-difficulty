@@ -1,11 +1,11 @@
--- Difficulty: the host's match state and every gameplay hook (spec-difficulty-v1 stories 3 and 4; knob-mechanics.md).
+-- CustomDifficulty: the host's match state and every gameplay hook (spec-difficulty-v1 stories 3 and 4; knob-mechanics.md).
 -- Story 3: enemy damage on the host and survivable grabs for the host's own player (attribution, Health
 -- compensation, the grab flip and its restore, the guards against other mods; the math is damage.lua's). Story 4:
 -- frostbite in the CallFrostbiteDamageEvent pre-hook (V8.2's native), cold in the host poll (env.lua), reinforcement
 -- tokens at the match start, in the radio's server-event callbacks and in the poll (tokens.lua); story 12 adds the
 -- classified bonus (tokens.classified) in the game state's UpdateClassifieds callback and the poll. Story 5: survivable
 -- grabs on modded clients. The host publishes the grab inputs through core.net at the match start (net.lua) and spares
--- a client victim only when core's presence says its machine runs a compatible Difficulty; a modded client flips only
+-- a client victim only when core's presence says its machine runs a compatible CustomDifficulty; a modded client flips only
 -- its own player's grab from the host's values (HasPerk(0x27) for the five AI grabs, the BeginStalkerPresentation
 -- pre-hook for the Stalker); every machine runs the 6 s recovery for its own player after an execution began.
 --
@@ -131,7 +131,7 @@ A.__index = A
 -- (the KismetSystemLibrary:IsValid UFunction), opts.clock() (s), opts.rng() ([0, 1)), opts.seed(n), opts.micros()
 -- (core's microsecond clock, optional: the poll's cost; os.clock otherwise), opts.ref / deref / free (core's weak
 -- handles, optional: the match's game state for the poll; without them the poll falls back to a FindAllOf).
--- Story 5: opts.net (core.net), opts.modId (Difficulty's own mod.json id), opts.version (VERSION), opts.netCompat
+-- Story 5: opts.net (core.net), opts.modId (CustomDifficulty's own mod.json id), opts.version (VERSION), opts.netCompat
 -- (mod.json's netCompat, nil: core's default), opts.netMissing (the first core feature missing, nil when all are
 -- there: then the host spares only its own player and a client stays inactive).
 function M.new(opts)
@@ -668,7 +668,7 @@ function A:flipFor(v, vpath, hp, g, enemy)
 end
 
 -- spareClient(v) -> true | false, why: the host spares a client victim only when core's presence reports its machine
--- running a Difficulty compatible with the host's (core's netCompat rule), keyed by the victim pawn's own PlayerState.
+-- running a CustomDifficulty compatible with the host's (core's netCompat rule), keyed by the victim pawn's own PlayerState.
 function A:spareClient(v)
     local o = self.o
     if o.netMissing then return false, "core" end
@@ -729,7 +729,7 @@ end
 function A:inactive(reason)
     if self.st.inactiveSaid then return end
     self.st.inactiveSaid = true
-    self.o.say("info", "host has no Difficulty, inactive (%s)", tostring(reason))
+    self.o.say("info", "host has no CustomDifficulty, inactive (%s)", tostring(reason))
 end
 
 -- hostValues() -> values | nil: the host's published grab inputs, read now (never cached), checked against this

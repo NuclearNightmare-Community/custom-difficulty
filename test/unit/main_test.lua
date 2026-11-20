@@ -75,7 +75,7 @@ local function boot(opts)
 end
 local function newCore(version)
     local N = F.net()
-    return { name = "Nucleus", version = version or "0.15.0", log = newLog("Difficulty"), net = N, has = N.has, ui = F.ui() }
+    return { name = "Nucleus", version = version or "0.15.0", log = newLog("CustomDifficulty"), net = N, has = N.has, ui = F.ui() }
 end
 -- As core's connect: onReady only when the core satisfies need; otherwise core's one ERROR line and onFail.
 local function ready(core)
@@ -93,13 +93,13 @@ local function ready(core)
 end
 local function lines(pat) local r = {} for _, l in ipairs(W.printed) do if l:find(pat) then r[#r + 1] = l end end return r end
 local function count(pat) return #lines(pat) end
-local function ours() return count("^%[Difficulty%]") end
+local function ours() return count("^%[CustomDifficulty%]") end
 
 -- ---------------------------------------------------------------- no core (CAP-7)
 do
     boot{ client = false }
     eq(#W.printed, 1, "no core: exactly one line")
-    eq(W.printed[1], "[Difficulty] Nucleus is not installed. Difficulty will not run.", "no core: the line names the cause")
+    eq(W.printed[1], "[CustomDifficulty] Nucleus is not installed. CustomDifficulty will not run.", "no core: the line names the cause")
     eq(#S.connects, 0, "no core: no connect")
     eq(#W.loadMapHooks, 0, "no core: no hook")
 end
@@ -109,18 +109,18 @@ do
     boot()
     eq(#S.connects, 1, "connect called once")
     local c = S.connects[1]
-    ok(c.mod == "Difficulty" and c.need == "0.15.0", "connect{ mod = 'Difficulty', need = '0.15.0' }", tostring(c.mod) .. " " .. tostring(c.need))
+    ok(c.mod == "CustomDifficulty" and c.need == "0.15.0", "connect{ mod = 'CustomDifficulty', need = '0.15.0' }", tostring(c.mod) .. " " .. tostring(c.need))
     eq(#W.printed, 0, "nothing printed during main.lua")
     eq(#W.loadMapHooks, 0, "no hook before connect succeeds")
     -- old core: connect logs the one ERROR line itself; onFail adds nothing and registers nothing.
-    c.onFail("Nucleus 0.3.0 is older than Difficulty needs (0.15.0). Update Nucleus.")
+    c.onFail("Nucleus 0.3.0 is older than CustomDifficulty needs (0.15.0). Update Nucleus.")
     eq(#W.printed, 0, "onFail adds no line (connect logged the cause)")
     eq(#W.loadMapHooks, 0, "onFail: no hook registered")
 end
 do -- connect itself raises: one ERROR line, no hook.
     boot{ connectThrows = true }
     eq(ours(), 1, "connect throws: exactly one line")
-    eq(count("^%[Difficulty%] ERROR Nucleus's connect failed: .* Difficulty will not run%.$"), 1, "connect throws: the ERROR names it")
+    eq(count("^%[CustomDifficulty%] ERROR Nucleus's connect failed: .* CustomDifficulty will not run%.$"), 1, "connect throws: the ERROR names it")
     eq(#W.loadMapHooks, 0, "connect throws: no hook")
 end
 
@@ -130,8 +130,8 @@ do
     local core = newCore("0.15.0")
     ready(core)
     eq(#W.loadMapHooks, 1, "one LoadMap hook after connect")
-    eq(count("^%[Difficulty%] WORLD host=false standalone=true map=NewMainMenu$"), 1, "the menu world evaluated at ready")
-    eq(count("^%[Difficulty%] READY version=0%.1%.0 Nucleus=0%.15%.0 need=0%.15%.0$"), 1, "READY line")
+    eq(count("^%[CustomDifficulty%] WORLD host=false standalone=true map=NewMainMenu$"), 1, "the menu world evaluated at ready")
+    eq(count("^%[CustomDifficulty%] READY version=0%.2%.0 Nucleus=0%.15%.0 need=0%.15%.0$"), 1, "READY line")
     local iw, ir
     for i, l in ipairs(W.printed) do if l:find("WORLD", 1, true) then iw = iw or i end if l:find("READY", 1, true) then ir = i end end
     ok(iw and ir and iw < ir, "WORLD for the current world comes before READY")
@@ -145,14 +145,14 @@ do
     eq(count("WORLD host=false standalone=true map=NewMainMenu"), 1, "the same world again: still one WORLD line")
     -- A hosted match.
     W.loadMapHooks[1](nil, W.param(W.match))
-    eq(count("^%[Difficulty%] WORLD host=true standalone=false map=SmallMap$"), 1, "hosted match: host=true once")
+    eq(count("^%[CustomDifficulty%] WORLD host=true standalone=false map=SmallMap$"), 1, "hosted match: host=true once")
     W.loadMapHooks[1](nil, W.param(W.match))
     eq(count("WORLD host=true"), 1, "the match world again: still once")
     -- Back to the menu, then a client world.
     W.loadMapHooks[1](nil, W.param(W.menu))
     eq(count("WORLD host=false standalone=true map=NewMainMenu"), 2, "back to the menu: a new world, logged")
     W.loadMapHooks[1](nil, W.param(W.world("/Game/Maps/SmallLoweIsland/SmallMap.SmallMap", "client")))
-    eq(count("^%[Difficulty%] WORLD host=false standalone=false map=SmallMap$"), 1, "a client world: host=false")
+    eq(count("^%[CustomDifficulty%] WORLD host=false standalone=false map=SmallMap$"), 1, "a client world: host=false")
     -- The hook body never throws out: a nil world is reported once.
     W.loadMapHooks[1](nil, nil)
     W.loadMapHooks[1](nil, nil)
@@ -165,8 +165,8 @@ do -- IsServer fails in the match: one WARN, isHost false for that world.
     W.serverFails = true
     W.loadMapHooks[1](nil, W.param(W.match))
     W.loadMapHooks[1](nil, W.param(W.match)) -- the same world again (as ready + LoadMap): still one WARN
-    eq(count("^%[Difficulty%] WARN isHost for SmallMap: IsServer failed"), 1, "IsServer fails: one WARN")
-    eq(count("^%[Difficulty%] WORLD host=false standalone=%? map=SmallMap$"), 1, "IsServer fails: host=false")
+    eq(count("^%[CustomDifficulty%] WARN isHost for SmallMap: IsServer failed"), 1, "IsServer fails: one WARN")
+    eq(count("^%[CustomDifficulty%] WORLD host=false standalone=%? map=SmallMap$"), 1, "IsServer fails: host=false")
     eq(count("ERROR"), 0, "IsServer fails: no ERROR")
 end
 do -- No world at ready: nothing logged for it, the next LoadMap is evaluated.
@@ -182,7 +182,7 @@ do -- RegisterLoadMapPostHook fails: one ERROR, no READY.
     boot()
     RegisterLoadMapPostHook = function() error("no") end
     ready(newCore())
-    eq(count("^%[Difficulty%] ERROR could not register the LoadMap hook"), 1, "hook registration fails: one ERROR")
+    eq(count("^%[CustomDifficulty%] ERROR could not register the LoadMap hook"), 1, "hook registration fails: one ERROR")
     eq(count("READY"), 0, "hook registration fails: no READY")
 end
 do -- main.lua passes core's weak handles and clock into hits: a hosted cold match refs the game state and the COLD
@@ -219,7 +219,7 @@ do -- main.lua passes core's weak handles and clock into hits: a hosted cold mat
     loop() ch.Temperature = 0.14 loop()
     ok(math.abs(ch.Temperature - 0.11) < 1e-9, "wiring: the poll scales through main.lua's hits", ch.Temperature)
     now = now + 11 loop()
-    eq(count("^%[Difficulty%] COLD raw=.* clock=core$"), 1, "wiring: the COLD line says clock=core")
+    eq(count("^%[CustomDifficulty%] COLD raw=.* clock=core$"), 1, "wiring: the COLD line says clock=core")
     ok(refs >= 2, "wiring: the characters are held through core.ref too")
     os.clock = realClock
 end
@@ -227,7 +227,7 @@ do -- The poll can't start: one ERROR, READY still.
     boot()
     LoopInGameThreadWithDelay = function() error("no loop") end
     ready(newCore())
-    eq(count("^%[Difficulty%] ERROR the host poll could not start %(.*no loop%); cold stays stock$"), 1, "poll fails to start: one ERROR")
+    eq(count("^%[CustomDifficulty%] ERROR the host poll could not start %(.*no loop%); cold stays stock$"), 1, "poll fails to start: one ERROR")
     eq(count("READY"), 1, "poll fails to start: still READY")
 end
 do -- A failing core logger falls back to print.
@@ -235,7 +235,7 @@ do -- A failing core logger falls back to print.
     local core = newCore()
     core.log.info = function() error("logger broke") end
     ready(core)
-    eq(count("^%[Difficulty%] READY "), 1, "logger fails: READY still printed")
+    eq(count("^%[CustomDifficulty%] READY "), 1, "logger fails: READY still printed")
 end
 
 -- ---------------------------------------------------------------- dev.lua and the dev core mode
@@ -246,10 +246,10 @@ do
     ok(type(env) == "table" and next(env) == nil, "dev.lua loaded with an empty environment")
     local core = newCore("0.3.0")
     ready(core)
-    eq(count("^%[Difficulty%] WARN running on Nucleus 0%.3%.0 before 0%.4%.0 %(dev only%): no UI$"), 1, "preCore: one pre-core WARN")
+    eq(count("^%[CustomDifficulty%] WARN running on Nucleus 0%.3%.0 before 0%.4%.0 %(dev only%): no UI$"), 1, "preCore: one pre-core WARN")
     eq(count("WARN"), 1, "preCore: no other WARN")
     ok(core.log.debugEnabled == true, "debug = true turns DEBUG lines on")
-    eq(count("READY version=0%.1%.0 Nucleus=0%.3%.0 need=0%.3%.0$"), 1, "preCore: READY names need 0.3.0")
+    eq(count("READY version=0%.2%.0 Nucleus=0%.3%.0 need=0%.3%.0$"), 1, "preCore: READY names need 0.3.0")
     W.loadMapHooks[1](nil, W.param(W.menu))
     eq(count("DEBUG WORLD again map=NewMainMenu"), 1, "debug: the repeat is a DEBUG line")
 end
@@ -258,19 +258,19 @@ do -- dev.lua without preCore (what deploy -Test -PreCore writes on core 0.4.x) 
     eq(S.connects[1].need, "0.15.0", "dev.lua without preCore: need 0.15.0")
     ok(ready(newCore("0.15.0")), "dev.lua without preCore on core 0.15.0: connects")
     eq(count("running on"), 0, "dev.lua without preCore: no pre-core WARN")
-    eq(count("READY version=0%.1%.0 Nucleus=0%.15%.0 need=0%.15%.0$"), 1, "dev.lua without preCore: READY need 0.15.0")
+    eq(count("READY version=0%.2%.0 Nucleus=0%.15%.0 need=0%.15%.0$"), 1, "dev.lua without preCore: READY need 0.15.0")
 end
 do -- preCore on core 0.15.0 needs 0.3.0, a minimum 0.15.0 meets (core's rule since 0.5.0): connect accepts (DW-86).
     boot{ dev = "return { debug = true, preCore = true }" }
     ok(ready(newCore("0.15.0")), "preCore on core 0.15.0: connect accepts")
     eq(count("ERROR"), 0, "preCore on core 0.15.0: no ERROR line")
-    eq(count("READY version=0%.1%.0 Nucleus=0%.15%.0 need=0%.3%.0$"), 1, "preCore on core 0.15.0: READY names need 0.3.0")
-    eq(count("^%[Difficulty%] WARN running on Nucleus 0%.15%.0 before 0%.4%.0 %(dev only%): no UI$"), 1, "preCore on core 0.15.0: the pre-core WARN")
+    eq(count("READY version=0%.2%.0 Nucleus=0%.15%.0 need=0%.3%.0$"), 1, "preCore on core 0.15.0: READY names need 0.3.0")
+    eq(count("^%[CustomDifficulty%] WARN running on Nucleus 0%.15%.0 before 0%.4%.0 %(dev only%): no UI$"), 1, "preCore on core 0.15.0: the pre-core WARN")
 end
 do -- normal need 0.15.0 on core 0.3.0: refused with core's line (the old-core scenario).
     boot()
     ok(not ready(newCore("0.3.0")), "core 0.3.0, need 0.15.0: refused")
-    eq(count("^%[Difficulty%] ERROR Nucleus 0%.3%.0 is older than Difficulty needs %(0%.15%.0%)%. Update Nucleus%. Difficulty will not run%.$"), 1, "old core: core's one line")
+    eq(count("^%[CustomDifficulty%] ERROR Nucleus 0%.3%.0 is older than CustomDifficulty needs %(0%.15%.0%)%. Update Nucleus%. CustomDifficulty will not run%.$"), 1, "old core: core's one line")
     eq(ours(), 1, "old core: exactly one line")
     eq(#W.loadMapHooks, 0, "old core: no hook")
 end
@@ -279,7 +279,7 @@ do -- A broken dev.lua: ignored, one WARN after connect, normal need; nothing pr
     eq(#W.printed, 0, "broken dev.lua: nothing before connect")
     eq(S.connects[1].need, "0.15.0", "broken dev.lua: need 0.15.0")
     ready(newCore())
-    eq(count("^%[Difficulty%] WARN dev%.lua could not be read"), 1, "broken dev.lua: one WARN")
+    eq(count("^%[CustomDifficulty%] WARN dev%.lua could not be read"), 1, "broken dev.lua: one WARN")
     boot{ dev = "return 7" }
     ready(newCore())
     eq(count("WARN dev%.lua did not return a table"), 1, "dev.lua not a table: one WARN")
@@ -313,19 +313,19 @@ do
     for _, k in ipairs(P.ORDER) do eq(W.count(P.PATHS[k]), 1, "ready: preset hook registered: " .. k) end
     local S = F.screen(W, { "A" })
     S:open()
-    eq(count("^%[Difficulty%] PRESETS open presets=1 entries=0 changed=true$"), 1, "open through main.lua")
+    eq(count("^%[CustomDifficulty%] PRESETS open presets=1 entries=0 changed=true$"), 1, "open through main.lua")
     S:capture()
-    eq(count("^%[Difficulty%] PRESETS capture knobs=all Default$"), 1, "no preset selected: capture all Default")
+    eq(count("^%[CustomDifficulty%] PRESETS capture knobs=all Default$"), 1, "no preset selected: capture all Default")
     W.loadMapHooks[1](nil, W.param(W.match))
     W.fire(UFF, W.p(nil))
-    eq(count("^%[Difficulty%] MATCH start knobs=all Default$"), 1, "release, no preset selected: MATCH start all Default")
+    eq(count("^%[CustomDifficulty%] MATCH start knobs=all Default$"), 1, "release, no preset selected: MATCH start all Default")
     eq(W.count(P.PATHS.construct), 1, "LoadMap: preset hooks not registered twice")
     eq(count("WARN"), 0, "presets wiring: no WARN")
     eq(count("ERROR"), 0, "presets wiring: no ERROR")
 
     -- A preset whose sidecar entry has values (a hand-edited file before story 7): select, capture, match start.
-    local f = io.open(dir .. "/SaveGames/Difficulty_WorldPresets.txt", "wb")
-    f:write("# Difficulty world presets, format 2\n0\tA\tenemyDamage=17\n")
+    local f = io.open(dir .. "/SaveGames/CustomDifficulty_WorldPresets.txt", "wb")
+    f:write("# CustomDifficulty world presets, format 2\n0\tA\tenemyDamage=17\n")
     f:close()
     boot()
     W.savedDir = dir .. "/"
@@ -334,10 +334,10 @@ do
     S:open()
     S:select(1)
     S:capture()
-    eq(count("^%[Difficulty%] PRESETS capture knobs=enemyDamage=17$"), 1, "the selected preset's values captured")
+    eq(count("^%[CustomDifficulty%] PRESETS capture knobs=enemyDamage=17$"), 1, "the selected preset's values captured")
     W.loadMapHooks[1](nil, W.param(W.match))
     W.fire(UFF, W.p(nil))
-    eq(count("^%[Difficulty%] MATCH start knobs=enemyDamage=17$"), 1, "the capture reaches the match start")
+    eq(count("^%[CustomDifficulty%] MATCH start knobs=enemyDamage=17$"), 1, "the capture reaches the match start")
 
     -- dev.lua knobs win over the capture.
     boot{ dev = 'return { knobs = "cold=50" }' }
@@ -349,7 +349,7 @@ do
     S:capture()
     W.loadMapHooks[1](nil, W.param(W.match))
     W.fire(UFF, W.p(nil))
-    eq(count("^%[Difficulty%] MATCH start knobs=cold=50$"), 1, "dev.lua knobs win over the capture")
+    eq(count("^%[CustomDifficulty%] MATCH start knobs=cold=50$"), 1, "dev.lua knobs win over the capture")
     if isWin then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" >NUL 2>NUL') else os.execute('rm -rf "' .. dir .. '"') end
 end
 
@@ -364,20 +364,20 @@ do
     eq(#U.order, 21, "ready: 21 rows declared")
     eq(#U.watchers, 1, "ready: one createServer watcher")
     eq(U.watchers[1] and U.watchers[1].host, "createServer", "the watcher is on createServer")
-    eq(count("^%[Difficulty%] ROWS declared 21$"), 1, "one ROWS declared line")
+    eq(count("^%[CustomDifficulty%] ROWS declared 21$"), 1, "one ROWS declared line")
     local S = F.screen(W, {})
     S:open()
     U.open(F.tree({ "Overlay_28", "Overlay_738" }))
     eq(U.sliders["s-enemyDamage"].hint, "25", "opened on Normal: hint 25")
     U.input("s-enemyDamage", 57)
-    eq(count("^%[Difficulty%] ROWS change enemyDamage=57 rows=enemyDamage=57$"), 1, "a typed 57: the change line")
+    eq(count("^%[CustomDifficulty%] ROWS change enemyDamage=57 rows=enemyDamage=57$"), 1, "a typed 57: the change line")
     S:pick(0)
     eq(U.sliders["s-cold"].hint, "200", "the Difficulty picker: Cold's hint follows Nightmare")
     S:capture()
-    eq(count("^%[Difficulty%] PRESETS capture knobs=enemyDamage=57$"), 1, "the capture takes the slider's value")
+    eq(count("^%[CustomDifficulty%] PRESETS capture knobs=enemyDamage=57$"), 1, "the capture takes the slider's value")
     W.loadMapHooks[1](nil, W.param(W.match))
     W.fire(UFF, W.p(nil))
-    eq(count("^%[Difficulty%] MATCH start knobs=enemyDamage=57$"), 1, "the match starts with it")
+    eq(count("^%[CustomDifficulty%] MATCH start knobs=enemyDamage=57$"), 1, "the match starts with it")
     eq(count("ERROR"), 0, "rows wiring: no ERROR")
     eq(count("WARN"), 1, "rows wiring: only the sidecar's WARN")
     -- a second ready in the same Lua state never happens; the declare guard is rows_test's.
@@ -393,14 +393,14 @@ do
     core = newCore()
     core.ui = nil
     ready(core)
-    eq(count("^%[Difficulty%] WARN Nucleus 0%.15%.0 has no ui: the rows are not shown$"), 1, "no ui: one WARN")
+    eq(count("^%[CustomDifficulty%] WARN Nucleus 0%.15%.0 has no ui: the rows are not shown$"), 1, "no ui: one WARN")
     eq(count("READY"), 1, "no ui: still READY")
 
     boot() -- core.ui.row.create raises: one ERROR, READY still
     core = newCore()
     core.ui.fails["row.create"] = true
     ready(core)
-    eq(count("^%[Difficulty%] ERROR ROWS enemyDamage could not be declared"), 1, "row.create fails: one ERROR")
+    eq(count("^%[CustomDifficulty%] ERROR ROWS enemyDamage could not be declared"), 1, "row.create fails: one ERROR")
     eq(count("READY"), 1, "row.create fails: still READY")
 end
 
@@ -416,7 +416,7 @@ do
     eq(W.count(HASPERK), 1, "a hosted match: HasPerk hooked")
     eq(W.count(UFF), 1, "a hosted match: UpdateFriendlyFire hooked")
     W.fire(UFF, W.p(nil))
-    eq(count("^%[Difficulty%] MATCH start knobs=enemyDamage=17$"), 1, "dev.lua knobs reach the match start")
+    eq(count("^%[CustomDifficulty%] MATCH start knobs=enemyDamage=17$"), 1, "dev.lua knobs reach the match start")
     W.loadMapHooks[1](nil, W.param(W.menu))
     eq(W.count(HASPERK), 0, "back to the menu: the Blueprint hooks are unregistered")
     eq(count("ERROR"), 0, "story 3 wiring: no ERROR")
@@ -435,18 +435,18 @@ do
     ready(newCore())
     W.loadMapHooks[1](nil, W.param(W.match))
     W.fire(UFF, W.p(nil))
-    eq(count("^%[Difficulty%] MATCH start knobs=all Default$"), 1, "no dev.lua: every knob Default")
+    eq(count("^%[CustomDifficulty%] MATCH start knobs=all Default$"), 1, "no dev.lua: every knob Default")
 
     boot{ dev = 'return { knobs = "bogus=1" }' }
     ready(newCore())
     W.loadMapHooks[1](nil, W.param(W.match))
     W.fire(UFF, W.p(nil))
-    eq(count("^%[Difficulty%] WARN knobs: unknown knob 'bogus'; ignored$"), 1, "a bad dev.lua knob: one WARN")
+    eq(count("^%[CustomDifficulty%] WARN knobs: unknown knob 'bogus'; ignored$"), 1, "a bad dev.lua knob: one WARN")
 
     boot()
     RegisterHook = function() error("no UFunction") end
     ready(newCore())
-    eq(count("^%[Difficulty%] ERROR could not hook ApplyLockedDamage, ApplyStalkerDamage, CommitLethalDamage, CallDamageEvent, CallFrostbiteDamageEvent; hits stay stock$"), 1, "natives can't be hooked: one ERROR")
+    eq(count("^%[CustomDifficulty%] ERROR could not hook ApplyLockedDamage, ApplyStalkerDamage, CommitLethalDamage, CallDamageEvent, CallFrostbiteDamageEvent; hits stay stock$"), 1, "natives can't be hooked: one ERROR")
     eq(count("READY"), 1, "natives can't be hooked: still READY (isHost works)")
 end
 
@@ -461,9 +461,9 @@ do -- a full core: no net line; the host publishes under mod.json's own id at th
     W.fire(UFF5, W.p(nil))
     local keys = {}
     for _, kv in ipairs(core.net.published) do keys[#keys + 1] = kv[1] .. "=" .. tostring(kv[2]) end
-    eq(table.concat(keys, ","), "nuclearnightmare-community.difficulty.enemyDamage=25,nuclearnightmare-community.difficulty.ver=1000,nuclearnightmare-community.difficulty.compat=1000",
+    eq(table.concat(keys, ","), "nuclearnightmare-community.custom-difficulty.enemyDamage=25,nuclearnightmare-community.custom-difficulty.ver=2000,nuclearnightmare-community.custom-difficulty.compat=2000",
         "publish: ver, compat and the set knob under mod.json's id")
-    eq(count("^%[Difficulty%] NET published enemyDamage=25 ver=1000 compat=1000$"), 1, "publish: one NET line")
+    eq(count("^%[CustomDifficulty%] NET published enemyDamage=25 ver=2000 compat=2000$"), 1, "publish: one NET line")
 end
 for _, missing in ipairs({ "net.publish", "net.read", "net.presence", "net.compatible", "net.versionsCompatible" }) do
     boot{ dev = 'return { knobs = "enemyDamage=25" }' }
@@ -472,12 +472,12 @@ for _, missing in ipairs({ "net.publish", "net.read", "net.presence", "net.compa
     feats[missing] = nil
     core.has = function(n) return feats[n] == true end
     ready(core)
-    eq(count("^%[Difficulty%] WARN Nucleus 0%.15%.0 has no " .. missing:gsub("%.", "%%.") .. ": survivable grabs only for the host's own player; as a client, inactive$"), 1, "no " .. missing .. ": one line naming it")
+    eq(count("^%[CustomDifficulty%] WARN Nucleus 0%.15%.0 has no " .. missing:gsub("%.", "%%.") .. ": survivable grabs only for the host's own player; as a client, inactive$"), 1, "no " .. missing .. ": one line naming it")
     eq(count("WARN"), 1, "no " .. missing .. ": nothing else")
     W.loadMapHooks[1](nil, W.param(W.match))
     W.fire(UFF5, W.p(nil))
     eq(#core.net.published, 0, "no " .. missing .. ": nothing published")
-    eq(count("^%[Difficulty%] MATCH start "), 1, "no " .. missing .. ": the host's match still starts")
+    eq(count("^%[CustomDifficulty%] MATCH start "), 1, "no " .. missing .. ": the host's match still starts")
 end
 do -- core without has() at all, or without core.net
     boot()
@@ -497,10 +497,10 @@ do -- the dev core mode on a core without net: the net line is INFO (the pre-cor
     core.has, core.net = nil, nil
     ready(core)
     eq(count("WARN"), 1, "preCore without net: one WARN (the pre-core line)")
-    eq(count("^%[Difficulty%] Nucleus 0%.3%.0 has no net%.publish: "), 1, "preCore without net: the net line as INFO")
+    eq(count("^%[CustomDifficulty%] Nucleus 0%.3%.0 has no net%.publish: "), 1, "preCore without net: the net line as INFO")
 end
 do -- mod.json without a usable id: named once; nothing published (the host spares only itself)
-    for _, case in ipairs({ { false, "mod%.json not found" }, { '{ "id": "Difficulty", "version": "0.1.0" }', "no usable id %(Difficulty%)" },
+    for _, case in ipairs({ { false, "mod%.json not found" }, { '{ "id": "CustomDifficulty", "version": "0.1.0" }', "no usable id %(CustomDifficulty%)" },
                             { '{ "version": "0.1.0" }', "no usable id %(nil%)" },
                             { '{ "id": "a.b", "version": "0.1.0", "netCompat": "x" }', "netCompat x is not x%.y%.z" } }) do
         boot{ dev = 'return { knobs = "enemyDamage=25" }', manifest = case[1] }
@@ -513,19 +513,19 @@ do -- mod.json without a usable id: named once; nothing published (the host spar
     end
 end
 do -- a netCompat in mod.json is published as compat; a nested "id" is not taken for the mod's own
-    boot{ manifest = '{ "settings": { "x": { "id": "no" } }, "id": "nuclearnightmare-community.difficulty", "version": "0.1.0", "netCompat": "0.0.9" }' }
+    boot{ manifest = '{ "settings": { "x": { "id": "no" } }, "id": "nuclearnightmare-community.custom-difficulty", "version": "0.1.0", "netCompat": "0.0.9" }' }
     local core = newCore()
     ready(core)
     W.loadMapHooks[1](nil, W.param(W.match))
     W.fire(UFF5, W.p(nil))
-    eq(core.net.published[1] and core.net.published[1][1], "nuclearnightmare-community.difficulty.ver", "a nested id is not taken")
+    eq(core.net.published[1] and core.net.published[1][1], "nuclearnightmare-community.custom-difficulty.ver", "a nested id is not taken")
     eq(core.net.published[2] and core.net.published[2][2], 9, "netCompat 0.0.9: compat=9")
 end
 
 -- ---------------------------------------------------------------- the constants
 do
     local src = assert(realOpen(MAIN, "r")):read("a")
-    ok(src:find('local ME, CORE, NEED = "Difficulty", "Nucleus", "0.15.0"', 1, true), "main.lua: ME, CORE, NEED constants")
+    ok(src:find('local ME, CORE, NEED = "CustomDifficulty", "Nucleus", "0.15.0"', 1, true), "main.lua: ME, CORE, NEED constants")
     ok(not src:find("HasAuthority", 1, true), "main.lua: isHost never from HasAuthority")
     ok(not src:find("LoopAsync", 1, true) and not src:find("ExecuteInGameThread%(") , "main.lua: no LoopAsync / ExecuteInGameThread")
     ok(not src:find("ui%.[%a]+%.[%a]+%(") and not src:find("ui%.place%("), "main.lua: no core.ui call (rows.lua is the only file that calls core.ui)")

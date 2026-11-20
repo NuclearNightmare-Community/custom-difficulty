@@ -9,7 +9,7 @@
   removes the probe and puts mods.txt back, also after Ctrl+C.
   -Target vm runs it in VM NNB through tools/vm/vm-sp.ps1 instead, under the workspace's dumps/vm.lock (created
   atomically, deleted in finally; refuses if another session holds it).
-  The log goes to <workspace>/dumps/<copy>/difficulty/probe[.vm].log, followed by a summary of the probe's lines.
+  The log goes to <workspace>/dumps/<copy>/custom-difficulty/probe[.vm].log, followed by a summary of the probe's lines.
   The probe needs no core. Steam must be running. Don't type into the game while it runs.
 .EXAMPLE
   ./run-probe.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.1.3-build26315336
@@ -28,7 +28,7 @@ $probe = 'DifficultyProbe'
 $src = Join-Path $PSScriptRoot $probe
 $inst = (Resolve-Path $Instance).Path
 $root = Split-Path (Split-Path $inst)
-$outDir = Join-Path $root "dumps\$(Split-Path $inst -Leaf)\difficulty"
+$outDir = Join-Path $root "dumps\$(Split-Path $inst -Leaf)\custom-difficulty"
 New-Item -ItemType Directory -Force $outDir | Out-Null
 $exeName = 'NuclearNightmare-Win64-Shipping'
 
@@ -45,7 +45,7 @@ function Install-Probe([string] $instance) {
     if ($Set) { Set-Content (Join-Path $dest 'Scripts\set.txt') $Set -NoNewline }
     $lines = @(Get-Content $txt | Where-Object { $_ -notmatch "^\s*$probe\s*:" })
     # Other test drivers (left by other runs) would run their own scenarios: off for this run (mods.txt is restored).
-    $lines = @($lines | ForEach-Object { if ($_ -match '^\s*(MarkersDriver|Markers|ClockDriver|Clock|PairDriver)\s*:\s*1\s*$') { "$($Matches[1]) : 0" } else { $_ } })
+    $lines = @($lines | ForEach-Object { if ($_ -match '^\s*(MarkersDriver|Markers|HudClockDriver|HudClock|PairDriver)\s*:\s*1\s*$') { "$($Matches[1]) : 0" } else { $_ } })
     $new = [Collections.Generic.List[string]]::new()
     $added = $false
     foreach ($l in $lines) {
@@ -102,7 +102,7 @@ function Send-Enter {
 if (Get-Process -Name 'NuclearNightmare*' -ErrorAction SilentlyContinue) { throw 'Nuclear Nightmare is already running (a dev copy or the real game); not launching.' }
 $ue4ss = Join-Path $inst 'NuclearNightmare\Binaries\Win64\ue4ss'
 $log = Join-Path $ue4ss 'UE4SS.log'
-$txtBackup = Join-Path $ue4ss 'mods.txt.difficulty-probe'
+$txtBackup = Join-Path $ue4ss 'mods.txt.custom-difficulty-probe'
 Copy-Item (Join-Path $ue4ss 'Mods\mods.txt') $txtBackup -Force
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $result = 'not started'

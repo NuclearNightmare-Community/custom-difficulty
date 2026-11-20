@@ -1,7 +1,8 @@
 {
-  "id": "nuclearnightmare-community.difficulty",
-  "name": "Difficulty",
-  "version": "0.1.0",
+  "id": "nuclearnightmare-community.custom-difficulty",
+  "name": "CustomDifficulty",
+  "displayName": "Custom Difficulty",
+  "version": "0.2.0",
   "scope": "all",
   "game": { "version": "V8.2.3", "build": "26601774" },
   "ue4ss": "v3.0.1-1181-g83330635",
@@ -36,5 +37,6 @@
     "dmg.infectedDog": { "type": "number", "min": 0, "max": 500, "step": 5, "default": null, "label": "Damage: Infected Dog", "scope": "host", "changeable": "menu", "source": "presets" },
     "dmg.infectedPlayer": { "type": "number", "min": 0, "max": 500, "step": 5, "default": null, "label": "Damage: Infected Player", "scope": "host", "changeable": "menu", "source": "presets" },
     "dmg.monster": { "type": "number", "min": 0, "max": 500, "step": 5, "default": null, "label": "Damage: Playable Monster", "scope": "host", "changeable": "menu", "source": "presets" }
-  }
+  },
+  "license": "MIT"
 }

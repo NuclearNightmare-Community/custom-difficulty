@@ -8,7 +8,7 @@ local H = F.harness("sidecar_test")
 local ok, eq = H.ok, H.eq
 local sc = require("sidecar")
 local knobs = require("knobs")
-local HDR = "# Difficulty world presets, format 2\n"
+local HDR = "# CustomDifficulty world presets, format 2\n"
 
 -- ---------------------------------------------------------------- knobs.encode (the values field)
 do
@@ -27,7 +27,7 @@ end
 -- ---------------------------------------------------------------- story 14: the Insta-kill boxes in the sidecar
 do
     local entries = { { index = 0, name = "A", values = { ["kill.meek"] = 1, enemyDamage = 25 } }, { index = 1, name = "B", values = {} } }
-    local text = sc.serialize(entries, "Difficulty")
+    local text = sc.serialize(entries, "CustomDifficulty")
     ok(text:find("0\tA\tenemyDamage=25;kill.meek=1\n", 1, true), "serialize: kill.meek=1 written", text)
     local e, p = sc.parse(text)
     ok(#p == 0 and e[1].values["kill.meek"] == 1 and e[1].values.enemyDamage == 25 and next(e[2].values) == nil, "round trip: A ticked, B unticked")
@@ -91,7 +91,7 @@ do -- oversized: 300 entries, and a 300 KiB file
     ok(p[1]:find("over 262144 bytes", 1, true) ~= nil, "300 KiB: the first problem is the size", p[1])
 end
 do -- other format
-    local e, p = sc.parse("# Difficulty world presets, format 3\n0\tA\tcold=50\n")
+    local e, p = sc.parse("# CustomDifficulty world presets, format 3\n0\tA\tcold=50\n")
     eq(#e, 0, "format 3: every entry Default")
     eq(#p, 1, "format 3: one problem")
     ok(p[1]:find("not format 2", 1, true) ~= nil, "format 3: the problem says so", p[1])
@@ -105,11 +105,11 @@ end
 
 -- ---------------------------------------------------------------- serialize
 do
-    local text, skipped = sc.serialize({ { index = 0, name = "A", values = { cold = 50 } }, { index = 1, name = "B\tx", values = {} } }, "Difficulty")
+    local text, skipped = sc.serialize({ { index = 0, name = "A", values = { cold = 50 } }, { index = 1, name = "B\tx", values = {} } }, "CustomDifficulty")
     eq(text, HDR .. "0\tA\tcold=50\n1\tB%09x\t\n", "serialize: header, encoded names, empty Default")
     eq(#skipped, 0, "nothing skipped")
     local long = ("\1"):rep(50) -- 150 bytes encoded
-    text, skipped = sc.serialize({ { index = 0, name = long, values = { cold = 5 } }, { index = 1, name = "B", values = {} } }, "Difficulty")
+    text, skipped = sc.serialize({ { index = 0, name = long, values = { cold = 5 } }, { index = 1, name = "B", values = {} } }, "CustomDifficulty")
     eq(text, HDR .. "1\tB\t\n", "long name: entry not written")
     eq(#skipped, 1, "long name: listed as skipped")
     local e = sc.parse(text)
@@ -117,7 +117,7 @@ do
 end
 
 -- ---------------------------------------------------------------- reconcile
-local function rec(names, file) local e = sc.parse(file) return sc.reconcile(names, e, "Difficulty") end
+local function rec(names, file) local e = sc.parse(file) return sc.reconcile(names, e, "CustomDifficulty") end
 do
     local e, text = rec({ "A", "B" }, nil)
     eq(text, HDR .. "0\tA\t\n1\tB\t\n", "no file, 2 presets: 2 Default entries")
@@ -133,7 +133,7 @@ do
     eq(text, HDR .. "0\tX\tcold=1\n1\tX\tcold=2\n", "duplicate names: each keeps its own entry by index")
     e, text = rec({ "X", "Y", "X" }, HDR .. "0\tX\tcold=1\n2\tX\tcold=2\n")
     eq(text, HDR .. "0\tX\tcold=1\n1\tY\t\n2\tX\tcold=2\n", "duplicate names apart: by index first")
-    e, text = rec({ "A" }, "# Difficulty world presets, format 3\n0\tA\tcold=50\n")
+    e, text = rec({ "A" }, "# CustomDifficulty world presets, format 3\n0\tA\tcold=50\n")
     eq(text, HDR .. "0\tA\t\n", "other format: all Default, rewritten as format 2")
     e, text = rec({ "A", "B" }, HDR .. "0\tA\tcold=1\n99\tDT6-gone\tcold=50\n1\tB\t\n")
     eq(text, HDR .. "0\tA\tcold=1\n1\tB\t\n", "a stale appended line is dropped")

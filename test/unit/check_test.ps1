@@ -9,13 +9,13 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot)
 $check = Join-Path $repo 'check.ps1'
 $script:passed = 0; $script:failed = 0
-$tmp = Join-Path ([IO.Path]::GetTempPath()) ("difficulty-check-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ("custom-difficulty-check-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory $tmp | Out-Null
 
 $script:t = 0
 function L([string] $tag, [string] $msg) { $script:t++; "[2026-11-03 01:00:{0:D2}.{1:D7}] [Lua] [$tag] $msg" -f [int]($script:t / 1000 % 60), $script:t }
 function U([string] $msg) { $script:t++; "[2026-11-03 01:00:00.{0:D7}] $msg" -f $script:t }
-function D([string] $msg) { L 'Difficulty' $msg }
+function D([string] $msg) { L 'CustomDifficulty' $msg }
 
 function Run([string[]] $log, [string] $scenario, [string] $target = 'host') {
     $p = Join-Path $tmp "$scenario-$([guid]::NewGuid().ToString('N').Substring(0, 6)).log"
@@ -30,7 +30,7 @@ function Expect([string[]] $log, [string] $scenario, [int] $code, [string] $name
 }
 function Without([string[]] $log, [string] $pattern) { @($log | Where-Object { $_ -notmatch $pattern }) }
 
-$coreStart = @((U "Starting Lua mod 'Nucleus'"), (L 'Nucleus' 'READY version=0.3.0 native=0.3.0 ue4ss=v3.0.1-1181-g83330635 boot=1'), (U "Starting Lua mod 'Difficulty'"))
+$coreStart = @((U "Starting Lua mod 'Nucleus'"), (L 'Nucleus' 'READY version=0.3.0 native=0.3.0 ue4ss=v3.0.1-1181-g83330635 boot=1'), (U "Starting Lua mod 'CustomDifficulty'"))
 $menu = D 'WORLD host=false standalone=true map=NewMainMenu'
 
 # ---------------------------------------------------------------- ready (dev core mode on 0.3.0)
@@ -38,12 +38,12 @@ $ready = $coreStart + @(
     (D 'CONNECT ok Nucleus 0.3.0 (pong 0.3.0 boot=1)'),
     (D 'WARN running on Nucleus 0.3.0 before 0.4.0 (dev only): no UI'),
     $menu,
-    (D 'READY version=0.1.0 Nucleus=0.3.0 need=0.3.0'))
+    (D 'READY version=0.2.0 Nucleus=0.3.0 need=0.3.0'))
 Expect $ready 'ready' 0 'ready (dev): passes as written' 'All checks passed'
 Expect (Without $ready 'WARN running on') 'ready' 1 'ready (dev): no pre-core WARN on 0.3.0 -> fails' 'pre-core WARN'
 Expect ($ready + @(D 'WARN running on Nucleus 0.3.0 before 0.4.0 (dev only): no UI')) 'ready' 1 'ready (dev): two pre-core WARNs -> fails' 'pre-core WARN'
 Expect (Without $ready 'READY version') 'ready' 1 'ready: no READY -> fails' 'READY'
-Expect ($ready + @(D 'READY version=0.1.0 Nucleus=0.3.0 need=0.3.0')) 'ready' 1 'ready: two READY lines -> fails' '#1'
+Expect ($ready + @(D 'READY version=0.2.0 Nucleus=0.3.0 need=0.3.0')) 'ready' 1 'ready: two READY lines -> fails' '#1'
 Expect (Without $ready 'WORLD host=false') 'ready' 1 'ready: no menu WORLD line -> fails' 'WORLD'
 Expect (Without $ready 'CONNECT ok') 'ready' 1 'ready: no CONNECT -> fails' 'CONNECT'
 Expect ($ready + @(D 'ERROR LoadMap hook failed: boom')) 'ready' 1 'ready: an ERROR -> fails' 'ERROR'
@@ -52,11 +52,11 @@ Expect ($ready + @(D 'WARN hud slow tick 1.4 ms (steady state)')) 'ready' 0 'rea
 Expect ($ready + @(U 'stack traceback:')) 'ready' 1 'ready: a traceback -> fails' 'stack traceback'
 Expect ($ready + @(U '[script_hook] removing hook')) 'ready' 1 'ready: a removed hook -> fails' 'removing hook'
 Expect ($ready -replace 'need=0\.3\.0', 'need=0.2.0') 'ready' 1 'ready: READY need other than dependsOn or 0.3.0 -> fails' 'READY need=0\.2\.0'
-$order = $coreStart + @((D 'READY version=0.1.0 Nucleus=0.3.0 need=0.3.0'), (D 'CONNECT ok Nucleus 0.3.0 (pong)'), (D 'WARN running on Nucleus 0.3.0 before 0.4.0 (dev only): no UI'), $menu)
+$order = $coreStart + @((D 'READY version=0.2.0 Nucleus=0.3.0 need=0.3.0'), (D 'CONNECT ok Nucleus 0.3.0 (pong)'), (D 'WARN running on Nucleus 0.3.0 before 0.4.0 (dev only): no UI'), $menu)
 Expect $order 'ready' 1 'ready: READY before CONNECT -> fails' 'READY comes after CONNECT'
 
 # ready on core 0.4.x: no pre-core WARN allowed.
-$ready4 = @((D 'CONNECT ok Nucleus 0.15.1 (pong 0.15.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.15.1 need=0.15.0'))
+$ready4 = @((D 'CONNECT ok Nucleus 0.15.1 (pong 0.15.1 boot=1)'), $menu, (D 'READY version=0.2.0 Nucleus=0.15.1 need=0.15.0'))
 Expect $ready4 'ready' 0 'ready on 0.15.1: passes without the pre-core WARN' 'no pre-core WARN'
 Expect ($ready4 + @(D 'WARN running on Nucleus 0.15.1 before 0.4.0 (dev only): no UI')) 'ready' 1 'ready on 0.15.1: a pre-core WARN -> fails' 'pre-core WARN'
 Expect $ready4 'ready' 0 'ready on 0.15.1: READY need=0.15.0 is dependsOn''s minimum' 'need=0\.15\.0 is dependsOn'
@@ -73,24 +73,24 @@ Expect $ready4 'hand' 0 'hand: passes' 'All checks passed'
 Expect (Without $ready4 'WORLD') 'hand' 1 'hand: no WORLD line -> fails' 'WORLD'
 
 # ---------------------------------------------------------------- old-core, no-core
-$oldCore = $coreStart + @((D 'ERROR Nucleus 0.3.0 is not compatible; Difficulty needs 0.15.0 (^ rules). Update Nucleus. Difficulty will not run.'))
+$oldCore = $coreStart + @((D 'ERROR Nucleus 0.3.0 is not compatible; CustomDifficulty needs 0.15.0 (^ rules). Update Nucleus. CustomDifficulty will not run.'))
 Expect $oldCore 'old-core' 0 'old-core: passes as written' 'All checks passed'
 Expect ($oldCore -replace 'needs 0\.15\.0', 'needs 0.3.0') 'old-core' 1 'old-core: the need must be dependsOn''s minimum' 'not compatible'
-Expect ($oldCore + @($menu)) 'old-core' 1 'old-core: a second Difficulty line -> fails' '#1'
+Expect ($oldCore + @($menu)) 'old-core' 1 'old-core: a second CustomDifficulty line -> fails' '#1'
 Expect (Without $oldCore 'not compatible') 'old-core' 1 'old-core: no line -> fails' '#1'
-$noCore = @((U "Starting Lua mod 'Difficulty'"), (D 'Nucleus is not installed. Difficulty will not run.'))
+$noCore = @((U "Starting Lua mod 'CustomDifficulty'"), (D 'Nucleus is not installed. CustomDifficulty will not run.'))
 Expect $noCore 'no-core' 0 'no-core: passes as written' 'All checks passed'
-Expect ($noCore + @(D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0')) 'no-core' 1 'no-core: a second Difficulty line -> fails' '#1'
+Expect ($noCore + @(D 'READY version=0.2.0 Nucleus=0.15.0 need=0.15.0')) 'no-core' 1 'no-core: a second CustomDifficulty line -> fails' '#1'
 Expect ($noCore -replace 'not installed', 'missing') 'no-core' 1 'no-core: another wording -> fails' 'not installed'
 # Through run.ps1 -Target vm the driver waits for the menu world; its verdict counts.
-$menuDrv = { param($sc, $end) @((L 'DifficultyDriver' "SCENARIO $sc"), (L 'DifficultyDriver' "OK MENU $sc reached the menu world and stayed 20 s"), (L 'DifficultyDriver' $end)) }
+$menuDrv = { param($sc, $end) @((L 'CustomDifficultyDriver' "SCENARIO $sc"), (L 'CustomDifficultyDriver' "OK MENU $sc reached the menu world and stayed 20 s"), (L 'CustomDifficultyDriver' $end)) }
 Expect ($noCore + (& $menuDrv 'no-core' 'END result=PASS checks=1 failures=0 notshown=0 dead=false')) 'no-core' 0 'no-core (VM): the driver reached the menu -> passes' 'All checks passed' 'vm'
-Expect ($noCore + @((L 'DifficultyDriver' 'SCENARIO no-core'), (L 'DifficultyDriver' 'FAIL TIMEOUT menu world'), (L 'DifficultyDriver' 'END result=FAIL checks=1 failures=1 notshown=0 dead=false'))) 'no-core' 1 'no-core (VM): the driver never reached the menu -> fails' 'OK MENU' 'vm'
+Expect ($noCore + @((L 'CustomDifficultyDriver' 'SCENARIO no-core'), (L 'CustomDifficultyDriver' 'FAIL TIMEOUT menu world'), (L 'CustomDifficultyDriver' 'END result=FAIL checks=1 failures=1 notshown=0 dead=false'))) 'no-core' 1 'no-core (VM): the driver never reached the menu -> fails' 'OK MENU' 'vm'
 Expect ($oldCore + (& $menuDrv 'old-core' 'END result=PASS checks=1 failures=0 notshown=0 dead=false')) 'old-core' 0 'old-core (VM): the driver reached the menu -> passes' 'All checks passed' 'vm'
-Expect ($oldCore + @(L 'DifficultyDriver' 'SCENARIO old-core')) 'old-core' 1 'old-core (VM): no driver END -> fails' 'END result=PASS' 'vm'
+Expect ($oldCore + @(L 'CustomDifficultyDriver' 'SCENARIO old-core')) 'old-core' 1 'old-core (VM): no driver END -> fails' 'END result=PASS' 'vm'
 
-# ---------------------------------------------------------------- story 3 scenarios (driver + Difficulty's lines)
-function DR([string] $msg) { L 'DifficultyDriver' $msg }
+# ---------------------------------------------------------------- story 3 scenarios (driver + CustomDifficulty's lines)
+function DR([string] $msg) { L 'CustomDifficultyDriver' $msg }
 function Story3([string] $scenario, [string] $knobs, [string[]] $mid, [string[]] $driver) {
     $hostLog + @((D "MATCH start knobs=$knobs"), (DR "SCENARIO $scenario"), (DR 'WHITEOUT disabled=true director=1 phase=0')) + $mid + $driver + @(DR 'END result=PASS checks=3 failures=0 notshown=0 dead=false')
 }
@@ -291,7 +291,7 @@ $clsNs = @($cls | Where-Object { $_ -notmatch 'TOKENS (used|disabled|bonus|reope
 Expect $clsNs 'tokens-classified' 2 'tokens-classified: no objective could be completed -> not shown' 'NOT SHOWN'
 
 # ---------------------------------------------------------------- story 6: presets (menu only)
-$presets = @((D 'CONNECT ok Nucleus 0.15.1 (pong 0.15.1 boot=1)'), $menu, (D 'READY version=0.1.0 Nucleus=0.15.1 need=0.15.0'),
+$presets = @((D 'CONNECT ok Nucleus 0.15.1 (pong 0.15.1 boot=1)'), $menu, (D 'READY version=0.2.0 Nucleus=0.15.1 need=0.15.0'),
     (DR 'SCENARIO presets'), (DR 'DRIVE open #1'), (D 'PRESETS open presets=2 entries=2 changed=false'),
     (DR 'DRIVE select DT6-X for delete'), (D 'PRESETS select index=1 name=DT6-X knobs=all Default'), (D 'PRESETS delete index=1 name=DT6-X'),
     (DR 'CLEANUP deleted 1 leftover DT6- preset(s)'), (DR 'BASELINE presets=1 entries=0:Mine:cold=70'),
@@ -343,7 +343,7 @@ $presetsNs = @(Without $presets 'END result|PRESETS (save|update|delete|select)|
 Expect $presetsNs 'presets' 2 'presets: a handler not driven -> not shown' 'NOT SHOWN'
 
 # ---------------------------------------------------------------- story 7: screen (menu only, VM)
-$screen = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 21'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
+$screen = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 21'), (D 'READY version=0.2.0 Nucleus=0.15.0 need=0.15.0'),
     (DR 'SCENARIO screen'), (D 'PRESETS open presets=1 entries=1 changed=false'),
     (D 'ROWS follow difficulty=2 classified=2 enemyDamage=25 cold=100 revives=6'),
     (DR 'OK SCORDER open 1: the knob rows at children 2-8 after Overlay_28, the per-enemy rows right after Overlay_738 (enemyDamage at 2)'),
@@ -514,7 +514,7 @@ $ctlQ = (BossDrv 'Slug Queen' 'SlugQueen_AI_C' 'SeePlayerServer' -kill) + @(
     (DR 'BOSSDEATH Slug Queen expected (stock)'), (DR 'NOTSHOWN Apex: the control player is dead'))
 $ctl = Story3 'boss-default' 'all Default' @() $ctlQ
 Expect $ctl 'boss-default' 0 'boss-default: the stock grab kills, the run ends there -> passes (the Apex skip is not a not-shown)' 'All checks passed'
-Expect ($ctl + @(D 'HIT enemy=slugQueen via=CommitLethalDamage stock=100 scaled=100 rolled=100 applied=100 hp=100 kind=hit')) 'boss-default' 1 'boss-default: a Difficulty HIT -> fails' 'HIT'
+Expect ($ctl + @(D 'HIT enemy=slugQueen via=CommitLethalDamage stock=100 scaled=100 rolled=100 applied=100 hp=100 kind=hit')) 'boss-default' 1 'boss-default: a CustomDifficulty HIT -> fails' 'HIT'
 Expect (Without $ctl 'BOSSDEATH') 'boss-default' 1 'boss-default: no BOSSDEATH -> fails' 'BOSSDEATH'
 Expect ($ctl -replace 'OK boss-default Slug Queen the stock', 'FAIL boss-default Slug Queen the stock') 'boss-default' 1 'boss-default: the player survived the stock grab (driver FAIL) -> fails' 'FAIL'
 Expect ($ctl + @(DR 'DEATH the player died (case -)')) 'boss-default' 1 'boss-default: the runner''s DEATH line -> fails' 'DEATH'
@@ -563,9 +563,9 @@ Expect ($ikb -replace 'knobs=enemyDamage=25 kill.slugQueen=1', 'knobs=enemyDamag
 
 # ---------------------------------------------------------------- story 8: signal (two launches, the screen's values)
 $k8 = 'enemyDamage=25 spread=20 revives=8 classifiedTokens=2 classifiedTokensMax=3 cold=0 frostbite=0 dmg.stalker=200'
-$sigA = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 21'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
-    (DR 'SCENARIO signal-a'), (DR 'DEVLUA absent C:\nn\x\Difficulty\Scripts\dev.lua'),
-    (DR 'OK SIGDEV no dev.lua in Difficulty''s Scripts (the values come only from the screen, the preset and the capture)'),
+$sigA = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 21'), (D 'READY version=0.2.0 Nucleus=0.15.0 need=0.15.0'),
+    (DR 'SCENARIO signal-a'), (DR 'DEVLUA absent C:\nn\x\CustomDifficulty\Scripts\dev.lua'),
+    (DR 'OK SIGDEV no dev.lua in CustomDifficulty''s Scripts (the values come only from the screen, the preset and the capture)'),
     (D 'PRESETS open presets=1 entries=1 changed=false'),
     (D 'ROWS follow difficulty=0 classified=2 enemyDamage=100 cold=200 revives=6'),
     (DR 'OK SIGDIFF Nightmare by real clicks: Diffculty 0, shown Nightmare, Enemy Damage hint 100 (want 0, Nightmare, 100)'),
@@ -580,8 +580,8 @@ $sigA = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS 
     (DR 'OK SIGROWS before the save: every row shows its value and the screen is on Nightmare (Diffculty 0, shown Nightmare)'),
     (D "PRESETS save index=1 name=DT8-SIGNAL knobs=$k8"), (DR 'OK SIGSAVED DT8-SIGNAL is in the game''s presets'),
     (DR 'END result=PASS checks=12 failures=0 notshown=0 dead=false'))
-$sigB = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 21'), (D 'READY version=0.1.0 Nucleus=0.15.0 need=0.15.0'),
-    (DR 'SCENARIO signal-b'), (DR 'DEVLUA absent C:\nn\x\Difficulty\Scripts\dev.lua'),
+$sigB = @((D 'CONNECT ok Nucleus 0.15.0 (pong 0.15.0 boot=1)'), $menu, (D 'ROWS declared 21'), (D 'READY version=0.2.0 Nucleus=0.15.0 need=0.15.0'),
+    (DR 'SCENARIO signal-b'), (DR 'DEVLUA absent C:\nn\x\CustomDifficulty\Scripts\dev.lua'),
     (DR 'OK SIGFOUND DT8-SIGNAL is in the game''s presets after the restart (presets across a restart)'),
     (D "PRESETS select index=1 name=DT8-SIGNAL knobs=$k8"),
     (DR 'OK SIGROWS after the select: every row shows its value and the screen is on Nightmare (Diffculty 0, shown Nightmare)'),

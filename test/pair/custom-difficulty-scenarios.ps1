@@ -15,7 +15,7 @@
                      moved=true", a B "REQUEST fallback" line, no B or no host "OK REVIVE past the limit", any driver
                      FAIL, either END not PASS. Verdict PASS or FAIL.
   Story 5 (survivable grabs on modded clients; the real Nucleus from mods/Nucleus/build/package and the real
-  Difficulty, staged with dev.lua knobs enemyDamage=25 on the host; DifficultyPair host-spawn + client-watch, which
+  CustomDifficulty, staged with dev.lua knobs enemyDamage=25 on the host; DifficultyPair host-spawn + client-watch, which
   never flip). Each Check FAILs on any listed miss (ScenarioReport.D5.Misses):
     d5-grab-modded   both machines modded: decision=s for B in both logs per enemy, B's survivable montage, B alive
                      and moving at 6 s; RECOVER lines are reported, not failed. Its Watcher case keeps the host within
@@ -23,10 +23,10 @@
 
     d5-grab-unmodded B has only UE4SS and the watcher: host spare=no(absent) and the game's decision, B's montage
                      matches it, B revived after each death, two players throughout (the session outcome).
-    d5-host-vanilla  the host has no core and no Difficulty, B is modded: one inactive line on B, no GRAB, RESTORE
+    d5-host-vanilla  the host has no core and no CustomDifficulty, B is modded: one inactive line on B, no GRAB, RESTORE
                      or RECOVER there.
-  Story 10 (a measurement, no pass/fail on Difficulty; Verdict NOT-STUCK, STUCK or INCONCLUSIVE, ScenarioReport.D10):
-    d10-measure      the host has only DifficultyPair host-spawn with measure.txt (no core, no Difficulty; each enemy
+  Story 10 (a measurement, no pass/fail on CustomDifficulty; Verdict NOT-STUCK, STUCK or INCONCLUSIVE, ScenarioReport.D10):
+    d10-measure      the host has only DifficultyPair host-spawn with measure.txt (no core, no CustomDifficulty; each enemy
                      hit costs 25 HP), B is modded with client-watch and measure.txt: a Meek and a Watcher execute B at
                      full Health without killing it; B's state at 5, 6, 12, 16 s, its RECOVER and readback, B's view of
                      itself (MYPOS) and the host's view of B (OTHERPOS) once a second for 16 s, B walking backwards
@@ -44,26 +44,26 @@
   host-spawn + client-watch with boss.txt):
     d15-boss-pair    the host spawns the Slug Queen, then the Apex Predator, in front of B and makes each grab B
                      (story 13's ladder, the boss moved to B). Misses: no host MATCH start knobs=enemyDamage=25; per boss
-                     no host "BOSSCLD pre ... victim=other hp=100.00" or "BOSSCLD post", no Difficulty "HIT enemy=<row>
+                     no host "BOSSCLD pre ... victim=other hp=100.00" or "BOSSCLD post", no CustomDifficulty "HIT enemy=<row>
                      via=CommitLethalDamage ... applied=25 hp=100 kind=hit", a missing BOSSSTATE t=0/6/12 on either
                      machine, a missing OK verdict at 12 s on either machine (B alive with 70 <= Health <= 80, moving,
                      no presentation), a NOTSHOWN or a BOSSDEATH; any driver FAIL, an END not PASS, an inactive line
                      on B (ScenarioReport.D15).
   Story 8 (CAP-5, Reinforcement Tokens across machines; Normal lobby, PairDriver's Classified Minimum 2: stock limit 6):
-    d8-tokens        the host runs core and Difficulty with Reinforcement Tokens 2 (dev.lua revives=2), B (VM) runs no
-                     Difficulty. The host dies, B's own terminal revives it, twice; then the host dies once more. PASS
+    d8-tokens        the host runs core and CustomDifficulty with Reinforcement Tokens 2 (dev.lua revives=2), B (VM) runs no
+                     CustomDifficulty. The host dies, B's own terminal revives it, twice; then the host dies once more. PASS
                      needs the host's one "TOKENS disabled at used=2 N=2", B's terminal offer shown in rounds 1 and 2 and
                      gone in the last (B's OFFER checks), no write of the count or Disable Reinforcement by the driver
                      (no SET line), both drivers' END PASS and the session held.
-  Story 17 (DW-40, frostbite on a remote character; the host runs core and Difficulty with dev.lua frostbite=3, lobby
+  Story 17 (DW-40, frostbite on a remote character; the host runs core and CustomDifficulty with dev.lua frostbite=3, lobby
   difficulty.txt 2 as the solo frostbite case; B runs UE4SS and DifficultyPair only):
     d17-frost        host-frost + client-frost: the host holds B's Temperature at 1.5 and counts the native's frostbite
                      ticks on B for 20 s. Misses (ScenarioReport.D17): no host "MATCH start knobs=frostbite=3", fewer
-                     than 15 Difficulty "HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3 applied=3", a
-                     Difficulty "WARN clash", no host "OK FROSTRUN" or B "OK FROSTB" (60 +- 6 lost on both machines),
-                     any driver FAIL, either END not PASS, any Difficulty line on B. PASS only with no miss and the
+                     than 15 CustomDifficulty "HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3 applied=3", a
+                     CustomDifficulty "WARN clash", no host "OK FROSTRUN" or B "OK FROSTB" (60 +- 6 lost on both machines),
+                     any driver FAIL, either END not PASS, any CustomDifficulty line on B. PASS only with no miss and the
                      session's Outcome PASS. Run it first after an NNB boot: it also shows the first join works (DW-39).
-  The host copy must have no Nucleus or Difficulty of its own installed (pair.ps1 refuses mods it didn't put there):
+  The host copy must have no Nucleus or CustomDifficulty of its own installed (pair.ps1 refuses mods it didn't put there):
   run their deploy.ps1 -Remove first.
   The drivers coordinate only through files: each logs "SIGNAL <name>", and AfterJoin's relay writes <name>.txt next
   to the other machine's copy (a fixed list of names; nothing from the game is turned into a path).
@@ -73,8 +73,8 @@
   unless a driver failed); the conclusions are drawn by reading them (knob-mechanics.md).
 .EXAMPLE
   # from the workspace's main checkout, holding dumps\vm.lock (test/run-pair.ps1 does all of it):
-  ./tools/vm/pair.ps1 -Scenario dp-grab -ScenarioFile mods/difficulty/test/pair/difficulty-scenarios.ps1
-  ./tools/vm/pair.ps1 -Stop -Scenario dp-grab -ScenarioFile mods/difficulty/test/pair/difficulty-scenarios.ps1
+  ./tools/vm/pair.ps1 -Scenario dp-grab -ScenarioFile mods/custom-difficulty/test/pair/custom-difficulty-scenarios.ps1
+  ./tools/vm/pair.ps1 -Stop -Scenario dp-grab -ScenarioFile mods/custom-difficulty/test/pair/custom-difficulty-scenarios.ps1
 #>
 
 $script:DpDriver = Join-Path (Split-Path $PSScriptRoot) 'DifficultyPair'
@@ -254,7 +254,7 @@ function Get-DpReviveReport {
 $DpPairScenarios['dp-revive'].Check = { Get-DpReviveReport }
 
 # ------------------------------------------------------------------------------------------------ story 5
-# Survivable grabs on modded clients: the real Nucleus (its build/package) and the real Difficulty on the machines
+# Survivable grabs on modded clients: the real Nucleus (its build/package) and the real CustomDifficulty on the machines
 # that run them; DifficultyPair only spawns (host-spawn) and watches (client-watch). Never flips.
 $script:DpRepo = Split-Path $PSScriptRoot -Parent | Split-Path -Parent
 $script:DpManifest = Get-Content (Join-Path $DpRepo 'mod.json') -Raw | ConvertFrom-Json
@@ -263,7 +263,7 @@ $script:DpCoreName = 'Nucleus'   # core's folder name (the one place this file s
 $script:DpCorePackage = Join-Path $Workspace "mods\$DpCoreName\build\package"
 $script:DpKnobs = 'enemyDamage=25'   # with the Nightmare lobby: a Meek grab at 100 HP is survivable (E 25), the game's is an execution
 
-# Core's package must exist and satisfy Difficulty's dependsOn (core reads the caret as a minimum: have >= need).
+# Core's package must exist and satisfy CustomDifficulty's dependsOn (core reads the caret as a minimum: have >= need).
 $script:DpD5Prereq = {
     $mj = Join-Path $DpCorePackage "Mods\$DpCoreName\mod.json"
     if (-not (Test-Path $mj)) { throw "No $DpCoreName package at $DpCorePackage; build it with its build.ps1 (not while a game runs)." }
@@ -276,7 +276,7 @@ $script:DpD5Prereq = {
     if (-not $okV) { throw "$DpCoreName package $have does not satisfy $DpName's dependsOn $range." }
 }
 
-# Difficulty staged as deploy.ps1 -Test -Knobs installs it: mod.json, Scripts\*.lua (no dev.lua from the repo), and a
+# CustomDifficulty staged as deploy.ps1 -Test -Knobs installs it: mod.json, Scripts\*.lua (no dev.lua from the repo), and a
 # dev.lua with the knobs (test only, never shipped). Returns the mod folder.
 function Get-DpModStage([Parameter(Mandatory)] [ValidateSet('host', 'client')] [string] $Side, [string] $Knobs = '') {
     $stage = Join-Path ([IO.Path]::GetTempPath()) "nn-dp-stage-mod-$Side"
@@ -287,11 +287,11 @@ function Get-DpModStage([Parameter(Mandatory)] [ValidateSet('host', 'client')] [
     Get-ChildItem (Join-Path $DpRepo 'Scripts') -Filter '*.lua' | Where-Object { $_.Name -notin 'dev.lua', 'settings.lua' } | Copy-Item -Destination (Join-Path $dst 'Scripts')
     if ($Knobs -notmatch '^[A-Za-z0-9.=;]*$') { throw "Knobs '$Knobs' has characters dev.lua doesn't take." }
     $knobsField = if ($Knobs) { ", knobs = `"$Knobs`"" } else { '' }
-    [IO.File]::WriteAllText((Join-Path $dst 'Scripts\dev.lua'), "-- Written by difficulty-scenarios.ps1 (story 5 pair run); dev only, never shipped.`nreturn { debug = true$knobsField }`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $dst 'Scripts\dev.lua'), "-- Written by custom-difficulty-scenarios.ps1 (story 5 pair run); dev only, never shipped.`nreturn { debug = true$knobsField }`n", [Text.UTF8Encoding]::new($false))
     $dst
 }
 
-# For VMRestore and -Stop: placeholders named like core, its pak, Difficulty and the driver (vm-deploy -Remove uses
+# For VMRestore and -Stop: placeholders named like core, its pak, CustomDifficulty and the driver (vm-deploy -Remove uses
 # only the names).
 function Get-DpRemovePaths {
     $r = Join-Path ([IO.Path]::GetTempPath()) 'nn-dp-remove'
@@ -301,7 +301,7 @@ function Get-DpRemovePaths {
     @((Join-Path $r 'DifficultyPair'), (Join-Path $r $DpName), (Join-Path $r $DpCoreName), $pak)
 }
 
-# The VM copy for a story 5 scenario: UE4SS on, client-watch, and with -Modded core (first in mods.txt) and Difficulty.
+# The VM copy for a story 5 scenario: UE4SS on, client-watch, and with -Modded core (first in mods.txt) and CustomDifficulty.
 # -Measure (story 10): client-watch with measure.txt (B walks after each grab on it).
 # -Boss (story 15): client-watch with boss.txt (B watches the boss grabs on it).
 function Set-DpVMModded([switch] $Modded, [switch] $Measure, [switch] $Boss) {
@@ -384,7 +384,7 @@ function Get-DpD5Report([Parameter(Mandatory)] [ValidateSet('modded', 'unmodded'
             foreach ($e in $DpRows.Keys) {
                 if (-not ($clientGrabs | Where-Object { $_.Enemy -eq $e -and $_.Kind -eq 's' -and $_.After6 })) { Miss "B's driver: no 6 s state after a survivable $e grab" }
             }
-            if ($vd | Where-Object { $_ -match 'host has no Difficulty, inactive' }) { Miss 'B: logged the inactive line' }
+            if ($vd | Where-Object { $_ -match 'host has no CustomDifficulty, inactive' }) { Miss 'B: logged the inactive line' }
         }
         'unmodded' {
             if (-not ($hostClient | Where-Object { $_ -match 'spare=no\(absent\)\s*$' })) { Miss 'host: no GRAB victim=client spare=no(absent)' }
@@ -406,7 +406,7 @@ function Get-DpD5Report([Parameter(Mandatory)] [ValidateSet('modded', 'unmodded'
             if ($died -ne $back) { Miss "host: B revived $back of $died times" }
         }
         'host-vanilla' {
-            $n = @($vd | Where-Object { $_ -match '^host has no Difficulty, inactive \(' }).Count
+            $n = @($vd | Where-Object { $_ -match '^host has no CustomDifficulty, inactive \(' }).Count
             if ($n -ne 1) { Miss "B: $n inactive lines, want exactly 1" }
             $acted = @($vd | Where-Object { $_ -match '^(GRAB|RESTORE|RECOVER) ' })
             if ($acted.Count) { Miss "B: $($acted.Count) GRAB/RESTORE/RECOVER lines: $($acted[0])" }
@@ -447,15 +447,15 @@ function New-DpD5Scenario([string] $Summary, [ValidateSet('modded', 'unmodded', 
         Check = [scriptblock]::Create("Get-DpD5Report -Kind '$Kind'")
     }
 }
-$DpPairScenarios['d5-grab-modded'] = New-DpD5Scenario "Difficulty story 5: host and B both run $DpCoreName and Difficulty (host Enemy Damage 25, Nightmare); Meek, Mimic, Psycho, Watcher and Stalker grab B at full Health: decision=s on both machines, B's survivable montage, B >= 1 HP and moving at 6 s" 'modded'
-$DpPairScenarios['d5-grab-unmodded'] = New-DpD5Scenario "Difficulty story 5: the host runs $DpCoreName and Difficulty, B only UE4SS and its watcher: the host keeps the game's decision (spare=no(absent)), B's montage matches it, B revived after each execution, two players throughout" 'unmodded'
-$DpPairScenarios['d5-host-vanilla'] = New-DpD5Scenario "Difficulty story 5: the host runs no Difficulty, B runs $DpCoreName and Difficulty: one inactive line on B and no GRAB, RESTORE or RECOVER" 'host-vanilla'
+$DpPairScenarios['d5-grab-modded'] = New-DpD5Scenario "Difficulty story 5: host and B both run $DpCoreName and CustomDifficulty (host Enemy Damage 25, Nightmare); Meek, Mimic, Psycho, Watcher and Stalker grab B at full Health: decision=s on both machines, B's survivable montage, B >= 1 HP and moving at 6 s" 'modded'
+$DpPairScenarios['d5-grab-unmodded'] = New-DpD5Scenario "Difficulty story 5: the host runs $DpCoreName and CustomDifficulty, B only UE4SS and its watcher: the host keeps the game's decision (spare=no(absent)), B's montage matches it, B revived after each execution, two players throughout" 'unmodded'
+$DpPairScenarios['d5-host-vanilla'] = New-DpD5Scenario "Difficulty story 5: the host runs no CustomDifficulty, B runs $DpCoreName and CustomDifficulty: one inactive line on B and no GRAB, RESTORE or RECOVER" 'host-vanilla'
 
 # ------------------------------------------------------------------------------------------------ story 10
-# d10-measure: does a client stay stuck after a non-lethal execution? The host runs no core and no Difficulty, only
+# d10-measure: does a client stay stuck after a non-lethal execution? The host runs no core and no CustomDifficulty, only
 # host-spawn with measure.txt: the Meek and the Watcher, each enemy hit costs 25 HP, so both machines play the game's
 # execution at full Health and B survives it (the shape of the 2026-11-15 15:31 EyeGouge), with no despawn and no
-# refill inside the 16 s window. B runs core and Difficulty (inactive without a host Difficulty, so the execution is
+# refill inside the 16 s window. B runs core and CustomDifficulty (inactive without a host CustomDifficulty, so the execution is
 # the game's own and the 6 s recovery runs with its readback) and client-watch with measure.txt (B walks backwards
 # from +1 s to +16 s, and logs its own view once a second: MYPOS).
 $script:DpMoveCm = 10   # cm: what B must cover on the host's screen, after the host first sees it free, to count as moving
@@ -516,10 +516,10 @@ function Get-DpD10Rows([string[]] $HostLines, [string[]] $VMLines) {
     $rows
 }
 
-# Result (only with B READY, no Difficulty on the host and the same grab count on both machines, else INCONCLUSIVE):
+# Result (only with B READY, no CustomDifficulty on the host and the same grab count on both machines, else INCONCLUSIVE):
 # NOT-STUCK: every judged execution on B moved again by 16 s, with at least one Watcher EyeGouge and one
 # execution by another enemy judged. STUCK: a judged execution didn't. INCONCLUSIVE: not enough judged (cut, missing),
-# or the host ran Difficulty. The result is the scenario's Verdict.
+# or the host ran CustomDifficulty. The result is the scenario's Verdict.
 function Get-DpD10Report {
     $r = Get-DpReport
     $hostLog = Join-Path $outDir "$Label.host.UE4SS.log"
@@ -534,7 +534,7 @@ function Get-DpD10Report {
     $stuck = @($judged | Where-Object { $_.State -eq 'stuck' })
     $eyeGouge = @($judged | Where-Object { $_.Enemy -eq 'Watcher' -and $_.Montage -match 'EyeGouge' })
     $otherEx = @($judged | Where-Object { $_.Enemy -ne 'Watcher' })
-    if ($hd.Count) { $notes.Add("host: $($hd.Count) $DpName lines (the host must run no Difficulty here)") }
+    if ($hd.Count) { $notes.Add("host: $($hd.Count) $DpName lines (the host must run no CustomDifficulty here)") }
     $ready = [bool]($vd | Where-Object { $_ -match '^READY ' })
     if (-not $ready) { $notes.Add("B: $DpName never got READY") }
     $unpaired = @($rows | Where-Object { $null -eq $_.HostSeq })
@@ -564,7 +564,7 @@ function Get-DpD10Report {
     $r
 }
 $DpPairScenarios['d10-measure'] = @{
-    Summary = "Difficulty story 10: the host runs no Difficulty (each enemy hit costs 25 HP), B runs $DpCoreName and Difficulty (inactive, so its 6 s recovery and readback run); a Meek and a Watcher execute B at full Health without killing it; B's state at 5, 6, 12 and 16 s on both machines, the host's view once a second, B walking from +1 s: does B move again by 16 s?"
+    Summary = "Difficulty story 10: the host runs no CustomDifficulty (each enemy hit costs 25 HP), B runs $DpCoreName and CustomDifficulty (inactive, so its 6 s recovery and readback run); a Meek and a Watcher execute B at full Health without killing it; B's state at 5, 6, 12 and 16 s on both machines, the host's view once a second, B walking from +1 s: does B move again by 16 s?"
     Prereq = $DpD5Prereq
     HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '0' }   # Nightmare: every stock grab at 100 HP executes
     HostModPaths = { @(Get-DpStage -Role 'host-spawn' -Measure) }
@@ -609,7 +609,7 @@ function Get-DpD14Report {
         if (-not $g.Count) { $miss.Add("host: no GRAB enemy=$row on B after the Meek (the session went on?)") }
         elseif ($g | Where-Object { $_ -match 'kill=yes' -or $_ -notmatch 'decision=s ' }) { $miss.Add("host: an unticked $e not spared or marked kill=yes: $($g[0])") }
     }
-    if ($vd | Where-Object { $_ -match 'host has no Difficulty, inactive' }) { $miss.Add('B: logged the inactive line') }
+    if ($vd | Where-Object { $_ -match 'host has no CustomDifficulty, inactive' }) { $miss.Add('B: logged the inactive line') }
     if ($r.HostEnd -notmatch 'result=PASS') { $miss.Add("host driver: $($r.HostEnd)") }
     if ($r.VMEnd -notmatch 'result=PASS') { $miss.Add("B's driver: $($r.VMEnd)") }
     $r.D14 = [ordered]@{
@@ -626,7 +626,7 @@ function Get-DpD14Report {
     $r
 }
 $DpPairScenarios['d14-kill-modded'] = @{
-    Summary = "Difficulty story 14: host and B both run $DpCoreName and Difficulty (host Enemy Damage 25 and the Meek's Insta-kill box, Nightmare); the Meek's grab on B is the execution on both machines and B dies on both screens; the harness revives B and the other enemies still spare it; no lock-up"
+    Summary = "Difficulty story 14: host and B both run $DpCoreName and CustomDifficulty (host Enemy Damage 25 and the Meek's Insta-kill box, Nightmare); the Meek's grab on B is the execution on both machines and B dies on both screens; the harness revives B and the other enemies still spare it; no lock-up"
     Prereq = $DpD5Prereq
     HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '0' }   # Nightmare: the game's own test executes at 100 HP too
     HostModPaths = { @($DpCorePackage, (Get-DpModStage -Side host -Knobs $DpKillKnobs), (Get-DpStage -Role 'host-spawn')) }
@@ -694,14 +694,14 @@ function Get-DpD15Report {
     # "$(...)": a missing END is an empty pipeline result, which -notmatch would filter to nothing (no miss).
     if ("$($r.HostEnd)" -notmatch 'result=PASS') { $miss.Add("host driver END: $($r.HostEnd)") }
     if ("$($r.VMEnd)" -notmatch 'result=PASS') { $miss.Add("B's driver END: $($r.VMEnd)") }
-    if ($vd | Where-Object { $_ -match 'host has no Difficulty, inactive' }) { $miss.Add('B: logged the inactive line') }
+    if ($vd | Where-Object { $_ -match 'host has no CustomDifficulty, inactive' }) { $miss.Add('B: logged the inactive line') }
     $r.D15 = [ordered]@{ Misses = @($miss); Rows = @($rows); Session = $result.Outcome }
     foreach ($m in $miss) { Write-Host "FAIL $m" }
     $r.Verdict = if ($miss.Count -or $result.Outcome -ne 'PASS') { 'FAIL' } else { 'PASS' }
     $r
 }
 $DpPairScenarios['d15-boss-pair'] = @{
-    Summary = "Difficulty story 15: host and B both run $DpCoreName and Difficulty (host Enemy Damage 25, Nightmare); the Slug Queen, then the Apex Predator, grab B: the host's CommitLethalDamage on B is a 25 HP hit, and on both machines B is alive at about 75 HP, moving and shown no kill presentation at 0, 6 and 12 s"
+    Summary = "Difficulty story 15: host and B both run $DpCoreName and CustomDifficulty (host Enemy Damage 25, Nightmare); the Slug Queen, then the Apex Predator, grab B: the host's CommitLethalDamage on B is a 25 HP hit, and on both machines B is alive at about 75 HP, moving and shown no kill presentation at 0, 6 and 12 s"
     Prereq = $DpD5Prereq
     HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '0' }   # Nightmare: a stock boss commit is 100
     HostModPaths = { @($DpCorePackage, (Get-DpModStage -Side host -Knobs $DpKnobs), (Get-DpStage -Role 'host-spawn' -Boss)) }
@@ -713,7 +713,7 @@ $DpPairScenarios['d15-boss-pair'] = @{
 }
 
 # ------------------------------------------------------------------------------------------------ story 8
-# d8-tokens: Difficulty, not the driver, closes the computers after N reinforcements (CAP-5).
+# d8-tokens: CustomDifficulty, not the driver, closes the computers after N reinforcements (CAP-5).
 $script:DpTokensN = 2   # below the stock limit 6 (PairDriver's Classified Minimum 2); DifficultyPair's TOKENS_N
 function Get-DpD8Report {
     $r = Get-DpReport
@@ -750,7 +750,7 @@ function Get-DpD8Report {
     $r
 }
 $DpPairScenarios['d8-tokens'] = @{
-    Summary = "Difficulty story 8 (CAP-5): the host runs $DpCoreName and Difficulty with Reinforcement Tokens $DpTokensN, B no Difficulty; B's terminal revives the host $DpTokensN times, then Difficulty's Disable Reinforcement takes the offer off B's computer"
+    Summary = "Difficulty story 8 (CAP-5): the host runs $DpCoreName and CustomDifficulty with Reinforcement Tokens $DpTokensN, B no CustomDifficulty; B's terminal revives the host $DpTokensN times, then CustomDifficulty's Disable Reinforcement takes the offer off B's computer"
     Prereq = $DpD5Prereq
     HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '2' }   # Normal; PairDriver's Classified Minimum 2 (limit 6)
     HostModPaths = { @($DpCorePackage, (Get-DpModStage -Side host -Knobs "revives=$DpTokensN"), (Get-DpStage -Role 'host-tokens')) }
@@ -762,7 +762,7 @@ $DpPairScenarios['d8-tokens'] = @{
 }
 
 # ------------------------------------------------------------------------------------------------ story 17
-# d17-frost (DW-40): frostbite on a remote character, decided by Difficulty on the host. B is unmodded.
+# d17-frost (DW-40): frostbite on a remote character, decided by CustomDifficulty on the host. B is unmodded.
 $script:DpFrostKnobs = 'frostbite=3'
 $script:DpFrostHits = 15   # of the 20 ticks in 20 s; fewer means the host didn't scale B's frostbite
 function Get-DpD17FrostReport {
@@ -775,7 +775,7 @@ function Get-DpD17FrostReport {
     $miss = [Collections.Generic.List[string]]::new()
     if (-not ($hd | Where-Object { $_ -match "^MATCH start knobs=$([regex]::Escape($DpFrostKnobs))\s*$" })) { $miss.Add("host: no MATCH start knobs=$DpFrostKnobs") }
     $hits = @($hd | Where-Object { $_ -match '^HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3 applied=3 ' })
-    if ($hits.Count -lt $DpFrostHits) { $miss.Add("host: $($hits.Count) Difficulty 'HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3 applied=3' lines, want at least $DpFrostHits") }
+    if ($hits.Count -lt $DpFrostHits) { $miss.Add("host: $($hits.Count) CustomDifficulty 'HIT enemy=frostbite via=frostbite stock=1 scaled=3 rolled=3 applied=3' lines, want at least $DpFrostHits") }
     $clash = @($hd | Where-Object { $_ -match '^WARN clash' })
     if ($clash.Count) { $miss.Add("host: $($clash[0])") }
     if (-not ($hp | Where-Object { $_ -match '^OK FROSTRUN ' })) { $miss.Add('host: no OK FROSTRUN (B''s loss on the host)') }
@@ -797,7 +797,7 @@ function Get-DpD17FrostReport {
     $r
 }
 $DpPairScenarios['d17-frost'] = @{
-    Summary = "Difficulty story 17 (DW-40): the host runs $DpCoreName and Difficulty with Frostbite 3, B runs no Difficulty; the host holds B's Temperature at 1.5 for 20 s and Difficulty scales the frostbite ticks on B's character: B loses 60 +- 6 on both machines"
+    Summary = "Difficulty story 17 (DW-40): the host runs $DpCoreName and CustomDifficulty with Frostbite 3, B runs no CustomDifficulty; the host holds B's Temperature at 1.5 for 20 s and CustomDifficulty scales the frostbite ticks on B's character: B loses 60 +- 6 on both machines"
     Prereq = $DpD5Prereq
     HostFiles = @{ 'PairDriver\Scripts\difficulty.txt' = '2' }   # as the solo frostbite case
     HostModPaths = { @($DpCorePackage, (Get-DpModStage -Side host -Knobs $DpFrostKnobs), (Get-DpStage -Role 'host-frost')) }

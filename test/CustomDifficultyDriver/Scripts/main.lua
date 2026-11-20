@@ -1,23 +1,23 @@
--- DifficultyDriver: Difficulty's in-game test driver for story 3 (spec-difficulty-v1, enemy damage and survivable
--- grabs). Installed only by deploy.ps1 -Test -Scenario, never shipped; Difficulty carries no test code. Plain UE4SS
--- Lua (no core); the spawn and match code is adapted from test/DifficultyProbe. It can't reach Difficulty's Lua state,
--- so it judges Difficulty by the world: the local player's Health after each enemy hit (refilled to 100 before every
--- case, test-only and logged), the grab montage and whether the player moves again. check.ps1 reads both Difficulty's
+-- CustomDifficultyDriver: CustomDifficulty's in-game test driver for story 3 (spec-difficulty-v1, enemy damage and survivable
+-- grabs). Installed only by deploy.ps1 -Test -Scenario, never shipped; CustomDifficulty carries no test code. Plain UE4SS
+-- Lua (no core); the spawn and match code is adapted from test/DifficultyProbe. It can't reach CustomDifficulty's Lua state,
+-- so it judges CustomDifficulty by the world: the local player's Health after each enemy hit (refilled to 100 before every
+-- case, test-only and logged), the grab montage and whether the player moves again. check.ps1 reads both CustomDifficulty's
 -- lines (HIT, GRAB, RESTORE, WARN clash) and these.
 --
--- mods.txt order (deploy.ps1): Nucleus, DifficultyDriver, Difficulty. Scenario (Scripts/scenario.txt, one per
--- launch; the knobs are deploy.ps1's, in Difficulty's dev.lua):
+-- mods.txt order (deploy.ps1): Nucleus, CustomDifficultyDriver, CustomDifficulty. Scenario (Scripts/scenario.txt, one per
+-- launch; the knobs are deploy.ps1's, in CustomDifficulty's dev.lua):
 --   scaled     Hard, Enemy Damage 17: a Meek hit at 100 HP takes 17.
 --   flip       Nightmare, Enemy Damage 25: a Meek grab at 100 HP plays the survivable montage, takes 25 (about 75 HP
 --              left), and the player moves again within 6 s.
 --   per-enemy  Normal, Stalker 200%: a Stalker hit takes 50, a Meek hit 25.
---   default    Hard, no knobs: a Meek hit takes the game's 50 (Difficulty logs no HIT line).
+--   default    Hard, no knobs: a Meek hit takes the game's 50 (CustomDifficulty logs no HIT line).
 --   clash      Hard, Enemy Damage 17, and this driver's own CallDamageEvent pre-hook adds 5 HP to every hit: the
---              first hit takes 12 (17 - 5; Difficulty logs one WARN and backs off), the next one the stock 45 (50 - 5).
+--              first hit takes 12 (17 - 5; CustomDifficulty logs one WARN and backs off), the next one the stock 45 (50 - 5).
 -- Story 4 (cold, frostbite, reinforcement tokens; no enemy cases, natural enemies cleared every 2 s):
 --   cold            Nightmare, Cold Exposure 50: Temperature set to 0 once (a lowering: a raise would be scaled like
 --                   cooling), then 60 s outdoors; the rise must be a quarter of Nightmare's stock range (60 s / 600..310
---                   per s, +-10%). Difficulty's COLD line has the exact ratio (check.ps1).
+--                   per s, +-10%). CustomDifficulty's COLD line has the exact ratio (check.ps1).
 --   cold-zero       Cold Exposure 0: Temperature stays at its start (0) outdoors for 60 s.
 --   frostbite       Frostbite 3, cold Default: Temperature held at 1.5 (raising it is fine: cold is Default); Health
 --                   loss over 20 s = 60 +-10%.
@@ -50,11 +50,11 @@
 --                   DT6-* presets, saves DT6-A and DT6-B (PresetName, then the Create_1 handler), selects A
 --                   (SetSelectedOption, then the OnSelectionChanged handler), updates A, selects None, deletes A,
 --                   removes the screen, appends a stale line "99<tab>DT6-gone<tab>cold=50" to the sidecar, reopens,
---                   deletes B. After each step it reads Difficulty's sidecar: the DT6 entries by index and name, all
+--                   deletes B. After each step it reads CustomDifficulty's sidecar: the DT6 entries by index and name, all
 --                   Default, the baseline entries unchanged. A handler that can't be driven is NOTSHOWN.
 --                   Story 14: after B, Meek's Insta-kill box is clicked through its button's click function (core's
 --                   checkbox), DT6-K saved (its entry kill.meek=1), the box clicked again (unticked); after the reopen
---                   DT6-K is selected (Difficulty's PRESETS select line has kill.meek=1) and deleted at the end.
+--                   DT6-K is selected (CustomDifficulty's PRESETS select line has kill.meek=1) and deleted at the end.
 -- Story 7 (menu only, no match; VM only: real clicks, a drag and typing through run.ps1 -Target vm):
 --   screen          ten opens of the create-world screen by real clicks on START GAME and Back: the 21 rows in
 --                   VerticalBox_202 (knob rows at children 2-8 after Overlay_28, per-enemy rows right after
@@ -66,13 +66,13 @@
 --                   Enemy Damage 17 saved on Hard, None (rows kept), the screen on Easy, DT7-A (17, Default rows follow
 --                   its Hard), DT7-A deleted; one more open starts Default on Normal. Screenshots screen-rows,
 --                   screen-nightmare, screen-preset. Story 14: before the preset part, an Insta-kill box in the eight
---                   kill rows only (SCBOXES), a real click on Meek's box (Difficulty's ROWS change kill.meek=1 is
+--                   kill rows only (SCBOXES), a real click on Meek's box (CustomDifficulty's ROWS change kill.meek=1 is
 --                   check.ps1's; DT7-A is then saved with it) and the screenshot screen-kill.
 -- Story 8 (the epic's success checks):
 --   spread          Normal, Damage Spread 20: 200 Meek standard hits at full Health (refilled between hits), straight
 --                   through the hooked static NNEnemyAttackContext:ApplyLockedDamage(<an idle spawned Meek>, 25) after
 --                   TryBeginAttack locks the player (one probe call first: when it doesn't lower Health, real attacks
---                   instead, with the scenario's longer time limit). check.ps1 judges Difficulty's rolled values.
+--                   instead, with the scenario's longer time limit). check.ps1 judges CustomDifficulty's rolled values.
 --   spread-grab     Nightmare, Enemy Damage 25, Spread 50: 20 Meek grabs, Health set to 26 before each (test only):
 --                   each survivable, each leaving Health >= 1 (at most 25 taken).
 --   signal-a        (VM, real input; launch 1 of signal) the create-world screen: Nightmare by real clicks on the
@@ -83,7 +83,7 @@
 --                   hosted with the screen's Create button (real click): a Meek grab at full Health (15..35 taken), a
 --                   Stalker grab (30..70), 60 s outdoors without the meter rising, the computer's text 8 tokens; then
 --                   back to the menu, DT8-SIGNAL deleted. No dev.lua.
---   no-core, old-core  (menu only) waits for the menu world and 20 s, so the run reaches the menu; Difficulty's one
+--   no-core, old-core  (menu only) waits for the menu world and 20 s, so the run reaches the menu; CustomDifficulty's one
 --                   line is check.ps1's.
 -- Story 13 (difficulty v1; the bosses' finisher grabs, observed, no fix):
 --   boss            Nightmare, Enemy Damage 25: the Slug Queen, then the Apex Predator, spawned near the player and
@@ -100,7 +100,7 @@
 -- Story 14 (difficulty v1; the Insta-kill boxes):
 --   insta-kill      Normal, kill.meek=1: a Stalker grab at 100 HP takes the stock 25 and the player moves again 8 s
 --                   after the hit (an unticked enemy is unchanged); then a Meek grab at 100 HP plays the execution
---                   (StabAndDump: Difficulty flips the game's survivable test) and its hit leaves Health <= 0. That
+--                   (StabAndDump: CustomDifficulty flips the game's survivable test) and its hit leaves Health <= 0. That
 --                   death is expected: INSTAKILL <case> death expected (the pawn gone, or Health <= 0 for 12 s), never
 --                   DEATH, and the run ends there.
 --   insta-kill-boss Nightmare, Enemy Damage 25, kill.slugQueen=1: as boss, the Apex first (alive at 12 s with 75 HP,
@@ -112,7 +112,7 @@
 -- END result=PASS|FAIL|NOTSHOWN.
 -- Keys it can't press itself (Enter for touchdown) go to run.ps1 through request.txt / done.txt next to this file.
 -- Never keeps a UObject across steps: paths only, re-found each step.
-local ME = "DifficultyDriver"
+local ME = "CustomDifficultyDriver"
 local scriptDir = debug.getinfo(1, "S").source:gsub("^@", ""):match("^(.*)[/\\]")
 local function say(fmt, ...) print("[" .. ME .. "] " .. string.format(fmt, ...) .. "\n") end
 
@@ -452,7 +452,7 @@ step("pawn", function()
         return os.clock() - t0 > 20
     end, 120, "first-person pawn"
 end)
--- The lobby countdown ends (UpdateFriendlyFire: Difficulty's match start) with the scenario's Diffculty. Shortened
+-- The lobby countdown ends (UpdateFriendlyFire: CustomDifficulty's match start) with the scenario's Diffculty. Shortened
 -- on the host, test only. The driver never writes Diffculty itself.
 step("match start", function()
     local g = gameState()
@@ -920,7 +920,7 @@ elseif SC.special == "tokens" then
                 return false
             end, 60, "reinforcement #" .. i
         end)
-        -- The new pawn settles, Difficulty's callback or poll re-checks; then Disable is false before N and true at N.
+        -- The new pawn settles, CustomDifficulty's callback or poll re-checks; then Disable is false before N and true at N.
         step("after reinforce #" .. i, function()
             if P.abort or S.dead then return end
             local t0 = os.clock()
@@ -1026,7 +1026,7 @@ elseif SC.special == "tokens" then
                     return false
                 end, 30, "classified objective #" .. j
             end)
-            -- Difficulty's callback or poll (<= 250 ms) awards it: Disable cleared, the count down by the award.
+            -- CustomDifficulty's callback or poll (<= 250 ms) awards it: Disable cleared, the count down by the award.
             step("after classified #" .. j, function()
                 if P.abort or S.dead then return end
                 local t0 = os.clock()
@@ -1080,7 +1080,7 @@ end
 -- spread: 200 standard Meek hits at full Health. The direct route (one probe first) calls the hooked static
 -- ApplyLockedDamage with an idle Meek as the attacker after TryBeginAttack locked the local player; the real route lets
 -- a spawned Meek attack. Health is refilled to 100 between hits (test only; the real route only outside a grab
--- window). check.ps1 judges Difficulty's rolled values; the driver's own losses are logged and bounded.
+-- window). check.ps1 judges CustomDifficulty's rolled values; the driver's own losses are logged and bounded.
 if SC.special == "spread" then
     local CTX = "/Script/NuclearNightmare.Default__NNEnemyAttackContext"
     local P = { losses = {}, mode = nil }
@@ -1223,7 +1223,7 @@ if SC.special == "spread" then
             return
         end
         -- The driver's own view on the direct route (one hit per refill): every loss inside 15..35 (25 +- 2 sigma).
-        -- Difficulty's rolled values are check.ps1's; the real route's losses can overlap a refill, so they are logged only.
+        -- CustomDifficulty's rolled values are check.ps1's; the real route's losses can overlap a refill, so they are logged only.
         if P.mode == "direct" then
             check(lo >= 14.95 and hi <= 35.05, "spread %d hits, every loss in 15..35 (min %.2f, max %.2f; mean %.2f, sd %.2f)", n, lo, hi, mean, sd)
         else
@@ -1236,7 +1236,7 @@ end
 -- Each boss ends its grab with the native static NNBossAttackRecovery:CommitLethalDamage(Boss, Victim) and plays the
 -- kill presentation (its AttackMulti) only when that returns true. The driver makes each boss grab the local player,
 -- logs the native's Health in/out and the player's state 0, 6 and 12 s after it, and judges survival (boss) or the
--- stock kill (boss-default). Difficulty's own HIT line (via=CommitLethalDamage) is check.ps1's. Never keeps a UObject
+-- stock kill (boss-default). CustomDifficulty's own HIT line (via=CommitLethalDamage) is check.ps1's. Never keeps a UObject
 -- between steps: the boss by path, the player re-found each poll.
 if SC.special == "boss" then
     local REC = "/Script/NuclearNightmare.NNBossAttackRecovery:"
@@ -1452,7 +1452,7 @@ if SC.special == "boss" then
     end
 end
 
--- no-core, old-core: the menu only. Difficulty stops itself (its one line is check.ps1's); the driver only proves the
+-- no-core, old-core: the menu only. CustomDifficulty stops itself (its one line is check.ps1's); the driver only proves the
 -- run reached the menu and stayed 20 s there.
 if SC.special == "menu" then
     steps = {}
@@ -1462,7 +1462,7 @@ if SC.special == "menu" then
 end
 
 -- ---------------------------------------------------------------- story 6: presets (menu only)
--- The create-world screen's own preset handlers, driven on the main menu (no match, no session). Difficulty keeps its
+-- The create-world screen's own preset handlers, driven on the main menu (no match, no session). CustomDifficulty keeps its
 -- sidecar in step; this driver reads the file after each step and checks the DT6-* entries (index, decoded name, all
 -- Default) and that the presets that were there before (the baseline) keep their entries. It cleans up its own presets
 -- (the VM copy's _userdir is never reset by tools/vm). Never keeps the screen: found again in each step.
@@ -1544,7 +1544,7 @@ if SC.special == "presets" then
     end
     -- Story 14: Meek's Insta-kill box (core's checkbox, a tagged button widget in the Meek row), found in the screen's
     -- tree (a user widget's own tree through its HBox), and clicked through the button's click function, which core's
-    -- click hook routes to the checkbox (Difficulty's onChange logs ROWS change kill.meek=...).
+    -- click hook routes to the checkbox (CustomDifficulty's onChange logs ROWS change kill.meek=...).
     local function tagged(cs, tag)
         local ok0, root = pcall(function() return cs.WidgetTree.RootWidget end)
         if not ok0 or not valid(root) then return nil end
@@ -1635,7 +1635,7 @@ if SC.special == "presets" then
         if not d:match("[/\\]$") then d = d .. "/" end
         P.file = d .. "SaveGames/" .. ME:gsub("Driver$", "") .. "_WorldPresets.txt"
         say("SIDECAR %s", P.file)
-        -- Difficulty registers its CreateServer_C hooks after the menu's LoadMap (retried every 3 s, 3 times).
+        -- CustomDifficulty registers its CreateServer_C hooks after the menu's LoadMap (retried every 3 s, 3 times).
         return after(12), 15
     end)
     pstep("1 open", function()
@@ -1709,7 +1709,7 @@ if SC.special == "presets" then
     end)
     pstep("5 after reopen", function() judge("5 reopen:", { PREFIX .. "B", KPRESET }) end)
     boxRead("5 box after reopen", "reopen", false)
-    -- Story 14: K read back after the reopen (Difficulty's PRESETS select line carries kill.meek=1: check.ps1).
+    -- Story 14: K read back after the reopen (CustomDifficulty's PRESETS select line carries kill.meek=1: check.ps1).
     pstep("5 select K", function()
         if selectName("select " .. KPRESET[1], KPRESET[1]) then judge("5 select K:", { PREFIX .. "B", KPRESET }) end
         return after(1), 3
@@ -1737,7 +1737,7 @@ end
 -- value), a real click on that picker's prev arrow and on the Classified Minimum picker's next arrow (the tokens row
 -- follows), then a preset: Cold cleared, Enemy Damage 17 saved as DT7-A on Hard, 40 typed, None (rows unchanged), the
 -- screen put on Easy, DT7-A (17 again, Default rows follow DT7-A's Hard), DT7-A deleted; CONFIRM, Back and one more
--- open that starts Default on Normal. Difficulty's own ROWS lines are judged by check.ps1. Never clicks Create.
+-- open that starts Default on Normal. CustomDifficulty's own ROWS lines are judged by check.ps1. Never clicks Create.
 if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b" then
     -- signal-b keeps the match steps (from "match world" on: the grab cases, cold and the computer's text) as its tail.
     local tail = {}
@@ -1926,7 +1926,7 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
             Z.snap, Z.snaps, Z.snapOurs = t, Z.snaps + 1, k
             say("SCSNAP %d game rows, %d of ours at Construct: %s", #t, k, table.concat(t, ","))
         end)
-        return after(12), 15 -- Difficulty's preset hooks (and core's poll) settle after the menu's LoadMap
+        return after(12), 15 -- CustomDifficulty's preset hooks (and core's poll) settle after the menu's LoadMap
     end)
     sstep("sc: startup", function()
         if liveOf(MENU_SHORT) then return end
@@ -2055,7 +2055,7 @@ if SC.special == "screen" or SC.special == "signal-a" or SC.special == "signal-b
     configure(tostring(OPENS + 1))
     shot("screen-rows")
 
-    -- Enemy Damage: a drag, then 57, 999 and empty typed into its box. Difficulty's ROWS change lines are check.ps1's.
+    -- Enemy Damage: a drag, then 57, 999 and empty typed into its box. CustomDifficulty's ROWS change lines are check.ps1's.
     req("drag Enemy Damage", function()
         local bar = prop(sliderW("enemyDamage"), "Bar")
         local x1, y = pointOf(bar, 25 / 200, 0.5)

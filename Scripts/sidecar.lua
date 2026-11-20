@@ -1,4 +1,4 @@
--- Difficulty: the world-preset sidecar file (spec-difficulty-v1 story 6, presets-and-ui.md "The sidecar"). Pure Lua,
+-- CustomDifficulty: the world-preset sidecar file (spec-difficulty-v1 story 6, presets-and-ui.md "The sidecar"). Pure Lua,
 -- no UE4SS: name encoding, the bounded parse of format 2, serialize, and reconcile against the game's presets.
 -- presets.lua does the file IO and the hooks.
 --

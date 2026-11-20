@@ -1,4 +1,4 @@
--- A fake UE4SS for Difficulty's unit tests: worlds, a player controller, KismetSystemLibrary (IsServer, IsStandalone,
+-- A fake UE4SS for CustomDifficulty's unit tests: worlds, a player controller, KismetSystemLibrary (IsServer, IsStandalone,
 -- IsValid as a UFunction) and the globals main.lua, world.lua and hits.lua use (StaticFindObject, FindFirstOf,
 -- FindAllOf, RegisterLoadMapPostHook, RegisterHook / UnregisterHook, ExecuteInGameThreadWithDelay,
 -- LoopInGameThreadWithDelay, print). Plus a tiny test harness.
@@ -95,11 +95,11 @@ function F.new()
     return W
 end
 
--- Installs W's globals into _G. UE4SS's async helpers fail loudly: Difficulty must not use them.
+-- Installs W's globals into _G. UE4SS's async helpers fail loudly: CustomDifficulty must not use them.
 function F.install(W)
     for k, v in pairs(W.env) do _G[k] = v end
-    _G.LoopAsync = function() error("Difficulty must not use LoopAsync") end
-    _G.ExecuteInGameThread = function() error("Difficulty must not use ExecuteInGameThread") end
+    _G.LoopAsync = function() error("CustomDifficulty must not use LoopAsync") end
+    _G.ExecuteInGameThread = function() error("CustomDifficulty must not use ExecuteInGameThread") end
     _G.print = function(s) W.printed[#W.printed + 1] = (tostring(s):gsub("\n$", "")) end
 end
 

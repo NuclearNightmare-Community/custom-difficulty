@@ -9,7 +9,7 @@
 --   client-observe     (B, VM) logs only (an unmodded B as far as the grab decision goes).
 --   host-spawn         (A, host; stories 5 and 11) spawns a Meek, Mimic, Psycho, Stalker and Watcher (last) in front
 --                      of B, one at a time (no Husk: a survivable Husk grab infects by design). Never flips and never
---                      touches damage: the real Difficulty does both. Before each spawn it refills the host (only when
+--                      touches damage: the real CustomDifficulty does both. Before each spawn it refills the host (only when
 --                      alive) and teleports it at least 2500 cm from B (MOVE host), so B is the enemies' only target.
 --                      hp <= 0 is dead: a case ends as died then, and no Health write ever touches such a body. Refills
 --                      B to 100 HP between cases, only outside a grab window and only while alive. A dead B is revived
@@ -24,7 +24,7 @@
 --                      windows, and logs the Watcher's state every 5 s (WATCH), so the Watcher has two players in reach:
 --                      it guards the Watcher's victim rule (Target vs AttackedPlayer).
 --                      Story 10: logs its view of B once a second for 16 s after each grab on B (OTHERPOS: position,
---                      montage, PlayingMontage, movement mode). With Scripts\measure.txt (d10-measure, no Difficulty on
+--                      montage, PlayingMontage, movement mode). With Scripts\measure.txt (d10-measure, no CustomDifficulty on
 --                      the host) only the Meek and the Watcher, each enemy hit on either player costs 25 HP (an
 --                      execution doesn't kill), a case ends at least 17 s after its first grab on B and only while the
 --                      host sees B free, and B is refilled only 17 s after the last grab.
@@ -41,7 +41,7 @@
 --                      false, movement 1), no presentation. A B death is BOSSDEATH <boss> on B and a FAIL; B is revived
 --                      and the next case runs. Natural enemies but the case's boss cleared every 2 s until the t=12 line.
 --   client-watch       (B, VM; story 5) logs only: each grab on B with its montage, and B's montage, PlayingMontage,
---                      movement mode, Health and position 6, 12 and 16 s later (AFTERGRAB). The real Difficulty (or
+--                      movement mode, Health and position 6, 12 and 16 s later (AFTERGRAB). The real CustomDifficulty (or
 --                      none) decides. Clears infection timers like the host. Story 10, with Scripts\measure.txt: also
 --                      5 s after the grab, B's own view once a second for 16 s (MYPOS), and B walks backwards from
 --                      +1 s to +16 s (WALK: how far it got).
@@ -57,20 +57,20 @@
 --                      Disable Reinforcement from Lua; revives B through the radio; logs every count.
 --   client-revive      (B, VM) opens the military computer through its own ServerInteract, logs the reinforcement
 --                      panel, requests the host's revive past the limit, dies on the host's signal; logs its counts.
---   host-tokens        (A, host; story 8, d8-tokens) the real Difficulty with Reinforcement Tokens 2: dies twice, each
+--   host-tokens        (A, host; story 8, d8-tokens) the real CustomDifficulty with Reinforcement Tokens 2: dies twice, each
 --                      time revived by B's terminal, then once more; never writes the count or Disable Reinforcement.
---   client-tokens      (B, VM; story 8) no Difficulty: each round opens its own terminal and checks the offer (shown
+--   client-tokens      (B, VM; story 8) no CustomDifficulty: each round opens its own terminal and checks the offer (shown
 --                      before the 2nd reinforcement, gone after it), asks for the host's revive, closes the terminal.
---   host-frost         (A, host; story 17, d17-frost) the real Difficulty with Frostbite 3 (dev.lua): holds its own
+--   host-frost         (A, host; story 17, d17-frost) the real CustomDifficulty with Frostbite 3 (dev.lua): holds its own
 --                      Temperature at 0 and clears natural enemies throughout; holds B's Temperature at 1.5 every tick;
 --                      after a 3 s lead sets B's Health to 100, signals fz-start, counts CallFrostbiteDamageEvent calls
 --                      on B (amount 1 or 2) for 20 s, sets B's Temperature to 0, signals fz-end and checks B's loss
 --                      (FROSTRUN pair end ...; 60 +- 6 with at least one call, else NOTSHOWN frostbite on B).
---   client-frost       (B, VM; story 17) no Difficulty: 3 s after fz-end checks its own Health lost 60 +- 6 (FROSTB).
+--   client-frost       (B, VM; story 17) no CustomDifficulty: 3 s after fz-end checks its own Health lost 60 +- 6 (FROSTB).
 --   Story 17 (DW-38): client-revive checks that B's terminal revived the host in s3 (REVIVE past the limit; a refusal
 --   is that check's FAIL, then the fallback runs) and that the host's radio revived B in s4 (REVIVE s4).
 -- The two machines coordinate only through files: a driver logs "SIGNAL <name>", the scenario script
--- (test/pair/difficulty-scenarios.ps1) writes <name>.txt next to the other machine's copy of this file.
+-- (test/pair/custom-difficulty-scenarios.ps1) writes <name>.txt next to the other machine's copy of this file.
 -- Never keeps a UObject across steps: paths only, re-found each step.
 local ME = "DifficultyPair"
 local scriptDir = debug.getinfo(1, "S").source:gsub("^@", ""):match("^(.*)[/\\]")
@@ -93,7 +93,7 @@ do
     if f then f:close() WATCHER_NEAR = ROLE == "host-spawn" end
 end
 -- Story 10: Scripts\measure.txt (staged by d10-measure) turns on the grab-recovery measurement. host-spawn: only the
--- Meek and the Watcher, every enemy hit on either player costs MEASURE_HIT (the executions don't kill; no Difficulty
+-- Meek and the Watcher, every enemy hit on either player costs MEASURE_HIT (the executions don't kill; no CustomDifficulty
 -- on the host), and a case ends at least 17 s after its first grab on B, only while the host sees B free (no enemy
 -- despawned while it holds B). client-watch: after each grab on B, B walks backwards from +1 s to +16 s (WALK) and
 -- logs its own state once a second (MYPOS).
@@ -604,7 +604,7 @@ local function monitor()
         local h = hpOf(m)
         if h and h ~= S.lastMyHp then say("MYHP %s", fmt1(h)) S.lastMyHp = h end
     end
-    -- 6, 12 and 16 s after a grab (5 s too with measure.txt: just before Difficulty's recovery at 6 s): the victim's
+    -- 6, 12 and 16 s after a grab (5 s too with measure.txt: just before CustomDifficulty's recovery at 6 s): the victim's
     -- state on this machine and where it stands (no recovery is forced here: does it come back alone?).
     for _, k in ipairs({ "ownGrabAt", "hostGrabAt" }) do
         local g = S[k]
@@ -763,7 +763,7 @@ local function buildHostGrab()
     end)
 end
 
--- Story 5: the host spawns, the real Difficulty decides. Story 11: the host out of B's way, hp <= 0 is dead, and a dead
+-- Story 5: the host spawns, the real CustomDifficulty decides. Story 11: the host out of B's way, hp <= 0 is dead, and a dead
 -- player is revived specifically (never a refilled corpse, never the wrong player).
 local MONSTER = "BP_ThirdPersonCharacter_C" -- the playable-monster pawn: not in the reinforcement queue
 local HOST_AWAY = 2500                      -- cm: the host's least distance from B at each spawn
@@ -856,7 +856,7 @@ end
 -- S.hostPath). Nothing to do while that player has a live character. Else: wait up to 30 s for the real death (the
 -- controller no longer holds the dead character); a playable monster is a FAIL at once; then
 -- ReinforceSpecficPlayer(<dead character>), and Reinformant() every 5 s, up to 6 tries, until a new character is there.
--- The checker's line contract (difficulty-scenarios.ps1, unchanged): per B death exactly one line matching
+-- The checker's line contract (custom-difficulty-scenarios.ps1, unchanged): per B death exactly one line matching
 -- "^REVIVE .* radio:Reinformant\(\)", per B revive exactly one "REVIVE <tag> B back after <n> s"; the retries (RETRY)
 -- and the host's lines (REVIVE-HOST) match neither.
 local function revive(tag, whom)
@@ -1214,7 +1214,7 @@ local function buildHostSpawn()
     waitMatch()
     step("other present", function() return function() return other() ~= nil end, 600, "the other player's character" end)
     waitFile("bready", 600)
-    -- Spawn only after the lobby countdown: Difficulty acts from its match start (UpdateFriendlyFire), and the lobby
+    -- Spawn only after the lobby countdown: CustomDifficulty acts from its match start (UpdateFriendlyFire), and the lobby
     -- runs on the match map, so waitMatch() alone returns during the countdown (pair runs 2026-11-15).
     step("match started", function()
         return function()
@@ -1592,9 +1592,9 @@ local function buildClientRevive()
     end)
 end
 
--- Story 8 (d8-tokens): the real Difficulty on the host with Reinforcement Tokens N (TOKENS_N, below the Classified
--- Minimum's stock limit); B runs no Difficulty. The host dies N times and B revives it each time through its own
--- terminal (OnReinforcement); after the N-th, Difficulty (never this driver: no SET line, no write to
+-- Story 8 (d8-tokens): the real CustomDifficulty on the host with Reinforcement Tokens N (TOKENS_N, below the Classified
+-- Minimum's stock limit); B runs no CustomDifficulty. The host dies N times and B revives it each time through its own
+-- terminal (OnReinforcement); after the N-th, CustomDifficulty (never this driver: no SET line, no write to
 -- TimesUsedReinforcements or Disable Reinforcement) sets Disable Reinforcement, and B's computer no longer offers a
 -- reinforcement when the host dies once more. B checks its panel each round: offered before N, gone after.
 local TOKENS_N = 2
@@ -1602,7 +1602,7 @@ local function buildHostTokens()
     waitMatch()
     step("other present", function() return function() return other() ~= nil end, 600, "the other player's character" end)
     waitFile("bready", 600)
-    -- Difficulty's token count is written at its match start (UpdateFriendlyFire), after the lobby countdown.
+    -- CustomDifficulty's token count is written at its match start (UpdateFriendlyFire), after the lobby countdown.
     step("match started", function()
         return function()
             local ok, st = pcall(function() return gameState()["StartedGame?"] end)
@@ -1638,7 +1638,7 @@ local function buildHostTokens()
         else
             step(tag .. " final", function()
                 local cnt, dis = reinfState(tag .. " host final")
-                check(dis == true, "TOKENS the host's Disable Reinforcement is set after %d reinforcements (by Difficulty; got %s)", TOKENS_N, tostring(dis))
+                check(dis == true, "TOKENS the host's Disable Reinforcement is set after %d reinforcements (by CustomDifficulty; got %s)", TOKENS_N, tostring(dis))
             end)
         end
     end
@@ -1695,7 +1695,7 @@ local function buildClientTokens()
     waitFile("done", 300)
 end
 
--- Story 17 (d17-frost, DW-40): Difficulty on the host decides frostbite for B's character too (only the host simulates
+-- Story 17 (d17-frost, DW-40): CustomDifficulty on the host decides frostbite for B's character too (only the host simulates
 -- Temperature). The host holds B cold (Temperature 1.5) and counts the native's ticks on B; B, unmodded, reads its own
 -- replicated Health. Frostbite 3 on the solo frostbite case's lobby: 20 s of ticks cost 60 HP.
 local FROST_LEAD, FROST_SECONDS, FROST_WANT, FROST_TOL = 3, 20, 60, 6
@@ -1704,7 +1704,7 @@ local function buildHostFrost()
     waitMatch()
     step("other present", function() return function() return other() ~= nil end, 600, "the other player's character" end)
     waitFile("bready", 600)
-    -- Difficulty publishes its knobs at match start (after the lobby countdown).
+    -- CustomDifficulty publishes its knobs at match start (after the lobby countdown).
     step("match started", function()
         return function()
             local ok, st = pcall(function() return gameState()["StartedGame?"] end)

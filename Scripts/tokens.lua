@@ -1,4 +1,4 @@
--- Difficulty: reinforcement tokens on the host (spec-difficulty-v1 story 4; knob-mechanics.md "Reinforcement
+-- CustomDifficulty: reinforcement tokens on the host (spec-difficulty-v1 story 4; knob-mechanics.md "Reinforcement
 -- tokens"). Two parts: the math (pure) and the adapter on the game state (start, re-check, Disable, minimum change,
 -- imposter, classified bonus). hits.lua owns the match state and calls them only on the host, once the match started.
 -- The offset rule: the game counts reinforcements itself in the host's TimesUsedReinforcements (the radio's three
@@ -12,8 +12,8 @@
 -- of the game state's ClassifiedDynamicValue (set once per completed classified objective by the host's own
 -- UpdateClassifieds) lowers the count by k per objective, up to cap in total per match (the bonus). The bonus raises
 -- the effective N to n + bonus (with revives Default: the stock limit + bonus), so the computer shows
--- n + bonus - used. With revives set, a bonus that reopens tokens clears the Disable Reinforcement Difficulty itself
--- wrote (never one another writer set); with revives Default Difficulty never writes Disable and the game's own gate
+-- n + bonus - used. With revives set, a bonus that reopens tokens clears the Disable Reinforcement CustomDifficulty itself
+-- wrote (never one another writer set); with revives Default CustomDifficulty never writes Disable and the game's own gate
 -- (count >= limit) closes the computer.
 local M = {}
 
@@ -106,7 +106,7 @@ function M.start(gs, n, o, cls)
     local count = int(read(gs, "TimesUsedReinforcements"))
     if not count then o.warnOnce("tokens:count", "TOKENS TimesUsedReinforcements is unreadable; tokens stay stock") return nil end
     -- The game's count so far is the reinforcements used so far (0 at a match start). disabled: Disable is set (by
-    -- anyone) since used reached the effective N; wrote: Difficulty wrote it (the only Disable it ever clears).
+    -- anyone) since used reached the effective N; wrote: CustomDifficulty wrote it (the only Disable it ever clears).
     local t = { n = n, limit = limit, used = count, disabled = false, wrote = false, bonus = 0 }
     if n ~= nil then
         local c = M.count(limit, n, count)
@@ -168,7 +168,7 @@ end
 
 -- classified(t, gs, how, o): the classified bonus (story 12). The UpdateClassifieds callback and the poll both call
 -- it; the last value seen makes it idempotent. A rise lowers the count by the award (the effective N rises with it,
--- used is unchanged); one line per rise. With revives set, a Disable Difficulty wrote is cleared once tokens are left
+-- used is unchanged); one line per rise. With revives set, a Disable CustomDifficulty wrote is cleared once tokens are left
 -- again; one another writer set stays.
 function M.classified(t, gs, how, o)
     if not t or not t.k then return end

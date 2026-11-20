@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Runs story 2's pair scenarios (test/pair/difficulty-scenarios.ps1) with tools/vm/pair.ps1, unattended, under the
+  Runs story 2's pair scenarios (test/pair/custom-difficulty-scenarios.ps1) with tools/vm/pair.ps1, unattended, under the
   workspace's dumps\vm.lock, with VM NNB at 8 GB for the run and back at its previous memory afterwards.
 .DESCRIPTION
   1. Takes dumps\vm.lock atomically (refuses if another session holds it).
@@ -25,7 +25,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $ws = (Resolve-Path $Workspace).Path
 $pair = Join-Path $ws 'tools\vm\pair.ps1'
-$scenarioFile = Join-Path $PSScriptRoot 'pair\difficulty-scenarios.ps1'
+$scenarioFile = Join-Path $PSScriptRoot 'pair\custom-difficulty-scenarios.ps1'
 $inst = Join-Path $ws "game-instances\$Copy"
 if (-not (Test-Path $inst)) { throw "No host copy $inst." }
 . (Join-Path $ws 'tools\vm\vm-common.ps1')

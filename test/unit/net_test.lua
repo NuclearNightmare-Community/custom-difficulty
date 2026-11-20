@@ -178,8 +178,8 @@ do
     local f = assert(io.open(ROOT .. "/mod.json", "r"))
     m = net.manifest(f:read("a"))
     f:close()
-    eq(m.id, "nuclearnightmare-community.difficulty", "manifest: the repo's own id")
-    eq(m.version, "0.1.0", "manifest: the repo's own version")
+    eq(m.id, "nuclearnightmare-community.custom-difficulty", "manifest: the repo's own id")
+    eq(m.version, "0.2.0", "manifest: the repo's own version")
 end
 
 -- ---------------------------------------------------------------- the source: pure

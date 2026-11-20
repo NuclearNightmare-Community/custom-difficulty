@@ -22,7 +22,7 @@ eq(m.id, "nuclearnightmare-community.custom-difficulty", "id")
 eq(m.name, "CustomDifficulty", "name")
 eq(m.version, "0.2.0", "version")
 ok(tostring(m.version):match("^%d+%.%d+%.%d+$"), "version is semver")
-eq(m.scope, "all", "scope all")
+eq(m.scope, "host-plus", "scope host-plus (distribution story 14)")
 eq(m.game and m.game.version, "V8.2.3", "game.version")
 eq(m.game and m.game.build, "26601774", "game.build")
 eq(m.ue4ss, "v3.0.1-1181-g83330635", "ue4ss pinned")
@@ -31,27 +31,27 @@ eq(m.dependsOn[1].id, "nuclearnightmare-community.nucleus", "dependsOn nuclearni
 eq(m.dependsOn[1].version, "^0.15.0", "dependsOn ^0.15.0 (core story 33: game-style rows for story 7)")
 ok(not text:lower():find("infection", 1, true), "no Infection Chance anywhere in mod.json (v2)")
 
--- key, label, min, max, step, scope (presets-and-ui.md; Decisions: 'all' for the survivable-grab inputs)
+-- key, label, min, max, step, scope (presets-and-ui.md; Decisions: 'both' (was 'all') for the survivable-grab inputs)
 local ROWS = {
-    { "enemyDamage", "Enemy Damage", 0, 200, 1, "all" },
+    { "enemyDamage", "Enemy Damage", 0, 200, 1, "both" },
     { "spread", "Damage Spread", 0, 50, 1, "host" },
     { "revives", "Reinforcement Tokens", 0, 20, 1, "host" },
     { "classifiedTokens", "Tokens per Classified", 0, 4, 1, "host" },
     { "classifiedTokensMax", "Max Classified Tokens", 0, 40, 1, "host" },
     { "cold", "Cold Exposure", 0, 400, 1, "host" },
     { "frostbite", "Frostbite Damage", 0, 20, 0.5, "host" },
-    { "dmg.meek", "Damage: Meek", 0, 500, 5, "all" },
-    { "kill.meek", "Insta-kill: Meek", "bool", "all" },
-    { "dmg.mimic", "Damage: Mimic", 0, 500, 5, "all" },
-    { "kill.mimic", "Insta-kill: Mimic", "bool", "all" },
-    { "dmg.psycho", "Damage: Psycho", 0, 500, 5, "all" },
-    { "kill.psycho", "Insta-kill: Psycho", "bool", "all" },
-    { "dmg.husk", "Damage: Husk", 0, 500, 5, "all" },
-    { "kill.husk", "Insta-kill: Husk", "bool", "all" },
-    { "dmg.watcher", "Damage: Watcher", 0, 500, 5, "all" },
-    { "kill.watcher", "Insta-kill: Watcher", "bool", "all" },
-    { "dmg.stalker", "Damage: Stalker", 0, 500, 5, "all" },
-    { "kill.stalker", "Insta-kill: Stalker", "bool", "all" },
+    { "dmg.meek", "Damage: Meek", 0, 500, 5, "both" },
+    { "kill.meek", "Insta-kill: Meek", "bool", "both" },
+    { "dmg.mimic", "Damage: Mimic", 0, 500, 5, "both" },
+    { "kill.mimic", "Insta-kill: Mimic", "bool", "both" },
+    { "dmg.psycho", "Damage: Psycho", 0, 500, 5, "both" },
+    { "kill.psycho", "Insta-kill: Psycho", "bool", "both" },
+    { "dmg.husk", "Damage: Husk", 0, 500, 5, "both" },
+    { "kill.husk", "Insta-kill: Husk", "bool", "both" },
+    { "dmg.watcher", "Damage: Watcher", 0, 500, 5, "both" },
+    { "kill.watcher", "Insta-kill: Watcher", "bool", "both" },
+    { "dmg.stalker", "Damage: Stalker", 0, 500, 5, "both" },
+    { "kill.stalker", "Insta-kill: Stalker", "bool", "both" },
     { "dmg.slugQueen", "Damage: Slug Queen", 0, 500, 5, "host" },
     { "kill.slugQueen", "Insta-kill: Slug Queen", "bool", "host" },
     { "dmg.apex", "Damage: Apex Predator", 0, 500, 5, "host" },
@@ -104,10 +104,10 @@ end
 for _, k in ipairs(S.__keys) do ok(not k:lower():find("infection", 1, true), "no infection key: " .. k) end
 
 -- The settings the grab decision reads (Decisions: enemyDamage and the six grabbing enemies, with their Insta-kill
--- boxes) are 'all'; every other is 'host' (the bosses' boxes too: CommitLethalDamage runs on the host).
+-- boxes) are 'both'; every other is 'host' (the bosses' boxes too: CommitLethalDamage runs on the host).
 local all = {}
-for _, k in ipairs(S.__keys) do if S[k].scope == "all" then all[#all + 1] = k end end
-eq(table.concat(all, ","), "enemyDamage,dmg.meek,kill.meek,dmg.mimic,kill.mimic,dmg.psycho,kill.psycho,dmg.husk,kill.husk,dmg.watcher,kill.watcher,dmg.stalker,kill.stalker", "scope all = the survivable-grab inputs")
+for _, k in ipairs(S.__keys) do if S[k].scope == "both" then all[#all + 1] = k end end
+eq(table.concat(all, ","), "enemyDamage,dmg.meek,kill.meek,dmg.mimic,kill.mimic,dmg.psycho,kill.psycho,dmg.husk,kill.husk,dmg.watcher,kill.watcher,dmg.stalker,kill.stalker", "scope both = the survivable-grab inputs")
 local boxes = {}
 for _, k in ipairs(S.__keys) do if k:match("^kill%.") then boxes[#boxes + 1] = k end end
 eq(#boxes, 8, "eight Insta-kill boxes")

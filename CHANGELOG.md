@@ -13,6 +13,9 @@ Not released yet. Earlier work is described in `README.md`.
   `SaveGames/CustomDifficulty_WorldPresets.txt`. The test driver is `CustomDifficultyDriver`; `run.ps1` keeps logs in
   `dumps/<copy>/custom-difficulty/`.
 - MIT license (`LICENSE`, `mod.json` `license`).
+- Scope `host-plus` (distribution story 14; was `all`, which the release tools now refuse): the host needs it, clients
+  who have it get the full experience, unmodded clients can still play. The 13 survivable-grab settings' `scope` is
+  `both` (was `all`; core 0.19.0's settings schema takes `client | host | both`).
 
 ### Added
 

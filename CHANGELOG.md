@@ -67,4 +67,4 @@ Not released yet. Earlier work is described in `README.md`.
 
 - `dependsOn` names Nucleus `^0.15.0` (was `^0.12.0`), and `main.lua`'s `NEED` is 0.15.0: story 7's rows need core's
   game-style rows (core story 33).
-- The mod id is `nuclearnightmare-community.custom-difficulty` (was `difficulty`), and `dependsOn` names Nucleus as `nuclearnightmare-community.nucleus` (distribution story 13, `mod-ids.md`): the namespaced ids every released mod takes before the first public release. The folder, `mods.txt` line and `name` are unchanged. `deploy.ps1` finds core's entry by the new id, so a dev copy needs a Nucleus deployed with the new id (Nucleus 0.12.0).
+- The mod id is the namespaced `nuclearnightmare-community.custom-difficulty`, and `dependsOn` names Nucleus as `nuclearnightmare-community.nucleus` (distribution story 13, `mod-ids.md`): the namespaced ids every released mod takes before the first public release. `deploy.ps1` finds core's entry by the new id, so a dev copy needs a Nucleus deployed with the new id (Nucleus 0.12.0).

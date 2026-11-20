@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-  Judges one run of Difficulty from UE4SS.log.
+  Judges one run of CustomDifficulty from UE4SS.log.
 .DESCRIPTION
-  Prints Difficulty's and UE4SS's relevant lines, then checks the patterns the scenario needs.
+  Prints CustomDifficulty's and UE4SS's relevant lines, then checks the patterns the scenario needs.
   A pattern must match somewhere; "!pattern" must match nowhere; "#N|pattern" must match exactly N lines;
   "?pattern" is a soft check (reported as "warn:", never failing); "?!pattern" is a soft check that it matches nowhere.
   Then the computed checks: READY after CONNECT ok; on a core before the one dependsOn names (dev core mode,
@@ -11,12 +11,12 @@
   Exit code 1 when any check fails; otherwise prints "All checks passed."
   Scenarios:
     ready     dev copy to the main menu: connected, READY, WORLD host=false standalone=true for the menu.
-    old-core  core too old, Difficulty deployed with -Force: exactly one [Difficulty] line, the incompatibility ERROR.
-    no-core   core not installed: exactly one [Difficulty] line, "Nucleus is not installed".
+    old-core  core too old, CustomDifficulty deployed with -Force: exactly one [CustomDifficulty] line, the incompatibility ERROR.
+    no-core   core not installed: exactly one [CustomDifficulty] line, "Nucleus is not installed".
     host      a solo match was hosted: as ready, plus a WORLD host=true standalone=false line.
     hand      any run by hand: connected, READY, at least one WORLD line, no error.
     unit      needs no log: runs test.ps1.
-  Story 3 (run.ps1 -Scenario <s>: deploy.ps1 -Test -PreCore -Scenario <s>, the driver test/DifficultyDriver, one
+  Story 3 (run.ps1 -Scenario <s>: deploy.ps1 -Test -PreCore -Scenario <s>, the driver test/CustomDifficultyDriver, one
   solo hosted match). Each needs everything 'host' needs, a MATCH start line with the scenario's knobs and the
   driver's END result=PASS with no driver FAIL line:
     scaled     Hard, Enemy Damage 17: HIT enemy=meek stock=50 scaled=17 applied=17 hp=100.
@@ -113,8 +113,8 @@
   everything else is judged as on the host.
 .EXAMPLE
   ./check.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2-build26512322 -Scenario ready
-  ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.2-build26512322\difficulty\old-core.log -Scenario old-core
-  ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.2-build26512322\difficulty\default.vm.log -Scenario default -Target vm
+  ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.2-build26512322\custom-difficulty\old-core.log -Scenario old-core
+  ./check.ps1 -Log C:\...\nuclear-nightmare\dumps\v8.2-build26512322\custom-difficulty\default.vm.log -Scenario default -Target vm
 #>
 param(
     [string] $Instance,
@@ -176,7 +176,7 @@ $running = @(
 )
 $menuWorld = "\[$C\] WORLD host=false standalone=true map=\S+\s*$"
 $hostWorld = "\[$C\] WORLD host=true standalone=false map=\S+\s*$"
-# Story 3: the driver's verdict, and Difficulty's lines per scenario.
+# Story 3: the driver's verdict, and CustomDifficulty's lines per scenario.
 $D = [regex]::Escape("${name}Driver")
 $whiteoutDisabled = if ($Scenario -eq 'cold-whiteout') { 'false' } else { 'true' }
 $driverOk = @("\[$D\] SCENARIO $Scenario\s*$", "\[$D\] END result=(PASS|NOTSHOWN) ", "!\[$D\] FAIL ", "!\[$D\] HOOKERR ", "!\[$D\] DEATH ",
@@ -250,7 +250,7 @@ $story3['insta-kill'] = @("\[$C\] MATCH start knobs=kill\.meek=1\s*$",
     "\[$D\] OK insta-kill Meek #2 grab played the execution montage ", "\[$D\] OK insta-kill Meek #2 the grab's hit killed",
     "#1|\[$D\] INSTAKILL Meek #2 death expected ")
 $story3['insta-kill-boss'] = @("\[$C\] MATCH start knobs=enemyDamage=25 kill\.slugQueen=1\s*$") + @($bossHit.Values)
-# signal: the eight values the screen gets, in Difficulty's knob order (knobs.lua).
+# signal: the eight values the screen gets, in CustomDifficulty's knob order (knobs.lua).
 $K8 = @(@('enemyDamage', '25'), @('spread', '20'), @('revives', '8'), @('classifiedTokens', '2'), @('classifiedTokensMax', '3'), @('cold', '0'), @('frostbite', '0'), @('dmg.stalker', '200'))
 $K8Text = ($K8 | ForEach-Object { "$($_[0])=$($_[1])" }) -join ' '
 $K8Rx = [regex]::Escape($K8Text)
@@ -560,7 +560,7 @@ if ($Scenario -eq 'spread' -and -not $driverNotShown) {
         if ($out.Count -eq 0) { Pass ([string]::Format($inv, 'spread: every rolled value in 15..35 (min {0}, max {1})', ($r | Measure-Object -Minimum).Minimum, ($r | Measure-Object -Maximum).Maximum)) }
         else { Fail ([string]::Format($inv, 'spread: rolled value {0} outside 15..35 ({1} outside)', $out[0], $out.Count)) }
     }
-    # Environmental hits are never rolled: Difficulty's only one is frostbite (logged only when Frostbite Damage is set).
+    # Environmental hits are never rolled: CustomDifficulty's only one is frostbite (logged only when Frostbite Damage is set).
     $env = @(Get-Hits $lines 'frostbite')
     if (-not $env.Count) { Write-Host 'warn: spread: no HIT enemy=frostbite line (spread=20 alone sets no frostbite): "an environmental hit is never rolled" not shown in game'; $warned++ }
     else {

@@ -18,9 +18,9 @@ local okJ, m = pcall(J.decode, text)
 ok(okJ, "mod.json parses", m)
 if not okJ then H.done() end
 
-eq(m.id, "nuclearnightmare-community.difficulty", "id")
-eq(m.name, "Difficulty", "name")
-eq(m.version, "0.1.0", "version")
+eq(m.id, "nuclearnightmare-community.custom-difficulty", "id")
+eq(m.name, "CustomDifficulty", "name")
+eq(m.version, "0.2.0", "version")
 ok(tostring(m.version):match("^%d+%.%d+%.%d+$"), "version is semver")
 eq(m.scope, "all", "scope all")
 eq(m.game and m.game.version, "V8.2.3", "game.version")

@@ -1,4 +1,4 @@
--- Difficulty: the enemy-damage math (spec-difficulty-v1, knob-mechanics.md "The hit the mod applies" steps 1-5 and
+-- CustomDifficulty: the enemy-damage math (spec-difficulty-v1, knob-mechanics.md "The hit the mod applies" steps 1-5 and
 -- "Survivable grabs"). Pure Lua, no UE4SS: unit-tested without the game. values is a parsed knob table
 -- (knobs.parse): nil means Default.
 local knobs = require("knobs")
@@ -121,7 +121,7 @@ end
 
 -- grab(hp, values, d, row, spare) -> { E, game, decision, flip, kill } or nil (unknown difficulty). spare: this machine
 -- may change the victim's decision (story 5: the host for its own player and for a client whose machine runs a
--- compatible Difficulty; a modded client for its own player); for any other victim the recorded decision is the
+-- compatible CustomDifficulty; a modded client for its own player); for any other victim the recorded decision is the
 -- game's. flip is the temporary Health, or nil when no change is needed. kill (story 14): the enemy's Insta-kill box is
 -- ticked, so the wanted decision is the execution whatever E and hp are (still only where spare allows a change).
 function M.grab(hp, values, d, row, spare)

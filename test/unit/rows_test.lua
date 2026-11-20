@@ -13,8 +13,8 @@ local ok, eq = H.ok, H.eq
 local rows = require("rows")
 local knobs = require("knobs")
 local presets = require("presets")
-local HDR = "# Difficulty world presets, format 2\n"
-local FILE = "C:/nn/copy/_userdir/Saved/SaveGames/Difficulty_WorldPresets.txt"
+local HDR = "# CustomDifficulty world presets, format 2\n"
+local FILE = "C:/nn/copy/_userdir/Saved/SaveGames/CustomDifficulty_WorldPresets.txt"
 local ENEMY = {}
 for _, r in ipairs(knobs.ROWS) do ENEMY[#ENEMY + 1] = "dmg." .. r end
 
@@ -39,7 +39,7 @@ do
         local e = rows.ENEMY[key:match("^kill%.(.+)$")]
         ok(tip:find("Ticked: every " .. e .. " ", 1, true), key .. ": tooltip names the enemy", tip)
     end
-    eq(rows.KILL_TIP["kill.meek"], "Ticked: every Meek grab kills (the game's execution), whatever Enemy Damage, this row's % and Health.\nUnticked: Difficulty's rules; a grab still kills when its hit would.", "the grab tooltip text")
+    eq(rows.KILL_TIP["kill.meek"], "Ticked: every Meek grab kills (the game's execution), whatever Enemy Damage, this row's % and Health.\nUnticked: CustomDifficulty's rules; a grab still kills when its hit would.", "the grab tooltip text")
     eq(rows.KILL_TIP["kill.slugQueen"], "Ticked: every Slug Queen finisher grab kills, whatever Enemy Damage, this row's % and Health.\nUnticked: the grab takes the scaled hit and kills only when that hit does.", "the boss tooltip text")
     for _, key in ipairs(rows.ORDER) do
         local s, k = m.settings[key], knobs.BY_KEY[key]
@@ -113,7 +113,7 @@ local function setup(o)
     local function say(level, fmt, ...) logs[#logs + 1] = (level == "info" and "" or (level:upper() .. " ")) .. string.format(fmt, ...) end
     local said = {}
     local function warnOnce(k, fmt, ...) if not said[k] then said[k] = true say("warn", fmt, ...) end end
-    P = presets.new{ say = say, warnOnce = warnOnce, name = "Difficulty", fs = D,
+    P = presets.new{ say = say, warnOnce = warnOnce, name = "CustomDifficulty", fs = D,
                      onRows = function(d, cm) if R then R:sync(d, cm) end end }
     R = rows.new{ ui = U, model = P, say = say, warnOnce = warnOnce, levels = presets.levels, hasAnchor = o.hasAnchor }
     ok(R:watch(), "watch registers")
@@ -250,7 +250,7 @@ do -- story 14: preset A with Meek ticked, B without, and one saved before the b
     eq(count("^WARN"), 0, "presets with boxes: no WARN")
 end
 
-do -- the matrix: open, drag or type, clear, Difficulty, Classified, preset select, None, reopen
+do -- the matrix: open, drag or type, clear, CustomDifficulty, Classified, preset select, None, reopen
     setup()
     R:declare()
     D.files[FILE] = HDR .. "0\tA\tenemyDamage=17\n"

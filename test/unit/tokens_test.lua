@@ -235,7 +235,7 @@ do -- Stock tokens: revives Default, CM 3 (limit 8), k=2, used 3, one objective
     eq(8 - f.TimesUsedReinforcements, 7, "stock: the computer shows 7")
     eq(count("^TOKENS bonus classified=1 %+2 count=1 left=stock via=UpdateClassifieds$"), 1, "stock: one bonus line", dump())
     eq(w["Disable Reinforcement"], nil, "stock: Disable never written")
-    -- The game's own gate closes it: 7 more reinforcements reach count 8 = limit; Difficulty writes no Disable.
+    -- The game's own gate closes it: 7 more reinforcements reach count 8 = limit; CustomDifficulty writes no Disable.
     for i = 1, 7 do reinforce(t, g, f, op, "poll") end
     eq(f.TimesUsedReinforcements, 8, "stock: count at the limit after 7 more")
     eq(w["Disable Reinforcement"], nil, "stock: still no Disable (the game's gate closes)")
@@ -248,7 +248,7 @@ do -- Stock tokens: revives Default, CM 3 (limit 8), k=2, used 3, one objective
     tokens.release(t, g, op)
     eq(f.TimesUsedReinforcements, 10, "stock release: back to used (10)")
 end
-do -- With N, disabled: N=2, k=2, used 2 (Difficulty set Disable), one objective
+do -- With N, disabled: N=2, k=2, used 2 (CustomDifficulty set Disable), one objective
     local op = o()
     local g, f, w = gs{ ["Classified Minium"] = 3, ClassifiedDynamicValue = 0 }
     local t = tokens.start(g, 2, op, cls(2))
@@ -280,7 +280,7 @@ do -- Lobby/other Disable: set by someone else mid-match; the bonus is counted, 
     objective(t, g, f, op)
     eq(t.bonus, 2, "other Disable: the bonus counted")
     eq(f["Disable Reinforcement"], true, "other Disable: left set")
-    eq(w["Disable Reinforcement"], nil, "other Disable: never written by Difficulty")
+    eq(w["Disable Reinforcement"], nil, "other Disable: never written by CustomDifficulty")
     eq(count("set by someone else and stays set"), 1, "other Disable: one line", dump())
 end
 do -- Two objectives in one poll: value 0 -> 2, +2k once, one line

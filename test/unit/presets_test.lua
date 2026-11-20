@@ -10,8 +10,8 @@ local H = F.harness("presets_test")
 local ok, eq = H.ok, H.eq
 local presets = require("presets")
 local sc = require("sidecar")
-local HDR = "# Difficulty world presets, format 2\n"
-local FILE = "C:/nn/copy/_userdir/Saved/SaveGames/Difficulty_WorldPresets.txt"
+local HDR = "# CustomDifficulty world presets, format 2\n"
+local FILE = "C:/nn/copy/_userdir/Saved/SaveGames/CustomDifficulty_WorldPresets.txt"
 
 local W, D, P, logs
 local function setup(o)
@@ -22,7 +22,7 @@ local function setup(o)
     logs = {}
     local function say(level, fmt, ...) logs[#logs + 1] = (level == "info" and "" or (level:upper() .. " ")) .. string.format(fmt, ...) end
     local said = {}
-    P = presets.new{ say = say, name = "Difficulty", fs = D,
+    P = presets.new{ say = say, name = "CustomDifficulty", fs = D,
                      warnOnce = function(k, fmt, ...) if not said[k] then said[k] = true say("warn", fmt, ...) end end }
     if o.missing then for _, k in ipairs(o.missing) do W.missing[presets.PATHS[k]] = true end end
     P:onLoadMap()
@@ -92,7 +92,7 @@ do -- moved, stale, other format, bad lines: one WARN per read
     S:open()
     eq(D.files[FILE], HDR .. "0\tA\t\n1\tB\tcold=50\n", "moved preset and stale entry: rewritten in the game's order")
     eq(last("^PRESETS open"), "PRESETS open presets=2 entries=2 changed=true", "changed=true")
-    D.files[FILE] = "# Difficulty world presets, format 3\n0\tA\tcold=1\n"
+    D.files[FILE] = "# CustomDifficulty world presets, format 3\n0\tA\tcold=1\n"
     S:open()
     eq(D.files[FILE], HDR .. "0\tA\t\n1\tB\t\n", "other format: rewritten as format 2, all Default")
     eq(count("^WARN sidecar .*1 problem%(s%).*not format 2"), 1, "other format: one WARN")
@@ -395,9 +395,9 @@ do
     W.savedDir = dir .. "/"
     logs = {}
     P = presets.new{ say = function(level, fmt, ...) logs[#logs + 1] = (level == "info" and "" or (level:upper() .. " ")) .. string.format(fmt, ...) end,
-                     warnOnce = function() end, name = "Difficulty" }
+                     warnOnce = function() end, name = "CustomDifficulty" }
     P:onLoadMap()
-    local file = dir .. "/SaveGames/Difficulty_WorldPresets.txt"
+    local file = dir .. "/SaveGames/CustomDifficulty_WorldPresets.txt"
     local function readAll(p) local f = io.open(p, "rb") if not f then return nil end local s = f:read("a") f:close() return s end
     local S = F.screen(W, { "A", "B" })
     S:open()

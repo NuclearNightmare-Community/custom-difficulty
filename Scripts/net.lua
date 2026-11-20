@@ -1,8 +1,8 @@
--- Difficulty: what the host publishes for modded clients and how a client reads it back (spec-difficulty-v1 story 5,
+-- CustomDifficulty: what the host publishes for modded clients and how a client reads it back (spec-difficulty-v1 story 5,
 -- knob-mechanics.md "Survivable grabs"). Pure Lua, no UE4SS: unit-tested without the game. The values travel only
 -- through core's host replicated state (core.net, core story 22); presence and the version rule are core's (story 23).
 --
--- Keys (the name part of "<mod id>.<name>"): ver and compat (Difficulty's own version and effective netCompat, as
+-- Keys (the name part of "<mod id>.<name>"): ver and compat (CustomDifficulty's own version and effective netCompat, as
 -- major*1000000 + minor*1000 + patch), then the grab-relevant knobs that are set (an absent knob key means Default):
 -- enemyDamage and the six grab rows (dmg_<row>; core's names allow no dot), and (story 14) kills, the six grab
 -- enemies' Insta-kill boxes as one bitmask over knobs.GRAB_ROWS (bit 0 = meek ... bit 5 = stalker; published only when

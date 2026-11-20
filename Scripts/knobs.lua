@@ -1,4 +1,4 @@
--- Difficulty: the knob table and the parser for knob values (spec-difficulty-v1, presets-and-ui.md "Our rows" and
+-- CustomDifficulty: the knob table and the parser for knob values (spec-difficulty-v1, presets-and-ui.md "Our rows" and
 -- "The sidecar"). Pure Lua, no UE4SS: unit-tested without the game.
 -- The values use the sidecar's syntax: "key=value;key=value", a value being "default" or a decimal number. Story 3
 -- reads them from dev.lua (deploy.ps1 -Test -Knobs); story 6 adds the sidecar (sidecar.lua) and the text captured at

@@ -1,21 +1,21 @@
 <#
 .SYNOPSIS
-  Installs Difficulty into a dev copy of Nuclear Nightmare, or removes it.
+  Installs CustomDifficulty into a dev copy of Nuclear Nightmare, or removes it.
 .DESCRIPTION
   Refuses (exit 1, one line) unless Nucleus (core) is installed in the copy, enabled in mods.txt, its installed
-  mod.json has id nucleus, and its version satisfies Difficulty's dependsOn (^ rules, deploy-lib.ps1). -Force installs
-  anyway with a warning, for the failure scenarios (Difficulty's own runtime check then has to catch it).
-  Installs ue4ss/Mods/Difficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua, env.lua,
-  tokens.lua, net.lua, presets.lua, sidecar.lua, rows.lua} and writes "Difficulty : 1" into mods.txt right below Nucleus's line and above "Keybinds : 1", moving
-  it there if it was elsewhere. Never writes outside Mods/Difficulty, Mods/DifficultyDriver and their mods.txt lines,
+  mod.json has id nucleus, and its version satisfies CustomDifficulty's dependsOn (^ rules, deploy-lib.ps1). -Force installs
+  anyway with a warning, for the failure scenarios (CustomDifficulty's own runtime check then has to catch it).
+  Installs ue4ss/Mods/CustomDifficulty/{mod.json, Scripts/main.lua, world.lua, knobs.lua, damage.lua, hits.lua, env.lua,
+  tokens.lua, net.lua, presets.lua, sidecar.lua, rows.lua} and writes "CustomDifficulty : 1" into mods.txt right below Nucleus's line and above "Keybinds : 1", moving
+  it there if it was elsewhere. Never writes outside Mods/CustomDifficulty, Mods/CustomDifficultyDriver and their mods.txt lines,
   and never bundles any of core's files. Story 2's test drivers (DifficultyProbe, DifficultyPair) are left alone.
-  -Test writes Scripts/dev.lua (return { debug = true }): Difficulty's DEBUG lines, which check.ps1 reads.
+  -Test writes Scripts/dev.lua (return { debug = true }): CustomDifficulty's DEBUG lines, which check.ps1 reads.
   -Knobs "<key>=<v>;..." (only with -Test) adds knobs = "<text>" to dev.lua: test-only knob values that win over the
-  preset values captured at CreateSteamSession (story 6; sidecar syntax, presets-and-ui.md; Difficulty parses and
+  preset values captured at CreateSteamSession (story 6; sidecar syntax, presets-and-ui.md; CustomDifficulty parses and
   bounds it at each match start).
   Only letters, digits, '.', '=', ';', '-' and spaces, at most 1024 characters.
-  -Scenario <s> (only with -Test) also installs the test driver test/DifficultyDriver as Mods/DifficultyDriver
-  (mods.txt: Nucleus, DifficultyDriver, Difficulty) with the scenario in its Scripts/scenario.txt, and, unless -Knobs
+  -Scenario <s> (only with -Test) also installs the test driver test/CustomDifficultyDriver as Mods/CustomDifficultyDriver
+  (mods.txt: Nucleus, CustomDifficultyDriver, CustomDifficulty) with the scenario in its Scripts/scenario.txt, and, unless -Knobs
   is given, the scenario's knobs: scaled and clash "enemyDamage=17", flip "enemyDamage=25", per-enemy
   "dmg.stalker=200", default none; story 4: cold "cold=50", cold-zero "cold=0", frostbite "frostbite=3",
   frostbite-zero "frostbite=0", tokens-more "revives=4", tokens-fewer "revives=2"; cold-whiteout "cold=50" (opt-in);
@@ -30,7 +30,7 @@
   brings the UI) and writes dev.lua with preCore = true, so main.lua connects with need 0.3.0 and logs one WARN. On a
   core that already satisfies dependsOn, -PreCore changes nothing: dev.lua is { debug = true } and need stays dependsOn's minimum.
   dev.lua is git-ignored and never shipped.
-  -Remove deletes Mods/Difficulty, Mods/DifficultyDriver and their mods.txt lines; nothing else changes (mods.txt
+  -Remove deletes Mods/CustomDifficulty, Mods/CustomDifficultyDriver and their mods.txt lines; nothing else changes (mods.txt
   keeps its bytes when it had neither line).
   -Staged: $Instance is the host-side staging folder of a VM run (run.ps1 -Target vm, the workspace's
   tools/vm/vm-sp.ps1), not a game: it only skips the "Nuclear Nightmare is running" check, so a VM run can deploy
@@ -68,7 +68,7 @@ $name     = $manifest.name
 if ("$name" -notmatch '^[A-Za-z][A-Za-z0-9_-]*$') { throw "mod.json's name '$name' is not a plain name; refusing to deploy" }
 $files    = 'main.lua', 'world.lua', 'knobs.lua', 'damage.lua', 'hits.lua', 'env.lua', 'tokens.lua', 'net.lua', 'presets.lua', 'sidecar.lua', 'rows.lua'
 $driver   = "${name}Driver"
-# The knobs each driver scenario needs (test/DifficultyDriver); -Knobs overrides them.
+# The knobs each driver scenario needs (test/CustomDifficultyDriver); -Knobs overrides them.
 $ScenarioKnobs = @{ 'scaled' = 'enemyDamage=17'; 'flip' = 'enemyDamage=25'; 'per-enemy' = 'dmg.stalker=200'; 'default' = ''; 'clash' = 'enemyDamage=17'
                    'cold' = 'cold=50'; 'cold-zero' = 'cold=0'; 'frostbite' = 'frostbite=3'; 'frostbite-zero' = 'frostbite=0'
                    'tokens-more' = 'revives=4'; 'tokens-fewer' = 'revives=2'; 'cold-whiteout' = 'cold=50'; 'presets' = ''; 'screen' = ''
@@ -142,7 +142,7 @@ if ($problem) {
     Write-Warning "forced: $problem"
 }
 
-# Difficulty's files (and dev.lua for -Test).
+# CustomDifficulty's files (and dev.lua for -Test).
 Remove-Item (Join-Path $modsDir $name), (Join-Path $modsDir $driver) -Recurse -Force -ErrorAction SilentlyContinue
 $dest = Join-Path $modsDir "$name\Scripts"
 New-Item -ItemType Directory -Force $dest | Out-Null
@@ -156,7 +156,7 @@ if ($Test -and $Scenario -notin $NoDevLua) {
     [IO.File]::WriteAllText((Join-Path $dest 'dev.lua'), $devText, [Text.UTF8Encoding]::new($false))
 }
 
-# The driver (-Scenario): between core and Difficulty.
+# The driver (-Scenario): between core and CustomDifficulty.
 $add = @($name)
 if ($Scenario) {
     $dDest = Join-Path $modsDir "$driver\Scripts"

@@ -1,4 +1,4 @@
--- Difficulty: world-preset sync (spec-difficulty-v1 story 6, presets-and-ui.md "Preset lifecycle" and "The sidecar").
+-- CustomDifficulty: world-preset sync (spec-difficulty-v1 story 6, presets-and-ui.md "Preset lifecycle" and "The sidecar").
 -- The UE4SS adapter around sidecar.lua: a Lua "rows" model (every knob Default on each open; story 7's rows.lua shows
 -- and edits it), hooks on the create-world screen CreateServer_C (open, select, save, update, delete, and story 7's
 -- Difficulty and Classified Minimum pickers) and on BP_GameInstance_C:CreateSteamSession (the capture), and atomic

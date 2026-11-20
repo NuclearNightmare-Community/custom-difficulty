@@ -1,4 +1,4 @@
--- Difficulty: the knob rows on the create-world screen (spec-difficulty-v1 story 7; presets-and-ui.md "Our rows").
+-- CustomDifficulty: the knob rows on the create-world screen (spec-difficulty-v1 story 7; presets-and-ui.md "Our rows").
 -- Two parts:
 --   * pure data and functions, unit-tested without the game: LABELS and HELP per knob key (the labels are mod.json's,
 --     the ranges and steps knobs.lua's), ORDER (the screen's order) and defaults(diff, cm), the value each knob has
@@ -108,7 +108,7 @@ for _, r in ipairs(knobs.KILL_ROWS) do
             .. "Unticked: the grab takes the scaled hit and kills only when that hit does."
     else
         M.KILL_TIP["kill." .. r] = "Ticked: every " .. e .. " grab kills (the game's execution), whatever Enemy Damage, this row's % and Health.\n"
-            .. "Unticked: Difficulty's rules; a grab still kills when its hit would."
+            .. "Unticked: CustomDifficulty's rules; a grab still kills when its hit would."
     end
 end
 

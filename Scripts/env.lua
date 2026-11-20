@@ -1,4 +1,4 @@
--- Difficulty: cold exposure and frostbite on the host (spec-difficulty-v1 story 4; knob-mechanics.md "Cold exposure"
+-- CustomDifficulty: cold exposure and frostbite on the host (spec-difficulty-v1 story 4; knob-mechanics.md "Cold exposure"
 -- and "Frostbite damage"). Two parts: the math (pure, no UE4SS: unit-tested without the game) and the cold poll's
 -- adapter (characters, liveness, the summary line, the cost). hits.lua owns the match state and calls both.
 --   * cold: the knob is the freeze rate in % of Normal's. Stock rates are 200 / divisor (divisors 1 / 1.5 / 2 / 4 for

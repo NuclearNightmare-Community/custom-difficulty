@@ -1,4 +1,4 @@
--- Difficulty: which machine decides (AGENTS.md "Networking"). isHost = KismetSystemLibrary:IsServer(world) and not
+-- CustomDifficulty: which machine decides (AGENTS.md "Networking"). isHost = KismetSystemLibrary:IsServer(world) and not
 -- IsStandalone(world), evaluated when a world loads (the LoadMap post-hook, or at ready for the world that was already
 -- loaded) and cached per world name (the map path: the world's full name). Never from HasAuthority: every machine has authority
 -- over the actors it spawns.

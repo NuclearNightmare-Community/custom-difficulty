@@ -1,4 +1,4 @@
--- Difficulty 0.1.0 (spec-difficulty-v1, stories 1 and 3 to 7). Connects to Nucleus (core) through the dependent
+-- CustomDifficulty 0.2.0 (spec-difficulty-v1, stories 1 and 3 to 7). Connects to Nucleus (core) through the dependent
 -- bootstrap (core's api-contract.md) and caches isHost per world. Story 3: enemy damage on the host and survivable
 -- grabs for the host's own player (hits.lua). Story 4: cold, frostbite and reinforcement tokens on the host (env.lua,
 -- tokens.lua, wired in hits.lua; one host poll started here). Story 6: the knob values a match starts with come from
@@ -9,8 +9,8 @@
 -- Holds no UObject between callbacks (AGENTS.md): world.lua keeps only world names and booleans. Every hook body and
 -- every call into core runs under pcall, with one log line per failure. Story 5: survivable grabs on modded clients
 -- through core.net (core 0.12.0: host replicated state and player presence); the mod's own id comes from mod.json.
-local ME, CORE, NEED = "Difficulty", "Nucleus", "0.15.0"
-local VERSION = "0.1.0"
+local ME, CORE, NEED = "CustomDifficulty", "Nucleus", "0.15.0"
+local VERSION = "0.2.0"
 local PRE_NEED = "0.3.0" -- dev only (deploy.ps1 -Test -PreCore writes Scripts/dev.lua): core before 0.4.0, no UI
 local UI_CORE = "0.4.0" -- the first core with the UI (the dev core mode's WARN names it)
 
@@ -50,7 +50,7 @@ local manifest, manifestProblem = loadManifest()
 -- ---------------------------------------------------------------- dev.lua (deploy.ps1 -Test; never shipped)
 -- Optional. Data only: loaded with an empty environment; two booleans and the knobs string are read from it (the knobs
 -- are parsed, bounded, at each match start: knobs.lua). A problem is only remembered here and logged once connected,
--- so a failed connect stays exactly one [Difficulty] line (CAP-7).
+-- so a failed connect stays exactly one [CustomDifficulty] line (CAP-7).
 local function loadDev()
     local d = { debug = false, preCore = false, knobs = nil }
     local path = scriptDir .. "/dev.lua"
@@ -201,7 +201,7 @@ local okC, errC = pcall(client.connect, {
         local okR, err = pcall(start, core)
         if not okR then print(("[%s] ERROR start failed: %s\n"):format(ME, tostring(err))) end
     end,
-    -- connect has already logged the one line naming the cause (CAP-7: exactly one [Difficulty] line). Nothing to add.
+    -- connect has already logged the one line naming the cause (CAP-7: exactly one [CustomDifficulty] line). Nothing to add.
     onFail = function() end,
 })
 if not okC then print(("[%s] ERROR %s's connect failed: %s. %s will not run.\n"):format(ME, CORE, tostring(errC), ME)) end

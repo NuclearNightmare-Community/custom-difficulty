@@ -33,31 +33,31 @@ Throws { Test-CaretRange -Version '0.4.0' -Range '^0.4' } 'unsupported version r
 # ---------------------------------------------------------------- mods.txt editing
 $stock = @('CheatManagerEnablerMod : 1', 'BPModLoaderMod : 1', 'Keybinds : 1', '', '; comment')
 $withCore = @('Nucleus : 1') + $stock
-$r = Edit-ModsTxt -Lines $withCore -Add @('Difficulty') -After 'Nucleus'
-Eq ($r -join '|') (@('Nucleus : 1', 'Difficulty : 1') + $stock -join '|') 'mods.txt: Difficulty right below Nucleus'
-$r = Edit-ModsTxt -Lines (@('Difficulty : 0') + $withCore) -Add @('Difficulty') -After 'Nucleus'
-Eq ($r -join '|') (@('Nucleus : 1', 'Difficulty : 1') + $stock -join '|') 'mods.txt: a Difficulty line above Nucleus moves below it'
-$r = Edit-ModsTxt -Lines $stock -Add @('Difficulty') -After 'Nucleus'
-Eq ($r -join '|') 'CheatManagerEnablerMod : 1|BPModLoaderMod : 1|Difficulty : 1|Keybinds : 1||; comment' 'mods.txt: no Nucleus line -> above Keybinds'
-$r = Edit-ModsTxt -Lines @('Nucleus : 1', 'DifficultyProbe : 1', 'Difficulty : 1', 'Keybinds : 1') -Remove @('Difficulty')
-Eq ($r -join '|') 'Nucleus : 1|DifficultyProbe : 1|Keybinds : 1' 'mods.txt: remove only Difficulty (not DifficultyProbe)'
+$r = Edit-ModsTxt -Lines $withCore -Add @('CustomDifficulty') -After 'Nucleus'
+Eq ($r -join '|') (@('Nucleus : 1', 'CustomDifficulty : 1') + $stock -join '|') 'mods.txt: CustomDifficulty right below Nucleus'
+$r = Edit-ModsTxt -Lines (@('CustomDifficulty : 0') + $withCore) -Add @('CustomDifficulty') -After 'Nucleus'
+Eq ($r -join '|') (@('Nucleus : 1', 'CustomDifficulty : 1') + $stock -join '|') 'mods.txt: a CustomDifficulty line above Nucleus moves below it'
+$r = Edit-ModsTxt -Lines $stock -Add @('CustomDifficulty') -After 'Nucleus'
+Eq ($r -join '|') 'CheatManagerEnablerMod : 1|BPModLoaderMod : 1|CustomDifficulty : 1|Keybinds : 1||; comment' 'mods.txt: no Nucleus line -> above Keybinds'
+$r = Edit-ModsTxt -Lines @('Nucleus : 1', 'DifficultyProbe : 1', 'CustomDifficulty : 1', 'Keybinds : 1') -Remove @('CustomDifficulty')
+Eq ($r -join '|') 'Nucleus : 1|DifficultyProbe : 1|Keybinds : 1' 'mods.txt: remove only CustomDifficulty (not DifficultyProbe)'
 Eq (Get-ModsTxtState -Lines $withCore -Name 'Nucleus') 'enabled' 'state: enabled'
 Eq (Get-ModsTxtState -Lines @('Nucleus : 0') -Name 'Nucleus') 'disabled' 'state: disabled'
 Eq (Get-ModsTxtState -Lines $stock -Name 'Nucleus') 'absent' 'state: absent'
 
 # ---------------------------------------------------------------- mod.json and main.lua agree
 $m = Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json
-Ok ($m.id -eq 'nuclearnightmare-community.difficulty' -and $m.name -eq 'Difficulty' -and $m.version -eq '0.1.0' -and $m.scope -eq 'all') 'mod.json: id, name, version, scope'
+Ok ($m.id -eq 'nuclearnightmare-community.custom-difficulty' -and $m.name -eq 'CustomDifficulty' -and $m.version -eq '0.2.0' -and $m.displayName -eq 'Custom Difficulty' -and $m.license -eq 'MIT' -and $m.scope -eq 'all') 'mod.json: id, name, displayName, version, license, scope'
 Ok ($m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '^0.15.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus ^0.15.0'
 Ok ($m.ue4ss -eq 'v3.0.1-1181-g83330635' -and $m.game.version -eq 'V8.2.3' -and $m.game.build -eq '26601774') 'mod.json: ue4ss and game build'
 $mainLua = Get-Content (Join-Path $repo 'Scripts\main.lua') -Raw
-Ok ($mainLua -match 'local ME, CORE, NEED = "Difficulty", "Nucleus", "0\.15\.0"') 'main.lua: NEED = dependsOn minimum (0.15.0)'
-Ok ($mainLua -match 'local VERSION = "0\.1\.0"') 'main.lua: VERSION = mod.json version'
+Ok ($mainLua -match 'local ME, CORE, NEED = "CustomDifficulty", "Nucleus", "0\.15\.0"') 'main.lua: NEED = dependsOn minimum (0.15.0)'
+Ok ($mainLua -match 'local VERSION = "0\.2\.0"') 'main.lua: VERSION = mod.json version'
 Ok ($mainLua -match 'local PRE_NEED = "0\.3\.0"') 'main.lua: PRE_NEED = deploy.ps1''s -PreCore range minimum'
 Ok ((Get-Content (Join-Path $repo 'deploy.ps1') -Raw) -match "\`$PreCoreRange = '\^0\.3\.0'") 'deploy.ps1: -PreCore accepts ^0.3.0'
 
 # ---------------------------------------------------------------- mods.txt bytes
-$tmp = Join-Path ([IO.Path]::GetTempPath()) ("difficulty-deploy-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ("custom-difficulty-deploy-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory $tmp | Out-Null
 try {
     $p = Join-Path $tmp 'mods.txt'
@@ -79,7 +79,7 @@ try {
     $coreTxt = "Nucleus : 1`r`n" + $stockTxt
     $modsTxt = Join-Path $mods 'mods.txt'
     $coreJson = Join-Path $mods 'Nucleus\mod.json'
-    $dest = Join-Path $mods 'Difficulty'
+    $dest = Join-Path $mods 'CustomDifficulty'
     function Set-Core([string] $version, [string] $id = 'nuclearnightmare-community.nucleus') { Set-Content $coreJson "{ `"id`": `"$id`", `"name`": `"Nucleus`", `"version`": `"$version`" }" }
     # Each deploy runs in its own pwsh (it ends with exit), with Get-Process stubbed: a real game may be running.
     function Deploy([string[]] $a) {
@@ -94,7 +94,7 @@ try {
     [IO.File]::WriteAllText($modsTxt, $stockTxt)
     Remove-Item (Join-Path $mods 'Nucleus') -Recurse -Force
     $d = Deploy @()
-    Ok ($d.Code -eq 1 -and $d.Out -match 'Difficulty not deployed: Nucleus is not installed') 'deploy: core missing -> refused' $d.Out
+    Ok ($d.Code -eq 1 -and $d.Out -match 'CustomDifficulty not deployed: Nucleus is not installed') 'deploy: core missing -> refused' $d.Out
     Ok (OneLine $d) 'deploy: the refusal is one line' $d.Out
     Ok (-not (Test-Path $dest)) 'deploy: refused -> nothing installed'
     Eq (Txt) $stockTxt 'deploy: refused -> mods.txt untouched'
@@ -104,7 +104,7 @@ try {
     [IO.File]::WriteAllText($modsTxt, $coreTxt)
     Set-Core '0.3.0'
     $d = Deploy @()
-    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.3\.0 is installed, but Difficulty needs \^0\.15\.0; update Nucleus\.') 'deploy: core 0.3.0 -> refused, naming both versions' $d.Out
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.3\.0 is installed, but CustomDifficulty needs \^0\.15\.0; update Nucleus\.') 'deploy: core 0.3.0 -> refused, naming both versions' $d.Out
     Ok (OneLine $d) 'deploy: old core refusal is one line' $d.Out
     $d = Deploy @('-Test')
     Ok ($d.Code -eq 1 -and $d.Out -match 'needs \^0\.15\.0;') 'deploy -Test without -PreCore: core 0.3.0 still refused' $d.Out
@@ -113,7 +113,7 @@ try {
     Ok (-not (Test-Path $dest)) 'deploy -PreCore without -Test: nothing installed'
     Set-Core '0.2.9'
     $d = Deploy @('-Test', '-PreCore')
-    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.2\.9 is installed, but Difficulty needs \^0\.15\.0 \(or \^0\.3\.0 with -PreCore\)') 'deploy -Test -PreCore: core 0.2.9 refused, naming both ranges' $d.Out
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.2\.9 is installed, but CustomDifficulty needs \^0\.15\.0 \(or \^0\.3\.0 with -PreCore\)') 'deploy -Test -PreCore: core 0.2.9 refused, naming both ranges' $d.Out
     Set-Core '0.2.0'
     $d = Deploy @('-Test', '-PreCore')
     Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.2\.0 is installed') 'deploy -Test -PreCore: core 0.2.0 refused' $d.Out
@@ -135,14 +135,14 @@ try {
     Ok (-not (Test-Path $dest)) 'deploy: refusals installed nothing'
 
     # Good core: installed below Nucleus, above Keybinds; no dev.lua; story 2's drivers left alone.
-    [IO.File]::WriteAllText($modsTxt, "Difficulty : 1`r`nNucleus : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt)
+    [IO.File]::WriteAllText($modsTxt, "CustomDifficulty : 1`r`nNucleus : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt)
     Set-Core '0.15.2'
     $d = Deploy @()
     Ok ($d.Code -eq 0) 'deploy: core 0.15.2 -> installed' $d.Out
-    Eq (Txt) ("Nucleus : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy: Difficulty below Nucleus, above Keybinds; DifficultyProbe line kept'
+    Eq (Txt) ("Nucleus : 1`r`nCustomDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy: CustomDifficulty below Nucleus, above Keybinds; DifficultyProbe line kept'
     $files = @(Get-ChildItem $dest -Recurse -File | ForEach-Object { $_.FullName.Substring($dest.Length + 1) } | Sort-Object)
-    Eq ($files -join ',') 'mod.json,Scripts\damage.lua,Scripts\env.lua,Scripts\hits.lua,Scripts\knobs.lua,Scripts\main.lua,Scripts\net.lua,Scripts\presets.lua,Scripts\rows.lua,Scripts\sidecar.lua,Scripts\tokens.lua,Scripts\world.lua' 'deploy: exactly the Difficulty files (no dev.lua, no settings.lua)'
-    Ok (-not (Test-Path (Join-Path $mods 'DifficultyDriver'))) 'deploy: no driver without -Scenario'
+    Eq ($files -join ',') 'mod.json,Scripts\damage.lua,Scripts\env.lua,Scripts\hits.lua,Scripts\knobs.lua,Scripts\main.lua,Scripts\net.lua,Scripts\presets.lua,Scripts\rows.lua,Scripts\sidecar.lua,Scripts\tokens.lua,Scripts\world.lua' 'deploy: exactly the CustomDifficulty files (no dev.lua, no settings.lua)'
+    Ok (-not (Test-Path (Join-Path $mods 'CustomDifficultyDriver'))) 'deploy: no driver without -Scenario'
     Ok (Test-Path (Join-Path $mods 'DifficultyProbe')) 'deploy: story 2''s driver folder untouched'
 
     # -Test: dev.lua with debug only.
@@ -153,7 +153,7 @@ try {
     $d = Deploy @()
     Ok (-not (Test-Path (Join-Path $dest 'Scripts\dev.lua'))) 'deploy without -Test removes dev.lua'
 
-    # -Knobs and -Scenario (story 3): dev only; the driver between core and Difficulty.
+    # -Knobs and -Scenario (story 3): dev only; the driver between core and CustomDifficulty.
     $d = Deploy @('-Knobs', '"enemyDamage=17"')
     Ok ($d.Code -eq 1 -and $d.Out -match '-Knobs is a dev mode and needs -Test') 'deploy -Knobs without -Test: refused' $d.Out
     $d = Deploy @('-Scenario', 'flip')
@@ -161,18 +161,18 @@ try {
     $d = Deploy @('-Test', '-Knobs', '"enemyDamage=17;spread=20"')
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($d.Code -eq 0 -and $dev -match '(?m)^return \{ debug = true, knobs = "enemyDamage=17;spread=20" \}$') 'deploy -Test -Knobs: knobs in dev.lua' $dev
-    Ok (-not (Test-Path (Join-Path $mods 'DifficultyDriver'))) 'deploy -Test -Knobs: no driver'
+    Ok (-not (Test-Path (Join-Path $mods 'CustomDifficultyDriver'))) 'deploy -Test -Knobs: no driver'
     $d = Deploy @('-Test', '-Knobs', '"enemyDamage=17`"; os.exit(1) --"')
     Ok ($d.Code -eq 1 -and $d.Out -match '-Knobs may hold only letters') 'deploy -Knobs: a quote or other code is refused' $d.Out
     $d = Deploy @('-Test', '-Knobs', '"enemyDamage=17`n"')
     Ok ($d.Code -eq 1 -and $d.Out -match '-Knobs may hold only letters') 'deploy -Knobs: a trailing newline is refused' $d.Out
     $d = Deploy @('-Test', '-Scenario', 'flip')
-    Ok ($d.Code -eq 0 -and $d.Out -match 'with DifficultyDriver, scenario flip') 'deploy -Test -Scenario flip: installed' $d.Out
+    Ok ($d.Code -eq 0 -and $d.Out -match 'with CustomDifficultyDriver, scenario flip') 'deploy -Test -Scenario flip: installed' $d.Out
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($dev -match '(?m)^return \{ debug = true, knobs = "enemyDamage=25" \}$') 'deploy -Scenario flip: the scenario''s knobs' $dev
-    Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) 'flip' 'deploy -Scenario: scenario.txt'
-    Ok (Test-Path (Join-Path $mods 'DifficultyDriver\Scripts\main.lua')) 'deploy -Scenario: the driver installed'
-    Eq (Txt) ("Nucleus : 1`r`nDifficultyDriver : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy -Scenario: Nucleus, DifficultyDriver, Difficulty'
+    Eq ((Get-Content (Join-Path $mods 'CustomDifficultyDriver\Scripts\scenario.txt') -Raw)) 'flip' 'deploy -Scenario: scenario.txt'
+    Ok (Test-Path (Join-Path $mods 'CustomDifficultyDriver\Scripts\main.lua')) 'deploy -Scenario: the driver installed'
+    Eq (Txt) ("Nucleus : 1`r`nCustomDifficultyDriver : 1`r`nCustomDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy -Scenario: Nucleus, CustomDifficultyDriver, CustomDifficulty'
     $d = Deploy @('-Test', '-Scenario', 'default')
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($dev -match '(?m)^return \{ debug = true \}$') 'deploy -Scenario default: no knobs' $dev
@@ -184,40 +184,40 @@ try {
         $d = Deploy @('-Test', '-Scenario', $s4[0])
         $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
         Ok ($d.Code -eq 0 -and $dev -match "(?m)^return \{ debug = true, knobs = `"$([regex]::Escape($s4[1]))`" \}$") "deploy -Scenario $($s4[0]): knobs $($s4[1])" "$($d.Out) $dev"
-        Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) $s4[0] "deploy -Scenario $($s4[0]): scenario.txt"
+        Eq ((Get-Content (Join-Path $mods 'CustomDifficultyDriver\Scripts\scenario.txt') -Raw)) $s4[0] "deploy -Scenario $($s4[0]): scenario.txt"
     }
     # Story 6: presets, no knobs (the menu-only preset scenario).
     $d = Deploy @('-Test', '-Scenario', 'presets')
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($d.Code -eq 0 -and $dev -match '(?m)^return \{ debug = true \}$') 'deploy -Scenario presets: no knobs' "$($d.Out) $dev"
-    Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) 'presets' 'deploy -Scenario presets: scenario.txt'
+    Eq ((Get-Content (Join-Path $mods 'CustomDifficultyDriver\Scripts\scenario.txt') -Raw)) 'presets' 'deploy -Scenario presets: scenario.txt'
     # Story 8: the spread scenarios' knobs; the menu-only failure scenarios without knobs; signal without any dev.lua.
     foreach ($s8 in @(@('spread', 'spread=20'), @('spread-grab', 'enemyDamage=25;spread=50'))) {
         $d = Deploy @('-Test', '-PreCore', '-Scenario', $s8[0])
         $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
         Ok ($d.Code -eq 0 -and $dev -match "(?m)^return \{ debug = true, knobs = `"$([regex]::Escape($s8[1]))`" \}$") "deploy -Scenario $($s8[0]): knobs $($s8[1])" "$($d.Out) $dev"
-        Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) $s8[0] "deploy -Scenario $($s8[0]): scenario.txt"
+        Eq ((Get-Content (Join-Path $mods 'CustomDifficultyDriver\Scripts\scenario.txt') -Raw)) $s8[0] "deploy -Scenario $($s8[0]): scenario.txt"
     }
     # Story 13: the boss finisher grabs at Enemy Damage 25, and the control without knobs.
     $d = Deploy @('-Test', '-PreCore', '-Scenario', 'boss')
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($d.Code -eq 0 -and $dev -match '(?m)^return \{ debug = true, knobs = "enemyDamage=25" \}$') 'deploy -Scenario boss: knobs enemyDamage=25' "$($d.Out) $dev"
-    Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) 'boss' 'deploy -Scenario boss: scenario.txt'
+    Eq ((Get-Content (Join-Path $mods 'CustomDifficultyDriver\Scripts\scenario.txt') -Raw)) 'boss' 'deploy -Scenario boss: scenario.txt'
     $d = Deploy @('-Test', '-PreCore', '-Scenario', 'boss-default')
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($d.Code -eq 0 -and $dev -match '(?m)^return \{ debug = true \}$') 'deploy -Scenario boss-default: no knobs' "$($d.Out) $dev"
-    Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) 'boss-default' 'deploy -Scenario boss-default: scenario.txt'
+    Eq ((Get-Content (Join-Path $mods 'CustomDifficultyDriver\Scripts\scenario.txt') -Raw)) 'boss-default' 'deploy -Scenario boss-default: scenario.txt'
     foreach ($s8 in 'no-core', 'old-core') {
         $d = Deploy @('-Force', '-Test', '-Scenario', $s8)
         $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
         Ok ($d.Code -eq 0 -and $dev -match '(?m)^return \{ debug = true \}$') "deploy -Force -Test -Scenario ${s8}: no knobs" "$($d.Out) $dev"
-        Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) $s8 "deploy -Scenario ${s8}: scenario.txt"
+        Eq ((Get-Content (Join-Path $mods 'CustomDifficultyDriver\Scripts\scenario.txt') -Raw)) $s8 "deploy -Scenario ${s8}: scenario.txt"
     }
     foreach ($s8 in 'signal-a', 'signal-b') {
         $d = Deploy @('-Test', '-PreCore', '-Scenario', $s8)
         Ok ($d.Code -eq 0 -and -not (Test-Path (Join-Path $dest 'Scripts\dev.lua'))) "deploy -Test -Scenario ${s8}: no dev.lua at all (the screen is the only source)" $d.Out
-        Eq ((Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw)) $s8 "deploy -Scenario ${s8}: scenario.txt"
-        Ok (Test-Path (Join-Path $mods 'DifficultyDriver\Scripts\main.lua')) "deploy -Scenario ${s8}: the driver installed"
+        Eq ((Get-Content (Join-Path $mods 'CustomDifficultyDriver\Scripts\scenario.txt') -Raw)) $s8 "deploy -Scenario ${s8}: scenario.txt"
+        Ok (Test-Path (Join-Path $mods 'CustomDifficultyDriver\Scripts\main.lua')) "deploy -Scenario ${s8}: the driver installed"
     }
     $d = Deploy @('-Test', '-Scenario', 'signal-b', '-Knobs', '"enemyDamage=17"')
     Ok ($d.Code -eq 1 -and $d.Out -match 'signal-b takes its knobs only from the screen; -Knobs is refused') 'deploy -Scenario signal-b -Knobs: refused' $d.Out
@@ -225,8 +225,8 @@ try {
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($dev -match 'knobs = "spread=5"') '-Knobs overrides the scenario''s knobs' $dev
     $d = Deploy @('-Test')
-    Ok (-not (Test-Path (Join-Path $mods 'DifficultyDriver'))) 'deploy without -Scenario removes the driver'
-    Eq (Txt) ("Nucleus : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy without -Scenario: the driver line gone'
+    Ok (-not (Test-Path (Join-Path $mods 'CustomDifficultyDriver'))) 'deploy without -Scenario removes the driver'
+    Eq (Txt) ("Nucleus : 1`r`nCustomDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy without -Scenario: the driver line gone'
     $d = Deploy @()
     Ok (-not (Test-Path (Join-Path $dest 'Scripts\dev.lua'))) 'a release deploy: no dev.lua, so no knob source'
 
@@ -236,7 +236,7 @@ try {
     Ok ($d.Code -eq 0 -and $d.Out -match 'dev core mode: Nucleus 0\.3\.0') 'deploy -Test -PreCore: core 0.3.0 accepted' $d.Out
     $dev = Get-Content (Join-Path $dest 'Scripts\dev.lua') -Raw
     Ok ($dev -match '(?m)^return \{ debug = true, preCore = true \}$') 'deploy -Test -PreCore: dev.lua has preCore = true' $dev
-    Eq (Txt) ("Nucleus : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy -Test -PreCore: one Difficulty line'
+    Eq (Txt) ("Nucleus : 1`r`nCustomDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy -Test -PreCore: one CustomDifficulty line'
     Set-Core '0.15.0'
     $d = Deploy @('-Test', '-PreCore')
     Ok ($d.Code -eq 0) 'deploy -Test -PreCore: core 0.15.0 also accepted' $d.Out
@@ -257,29 +257,29 @@ try {
         return @{ Code = $LASTEXITCODE; Out = $out }
     }
     $d = DeployRunning @('-Test', '-PreCore', '-Scenario', 'default')
-    Ok ($d.Code -eq 1 -and $d.Out -match 'Difficulty not deployed: Nuclear Nightmare is running; close it first\.') 'deploy: a running game -> refused' $d.Out
+    Ok ($d.Code -eq 1 -and $d.Out -match 'CustomDifficulty not deployed: Nuclear Nightmare is running; close it first\.') 'deploy: a running game -> refused' $d.Out
     $d = DeployRunning @('-Test', '-PreCore', '-Scenario', 'default', '-Staged')
-    Ok ($d.Code -eq 0 -and (Get-Content (Join-Path $mods 'DifficultyDriver\Scripts\scenario.txt') -Raw) -eq 'default') 'deploy -Staged: a running game on the host does not matter' $d.Out
-    Eq (Txt) ("Nucleus : 1`r`nDifficultyDriver : 1`r`nDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy -Staged: the same mods.txt as a host deploy'
+    Ok ($d.Code -eq 0 -and (Get-Content (Join-Path $mods 'CustomDifficultyDriver\Scripts\scenario.txt') -Raw) -eq 'default') 'deploy -Staged: a running game on the host does not matter' $d.Out
+    Eq (Txt) ("Nucleus : 1`r`nCustomDifficultyDriver : 1`r`nCustomDifficulty : 1`r`nDifficultyProbe : 0`r`n" + $stockTxt) 'deploy -Staged: the same mods.txt as a host deploy'
     Set-Core '0.15.0'
 
     # -Force: old-core scenario (0.3.0, normal deploy): warns and installs, no dev.lua.
     Set-Core '0.3.0'
     $d = Deploy @('-Force')
-    Ok ($d.Code -eq 0 -and $d.Out -match 'forced: Nucleus 0\.3\.0 is installed, but Difficulty needs \^0\.15\.0') 'deploy -Force: warns and installs' $d.Out
+    Ok ($d.Code -eq 0 -and $d.Out -match 'forced: Nucleus 0\.3\.0 is installed, but CustomDifficulty needs \^0\.15\.0') 'deploy -Force: warns and installs' $d.Out
     Ok (-not (Test-Path (Join-Path $dest 'Scripts\dev.lua'))) 'deploy -Force: no dev.lua (need stays 0.15.0)'
     Remove-Item (Join-Path $mods 'Nucleus') -Recurse -Force
     [IO.File]::WriteAllText($modsTxt, $stockTxt)
     $d = Deploy @('-Force')
     Ok ($d.Code -eq 0) 'deploy -Force without core: installed' $d.Out
-    Eq (Txt) "CheatManagerEnablerMod : 1`r`nBPModLoaderMod : 1`r`nDifficulty : 1`r`nKeybinds : 1`r`n" 'deploy -Force without core: above Keybinds'
+    Eq (Txt) "CheatManagerEnablerMod : 1`r`nBPModLoaderMod : 1`r`nCustomDifficulty : 1`r`nKeybinds : 1`r`n" 'deploy -Force without core: above Keybinds'
 
     # -Remove: back to the stock files; other lines untouched (the driver too).
-    New-Item -ItemType Directory -Force (Join-Path $mods 'DifficultyDriver\Scripts') | Out-Null
-    [IO.File]::WriteAllText($modsTxt, "CheatManagerEnablerMod : 1`r`nBPModLoaderMod : 1`r`nDifficultyDriver : 1`r`nDifficulty : 1`r`nKeybinds : 1`r`n")
+    New-Item -ItemType Directory -Force (Join-Path $mods 'CustomDifficultyDriver\Scripts') | Out-Null
+    [IO.File]::WriteAllText($modsTxt, "CheatManagerEnablerMod : 1`r`nBPModLoaderMod : 1`r`nCustomDifficultyDriver : 1`r`nCustomDifficulty : 1`r`nKeybinds : 1`r`n")
     $d = Deploy @('-Remove')
-    Ok (-not (Test-Path (Join-Path $mods 'DifficultyDriver'))) 'deploy -Remove: the driver removed too'
-    Ok ($d.Code -eq 0 -and -not (Test-Path $dest)) 'deploy -Remove: no Difficulty files' $d.Out
+    Ok (-not (Test-Path (Join-Path $mods 'CustomDifficultyDriver'))) 'deploy -Remove: the driver removed too'
+    Ok ($d.Code -eq 0 -and -not (Test-Path $dest)) 'deploy -Remove: no CustomDifficulty files' $d.Out
     Eq (Txt) $stockTxt 'deploy -Remove: mods.txt byte-identical to stock'
     $before = Txt
     Deploy @('-Remove') | Out-Null

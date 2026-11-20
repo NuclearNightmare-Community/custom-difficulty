@@ -545,8 +545,8 @@ replaces neither.
   (`ScenarioReport.Revive.Misses`): it fails without B's `REQUEST terminal result host before=... now=<non-empty>
   moved=true`, with a B `REQUEST fallback` line, without `OK REVIVE past the limit` on either machine, on any driver
   FAIL or on an END that isn't PASS.
-- `d17-frost` (story 17, DW-40): the host runs core and Difficulty with `dev.lua` `frostbite=3` in a Hard lobby (as
-  the solo `frostbite` case); B runs UE4SS and `DifficultyPair` only (`client-frost`). The host (`host-frost`) holds
+- `d17-frost` (story 17, DW-40): the host runs core and Difficulty with `dev.lua` `frostbite=3` in a Normal lobby
+  (difficulty.txt 2, as the solo `frostbite` case); B runs UE4SS and `DifficultyPair` only (`client-frost`). The host (`host-frost`) holds
   its own Temperature at 0 and clears natural enemies throughout, holds B's at 1.5 every tick, and after a 3 s lead
   sets B's Health to 100, signals `fz-start` and counts `CallFrostbiteDamageEvent` calls on B (amount 1 or 2) for
   20 s; then B's Temperature goes to 0, `fz-end`, `FROSTRUN pair end ...` and a check that B lost 60 +- 6 with at

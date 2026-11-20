@@ -1743,6 +1743,7 @@ local function buildHostFrost()
             if P.phase == "window" and os.clock() - P.t1 >= FROST_SECONDS then
                 S.frostOn = false
                 P.hp1, P.secs = hpOf(b), os.clock() - P.t1
+                pcall(function() b.Temperature = 0 end) -- the frost ends with the window (test only)
                 return true
             end
             return false

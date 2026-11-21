@@ -646,3 +646,7 @@ ticked box is `kill.<enemy>=1`, and 0 or Default is unticked. Their values come 
 not from core's settings service, so nothing is generated from them. `scope` is `both` (until distribution story 14:
 `all`) for the inputs of the survivable-grab decision (`enemyDamage`, the six grabbing enemies and their boxes) and `host` for the rest (the two
 bosses' boxes included).
+
+## Feedback
+
+Bug reports, ideas and questions go to [NuclearNightmare-Community/feedback](https://github.com/NuclearNightmare-Community/feedback). For a security problem, please report it privately: see its [SECURITY.md](https://github.com/NuclearNightmare-Community/feedback/blob/main/SECURITY.md).
